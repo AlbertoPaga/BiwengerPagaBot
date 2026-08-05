@@ -12,7 +12,7 @@ def cargar_liga():
 
     pybiwenger.authenticate(
         username=BIWENGER_USER,
-        password=BIWENGER_PASS
+        password=BIWENGER_PASSWORD
     )
 
     league = LeagueAPI()
