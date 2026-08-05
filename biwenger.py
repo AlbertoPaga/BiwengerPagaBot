@@ -15,8 +15,15 @@ def cargar_liga():
         password=BIWENGER_PASSWORD
     )
 
+    try:
     league = LeagueAPI()
     players = PlayersAPI()
+
+except Exception as e:
+    print("ERROR CREANDO LEAGUE/PLAYERS:")
+    print(type(e))
+    print(repr(e))
+    raise
 
     liga = league.account.leagues[1]
 
