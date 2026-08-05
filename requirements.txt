@@ -1,0 +1,3 @@
+pybiwenger
+python-telegram-bot
+python-dotenv
