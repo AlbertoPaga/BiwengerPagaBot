@@ -27,10 +27,36 @@ def cargar_liga(
     )
 
 
-    usuarios=liga["data"].get(
-        "users",
-        []
+    print("===================")
+    print("RESPUESTA LIGA")
+    print(liga)
+    print("===================")
+
+
+
+    data=liga.get(
+        "data",
+        {}
     )
+
+
+    usuarios=[]
+
+
+    if "users" in data:
+
+        usuarios=data["users"]
+
+
+    elif "members" in data:
+
+        usuarios=data["members"]
+
+
+    elif "managers" in data:
+
+        usuarios=data["managers"]
+
 
 
     movimientos=cargar_movimientos(
@@ -51,6 +77,7 @@ def cargar_movimientos(
     liga_id
 ):
 
+
     try:
 
         board=client.board(
@@ -58,7 +85,35 @@ def cargar_movimientos(
         )
 
 
-        return board["data"]
+        print("===================")
+        print("RESPUESTA BOARD")
+        print(board)
+        print("===================")
+
+
+
+        data=board.get(
+            "data",
+            []
+        )
+
+
+        if isinstance(data,dict):
+
+            for key in [
+                "items",
+                "movements",
+                "transactions",
+                "board"
+            ]:
+
+                if key in data:
+
+                    return data[key]
+
+
+        return data
+
 
 
     except Exception as e:
@@ -78,13 +133,17 @@ def patrimonio(
     usuario
 ):
 
+
     dinero=usuario.get(
         "balance",
         0
     )
 
 
-    valor=0
+    valor=usuario.get(
+        "teamValue",
+        0
+    )
 
 
     return (

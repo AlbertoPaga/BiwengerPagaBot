@@ -40,12 +40,24 @@ class BiwengerClient:
 
     def login(self):
 
+        print(
+            "LOGIN USER:",
+            BIWENGER_USERNAME
+        )
+
+
         response = self.session.post(
             f"{BASE_URL}/auth/login",
             json={
                 "email": BIWENGER_USERNAME,
                 "password": BIWENGER_PASSWORD
             }
+        )
+
+
+        print(
+            "LOGIN STATUS:",
+            response.status_code
         )
 
 
@@ -97,8 +109,13 @@ class BiwengerClient:
 
 
         response=self.session.get(
-            BASE_URL+endpoint,
+            BASE_URL + endpoint,
             headers=headers
+        )
+
+
+        self.debug(
+            response
         )
 
 
@@ -106,6 +123,37 @@ class BiwengerClient:
 
 
         return response.json()
+
+
+
+    def debug(
+        self,
+        response
+    ):
+
+        print("===================")
+
+        print(
+            response.url
+        )
+
+        print(
+            response.status_code
+        )
+
+        try:
+
+            print(
+                response.json()
+            )
+
+        except:
+
+            print(
+                response.text
+            )
+
+        print("===================")
 
 
 
@@ -130,14 +178,17 @@ class BiwengerClient:
         league_id
     ):
 
+
         leagues=self.leagues()
 
 
         for liga in leagues:
 
-            if liga["id"]==league_id:
+
+            if liga["id"] == league_id:
 
                 return liga["user"]["id"]
+
 
 
         return None
