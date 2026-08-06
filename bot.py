@@ -1,15 +1,22 @@
 import sys
 import time
+import logging
 
 from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
-    ContextTypes
+    ContextTypes,
 )
 
 from config import TELEGRAM_TOKEN
 from biwenger import cargar_liga, patrimonio
+
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
 
 
 print("Python:", sys.version)
@@ -18,7 +25,7 @@ print("Python:", sys.version)
 CACHE = {
     "time": 0,
     "usuarios": None,
-    "plantillas": None
+    "plantillas": None,
 }
 
 
@@ -39,7 +46,7 @@ def obtener_datos():
 
     return (
         CACHE["usuarios"],
-        CACHE["plantillas"]
+        CACHE["plantillas"],
     )
 
 
@@ -66,7 +73,7 @@ async def informe(
                 total,
                 usuario["nombre"],
                 dinero,
-                valor
+                valor,
             )
         )
 
@@ -81,7 +88,10 @@ async def informe(
     )
 
 
-    for posicion, dato in enumerate(datos, 1):
+    for posicion, dato in enumerate(
+        datos,
+        1
+    ):
 
         texto += (
             f"{posicion}. "
@@ -94,7 +104,7 @@ async def informe(
 
     await update.message.reply_text(
         texto,
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
 
@@ -113,9 +123,10 @@ async def equipo(
         return
 
 
-    nombre = " ".join(
-        context.args
-    ).lower()
+    nombre = (
+        " ".join(context.args)
+        .lower()
+    )
 
 
     usuarios, plantillas = obtener_datos()
@@ -124,7 +135,6 @@ async def equipo(
     for uid, usuario in usuarios.items():
 
         if nombre in usuario["nombre"].lower():
-
 
             dinero, valor, total = patrimonio(
                 usuario,
@@ -140,31 +150,33 @@ async def equipo(
             )
 
 
-            jugadores = sorted(
-                plantillas.get(uid, []),
-                key=lambda x: x.get(
+            for jugador in plantillas.get(uid, []):
+
+                nombre_jugador = getattr(
+                    jugador,
+                    "name",
+                    str(jugador)
+                )
+
+                precio = getattr(
+                    jugador,
                     "price",
                     0
-                ),
-                reverse=True
-            )
+                )
 
-
-            for jugador in jugadores:
 
                 texto += (
-                    f"• {jugador.get('name','Desconocido')} "
-                    f"({jugador.get('price',0):,.0f} €)\n"
+                    f"• {nombre_jugador} "
+                    f"({precio:,.0f} €)\n"
                 )
 
 
             await update.message.reply_text(
                 texto,
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
 
             return
-
 
 
     await update.message.reply_text(
@@ -197,35 +209,7 @@ async def movimientos(
 
     await update.message.reply_text(
         texto,
-        parse_mode="HTML"
-    )
-
-
-
-async def ayuda(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    texto = """
-🤖 Comandos
-
-/informe
-Ranking patrimonio
-
-/equipo Nombre
-Ver plantilla
-
-/movimientos
-Compras y ventas
-
-/refresh
-Actualizar datos
-"""
-
-
-    await update.message.reply_text(
-        texto
+        parse_mode="HTML",
     )
 
 
@@ -247,57 +231,103 @@ async def refresh(
 
 
 
-app = (
-    Application
-    .builder()
-    .token(TELEGRAM_TOKEN)
-    .build()
-)
+async def ayuda(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
+    await update.message.reply_text(
+        """
+🤖 Comandos
 
+/informe
+Ranking patrimonio
 
-app.add_handler(
-    CommandHandler(
-        "informe",
-        informe
+/equipo nombre
+Ver equipo
+
+/movimientos
+Compras y ventas
+
+/refresh
+Actualizar datos
+"""
     )
-)
 
-app.add_handler(
-    CommandHandler(
-        "equipo",
-        equipo
+
+
+async def error_handler(
+    update,
+    context
+):
+
+    logging.error(
+        "Error:",
+        exc_info=context.error
     )
-)
 
-app.add_handler(
-    CommandHandler(
-        "movimientos",
-        movimientos
+
+
+def main():
+
+    app = (
+        Application
+        .builder()
+        .token(TELEGRAM_TOKEN)
+        .build()
     )
-)
 
-app.add_handler(
-    CommandHandler(
-        "refresh",
-        refresh
+
+    app.add_handler(
+        CommandHandler(
+            "informe",
+            informe
+        )
     )
-)
 
-app.add_handler(
-    CommandHandler(
-        "ayuda",
-        ayuda
+    app.add_handler(
+        CommandHandler(
+            "equipo",
+            equipo
+        )
     )
-)
+
+    app.add_handler(
+        CommandHandler(
+            "movimientos",
+            movimientos
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "refresh",
+            refresh
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "ayuda",
+            ayuda
+        )
+    )
+
+
+    app.add_error_handler(
+        error_handler
+    )
+
+
+    print("Bot iniciado...")
+
+
+    app.run_polling(
+        drop_pending_updates=True
+    )
 
 
 
-print(
-    "Bot iniciado..."
-)
+if __name__ == "__main__":
 
-
-app.run_polling(
-    drop_pending_updates=True
-)
+    main()
