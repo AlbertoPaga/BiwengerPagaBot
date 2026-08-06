@@ -20,6 +20,19 @@ class BiwengerClient:
 
     def login(self):
 
+        print(
+            "LOGIN USER:",
+            BIWENGER_USER
+        )
+
+        print(
+            "PASSWORD LENGTH:",
+            len(BIWENGER_PASSWORD)
+            if BIWENGER_PASSWORD
+            else None
+        )
+
+
         response = self.session.post(
             f"{BASE_URL}/auth/login",
             json={
@@ -28,11 +41,21 @@ class BiwengerClient:
             },
         )
 
+
+        print(
+            "LOGIN STATUS:",
+            response.status_code
+        )
+
+
         response.raise_for_status()
+
 
         data = response.json()
 
+
         self.token = data["token"]
+
 
         self.session.headers.update(
             {
@@ -41,6 +64,7 @@ class BiwengerClient:
                 "Content-Type": "application/json",
             }
         )
+
 
         return data
 
@@ -171,6 +195,7 @@ class BiwengerClient:
     ):
 
         account = self.account()
+
 
         for league in account["data"]["leagues"]:
 
