@@ -1,7 +1,7 @@
 import json
 import logging
-from pathlib import Path
 
+from pathlib import Path
 
 from biwenger_client import BiwengerClient
 
@@ -14,6 +14,7 @@ PLAYERS_FILE = Path(
 
 
 def cargar_jugadores():
+
 
     logging.info(
         "Descargando jugadores desde Biwenger..."
@@ -29,28 +30,25 @@ def cargar_jugadores():
 
 
 
-        jugadores_api = datos.get(
+        jugadores = {}
+
+
+
+        data = datos.get(
             "data",
             {}
         )
 
 
-        jugadores = {}
 
-
-
-        # Normalmente viene como diccionario
-        players = jugadores_api.get(
+        players = data.get(
             "players",
             {}
         )
 
 
 
-        if isinstance(
-            players,
-            dict
-        ):
+        if isinstance(players, dict):
 
 
             for player_id, jugador in players.items():
@@ -63,6 +61,7 @@ def cargar_jugadores():
                     continue
 
 
+
                 jugadores[str(player_id)] = {
 
                     "name":
@@ -70,6 +69,7 @@ def cargar_jugadores():
                             "name",
                             f"Jugador {player_id}"
                         ),
+
 
                     "team":
                         jugador.get(
@@ -80,10 +80,7 @@ def cargar_jugadores():
 
 
 
-        elif isinstance(
-            players,
-            list
-        ):
+        elif isinstance(players, list):
 
 
             for jugador in players:
@@ -94,6 +91,7 @@ def cargar_jugadores():
                     dict
                 ):
                     continue
+
 
 
                 player_id = jugador.get(
@@ -111,6 +109,7 @@ def cargar_jugadores():
                                 "name",
                                 f"Jugador {player_id}"
                             ),
+
 
                         "team":
                             jugador.get(
@@ -144,7 +143,6 @@ def cargar_jugadores():
         )
 
 
-
         return jugadores
 
 
@@ -164,6 +162,7 @@ def cargar_jugadores():
 
 def cargar_cache():
 
+
     if not PLAYERS_FILE.exists():
 
         return cargar_jugadores()
@@ -176,7 +175,6 @@ def cargar_cache():
             PLAYERS_FILE,
             encoding="utf-8"
         ) as archivo:
-
 
             datos = json.load(
                 archivo
@@ -199,10 +197,6 @@ def cargar_cache():
 
 def actualizar_cache():
 
-    """
-    Fuerza actualización completa
-    cada vez que se quiera.
-    """
 
     return cargar_jugadores()
 
@@ -217,11 +211,9 @@ def get_player_name(
     jugadores = cargar_cache()
 
 
-
     jugador = jugadores.get(
         str(player_id)
     )
-
 
 
     if jugador:
@@ -231,7 +223,6 @@ def get_player_name(
             "name",
             f"Jugador {player_id}"
         )
-
 
 
     return (

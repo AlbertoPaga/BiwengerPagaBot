@@ -9,12 +9,32 @@ from config import (
 
 BASE_URL = "https://biwenger.as.com/api/v2"
 
+PLAYERS_URL = (
+    "https://cf.biwenger.com/api/v2/"
+    "competitions/la-liga/data"
+)
+
 
 class BiwengerClient:
 
+
     def __init__(self):
 
+        # API privada
         self.session = requests.Session()
+
+
+        # API pública jugadores
+        self.public_session = requests.Session()
+
+
+        self.public_session.headers.update(
+            {
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0"
+            }
+        )
+
 
         self.token = None
 
@@ -23,6 +43,7 @@ class BiwengerClient:
         self.user_id = None
 
         self.login_time = 0
+
 
 
     def set_context(
@@ -34,13 +55,14 @@ class BiwengerClient:
         if league_id:
             self.league_id = league_id
 
+
         if user_id:
             self.user_id = user_id
 
 
+
     def login(self):
 
-        # reutilizar token durante 1 hora
         if (
             self.token
             and time.time() - self.login_time < 3600
@@ -90,6 +112,7 @@ class BiwengerClient:
         endpoint
     ):
 
+
         self.login()
 
 
@@ -136,6 +159,7 @@ class BiwengerClient:
 
         data = self.account()
 
+
         return data["data"]["leagues"]
 
 
@@ -145,14 +169,17 @@ class BiwengerClient:
         league_id
     ):
 
+
         leagues = self.leagues()
 
 
         for liga in leagues:
 
+
             if liga["id"] == league_id:
 
                 return liga["user"]["id"]
+
 
 
         return None
@@ -163,6 +190,7 @@ class BiwengerClient:
         self,
         league_id
     ):
+
 
         user_id = self.find_league_user(
             league_id
@@ -186,6 +214,7 @@ class BiwengerClient:
         league_id
     ):
 
+
         user_id = self.find_league_user(
             league_id
         )
@@ -206,15 +235,13 @@ class BiwengerClient:
     def players(self):
 
         """
-        Descarga todos los jugadores.
-        Usa autenticación porque la API pública devuelve 403.
+        Datos públicos de competición.
+        NO usar token aquí.
         """
 
-        self.login()
 
-
-        response = self.session.get(
-            "https://cf.biwenger.com/api/v2/competitions/la-liga/data",
+        response = self.public_session.get(
+            PLAYERS_URL,
             params={
                 "lang": "es",
                 "score": 2
