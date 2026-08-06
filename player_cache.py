@@ -1,15 +1,15 @@
+import json
 import logging
-import requests
+
+from pathlib import Path
+
+from biwenger_client import BiwengerClient
+
+
+CACHE_FILE = Path(__file__).parent / "players.json"
 
 
 _players = None
-
-
-BIWENGER_PLAYERS_URL = (
-    "https://cf.biwenger.com/api/v2/"
-    "competitions/la-liga/data"
-    "?lang=es&score=2"
-)
 
 
 
@@ -23,41 +23,102 @@ def cargar_jugadores():
         return _players
 
 
+
+    # 1. Intentar cargar cache existente
+
+    if CACHE_FILE.exists():
+
+        try:
+
+            with open(
+                CACHE_FILE,
+                encoding="utf-8"
+            ) as f:
+
+                data = json.load(f)
+
+
+            _players = data.get(
+                "players",
+                {}
+            )
+
+
+            logging.info(
+                f"Jugadores cargados desde cache: {len(_players)}"
+            )
+
+
+            return _players
+
+
+        except Exception:
+
+            logging.exception(
+                "Error leyendo players.json"
+            )
+
+
+
+    # 2. Crear cache nueva
+
     try:
 
         logging.info(
-            "Cargando jugadores desde Biwenger..."
+            "Descargando jugadores desde Biwenger..."
         )
 
 
-        respuesta = requests.get(
-            BIWENGER_PLAYERS_URL,
-            timeout=15
-        )
+        client = BiwengerClient()
 
 
-        respuesta.raise_for_status()
+        datos = client.players()
 
 
-        datos = respuesta.json()
-
-
-        _players = datos.get(
+        jugadores = datos.get(
             "players",
             {}
         )
 
 
+        if not jugadores:
+
+            raise Exception(
+                "Respuesta sin jugadores"
+            )
+
+
+
+        with open(
+            CACHE_FILE,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+
+            json.dump(
+                {
+                    "players": jugadores
+                },
+                f,
+                ensure_ascii=False,
+                indent=2
+            )
+
+
         logging.info(
-            "Jugadores cargados: %s",
-            len(_players)
+            f"Cache creada con {len(jugadores)} jugadores"
         )
 
 
-        return _players
+        _players = jugadores
 
 
-    except Exception as e:
+        return jugadores
+
+
+
+    except Exception:
 
         logging.exception(
             "Error cargando jugadores"
@@ -67,7 +128,17 @@ def cargar_jugadores():
         _players = {}
 
 
-        return _players
+        return {}
+
+
+
+
+
+def get_players():
+
+    return cargar_jugadores()
+
+
 
 
 
@@ -75,7 +146,8 @@ def get_player_name(
     player_id
 ):
 
-    jugadores = cargar_jugadores()
+
+    jugadores = get_players()
 
 
     jugador = jugadores.get(
@@ -85,12 +157,12 @@ def get_player_name(
 
     if jugador:
 
+
         return jugador.get(
             "name",
             f"Jugador {player_id}"
         )
 
 
-    return (
-        f"Jugador {player_id}"
-    )
+
+    return f"Jugador {player_id}"

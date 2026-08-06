@@ -34,19 +34,15 @@ class BiwengerClient:
     ):
 
         if league_id:
-
             self.league_id = league_id
 
-
         if user_id:
-
             self.user_id = user_id
 
 
 
     def login(self):
 
-        # reutiliza token durante 1 hora
         if (
             self.token
             and time.time() - self.login_time < 3600
@@ -95,7 +91,6 @@ class BiwengerClient:
         endpoint
     ):
 
-
         self.login()
 
 
@@ -142,7 +137,6 @@ class BiwengerClient:
 
         data = self.account()
 
-
         return data["data"]["leagues"]
 
 
@@ -152,17 +146,14 @@ class BiwengerClient:
         league_id
     ):
 
-
         leagues = self.leagues()
 
 
         for liga in leagues:
 
-
             if liga["id"] == league_id:
 
                 return liga["user"]["id"]
-
 
 
         return None
@@ -212,3 +203,29 @@ class BiwengerClient:
         return self.get(
             f"/league/{league_id}/board"
         )
+
+
+
+    def players(self):
+
+        """
+        Obtiene jugadores autenticado.
+        """
+
+        self.login()
+
+
+        response = self.session.get(
+            "https://cf.biwenger.com/api/v2/competitions/la-liga/data",
+            params={
+                "lang": "es",
+                "score": 2
+            },
+            timeout=15
+        )
+
+
+        response.raise_for_status()
+
+
+        return response.json()
