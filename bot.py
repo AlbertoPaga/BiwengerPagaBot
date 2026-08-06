@@ -32,197 +32,278 @@ logging.basicConfig(
 
 
 
-CACHE = {}
-
-
-
 async def liga(
-    update,
-    context
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
 ):
 
+    try:
 
-    ligas = obtener_ligas()
-
-
-    botones = []
+        ligas = obtener_ligas()
 
 
-    for l in ligas:
+        botones=[]
 
-        botones.append(
-            [
-                InlineKeyboardButton(
-                    l["name"],
-                    callback_data=str(
-                        l["id"]
+
+        for l in ligas:
+
+            botones.append(
+                [
+                    InlineKeyboardButton(
+                        l["name"],
+                        callback_data=str(
+                            l["id"]
+                        )
                     )
-                )
-            ]
+                ]
+            )
+
+
+        await update.message.reply_text(
+            "Selecciona liga:",
+            reply_markup=InlineKeyboardMarkup(
+                botones
+            )
         )
 
 
-    await update.message.reply_text(
-        "🏟 Selecciona liga:",
-        reply_markup=
-        InlineKeyboardMarkup(
-            botones
+    except Exception as e:
+
+        print(
+            "ERROR LIGA:",
+            e
         )
-    )
+
+
+        await update.message.reply_text(
+            "❌ No se pudieron cargar las ligas."
+        )
 
 
 
 async def elegir_liga(
-    update,
-    context
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
 ):
 
 
-    query = update.callback_query
+    try:
+
+        query = update.callback_query
 
 
-    await query.answer()
+        await query.answer()
 
 
-    liga_id = int(
-        query.data
-    )
-
-
-    context.user_data[
-        "liga"
-    ] = liga_id
-
-
-    await query.edit_message_text(
-        "✅ Liga seleccionada"
-    )
-
-
-
-async def obtener_datos_liga(
-    liga_id
-):
-
-
-    if liga_id not in CACHE:
-
-        CACHE[liga_id] = cargar_liga(
-            liga_id
+        liga_id=int(
+            query.data
         )
 
 
-    return CACHE[liga_id]
+        context.user_data[
+            "liga"
+        ] = liga_id
+
+
+        await query.edit_message_text(
+            "✅ Liga seleccionada correctamente"
+        )
+
+
+    except Exception as e:
+
+        print(
+            "ERROR SELECCION LIGA:",
+            e
+        )
 
 
 
 async def informe(
-    update,
-    context
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
 ):
 
 
-    liga_id = context.user_data.get(
-        "liga"
-    )
+    try:
+
+        liga_id=context.user_data.get(
+            "liga"
+        )
 
 
-    if not liga_id:
+        if not liga_id:
+
+            await update.message.reply_text(
+                "Primero usa /liga"
+            )
+
+            return
+
+
+
+        usuarios,movimientos=cargar_liga(
+            liga_id
+        )
+
+
+        texto="🏆 PATRIMONIO\n\n"
+
+
+        if not usuarios:
+
+            texto+="No hay usuarios disponibles."
+
+
+        else:
+
+            for u in usuarios:
+
+                texto+=(
+                    f"• {u.get('name','Sin nombre')}\n"
+                )
+
+
 
         await update.message.reply_text(
-            "Usa primero /liga"
-        )
-
-        return
-
-
-
-    usuarios, _ = await obtener_datos_liga(
-        liga_id
-    )
-
-
-    texto = (
-        "🏆 PATRIMONIO\n\n"
-    )
-
-
-    for u in usuarios:
-
-        texto += (
-            f"• {u['name']}\n"
+            texto
         )
 
 
-    await update.message.reply_text(
-        texto
-    )
+
+    except Exception as e:
+
+
+        print(
+            "ERROR INFORME:",
+            e
+        )
+
+
+        await update.message.reply_text(
+            "❌ Error obteniendo informe."
+        )
 
 
 
 async def movimientos(
-    update,
-    context
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
 ):
 
 
-    liga_id = context.user_data.get(
-        "liga"
-    )
+    try:
+
+        liga_id=context.user_data.get(
+            "liga"
+        )
 
 
-    if not liga_id:
+        if not liga_id:
+
+            await update.message.reply_text(
+                "Primero usa /liga"
+            )
+
+            return
+
+
+
+        usuarios,movs=cargar_liga(
+            liga_id
+        )
+
+
+        texto="🔄 MOVIMIENTOS\n\n"
+
+
+        if not movs:
+
+            texto+="No hay movimientos."
+
+        else:
+
+            for m in movs[:15]:
+
+                texto+=(
+                    f"• {m.get('type','Movimiento')}\n"
+                )
+
+
 
         await update.message.reply_text(
-            "Usa primero /liga"
-        )
-
-        return
-
-
-
-    _, movimientos = await obtener_datos_liga(
-        liga_id
-    )
-
-
-    texto = (
-        "🔄 MOVIMIENTOS\n\n"
-    )
-
-
-    for m in movimientos[:20]:
-
-        texto += (
-            f"• {m.get('type')}\n"
+            texto
         )
 
 
-    await update.message.reply_text(
-        texto
-    )
+
+    except Exception as e:
+
+
+        print(
+            "ERROR MOVIMIENTOS:",
+            e
+        )
+
+
+        await update.message.reply_text(
+            "❌ Error obteniendo movimientos."
+        )
 
 
 
 async def ayuda(
-    update,
-    context
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
 ):
 
 
     await update.message.reply_text(
         """
-/liga - elegir liga
+⚽ Bot Biwenger
 
-/informe - ranking
+/liga
+Seleccionar liga
 
-/movimientos - compras y ventas
+/informe
+Ranking usuarios
+
+/movimientos
+Compras y ventas
+
 """
     )
 
 
 
+async def error_handler(
+    update,
+    context
+):
+
+
+    print(
+        "ERROR GLOBAL:",
+        context.error
+    )
+
+
+    try:
+
+        if update and update.message:
+
+            await update.message.reply_text(
+                "❌ Error interno del bot."
+            )
+
+    except:
+
+        pass
+
+
+
 def main():
+
 
     app = (
         Application
@@ -232,6 +313,7 @@ def main():
         )
         .build()
     )
+
 
 
     app.add_handler(
@@ -273,9 +355,16 @@ def main():
     )
 
 
+    app.add_error_handler(
+        error_handler
+    )
+
+
+
     print(
         "Bot iniciado..."
     )
+
 
 
     app.run_polling(
@@ -284,6 +373,6 @@ def main():
 
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
 
     main()

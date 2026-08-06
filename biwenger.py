@@ -4,7 +4,7 @@ from biwenger_client import BiwengerClient
 
 def obtener_ligas():
 
-    client = BiwengerClient()
+    client=BiwengerClient()
 
     client.login()
 
@@ -16,37 +16,24 @@ def cargar_liga(
     liga_id
 ):
 
-    client = BiwengerClient()
+
+    client=BiwengerClient()
 
     client.login()
 
 
-    usuarios = []
+    liga=client.league(
+        liga_id
+    )
 
 
-    try:
-
-        liga = client.league(
-            liga_id
-        )
-
-
-        usuarios = (
-            liga["data"]
-            ["users"]
-        )
+    usuarios=liga["data"].get(
+        "users",
+        []
+    )
 
 
-    except Exception as e:
-
-        print(
-            "ERROR LIGA:",
-            e
-        )
-
-
-
-    movimientos = cargar_movimientos(
+    movimientos=cargar_movimientos(
         client,
         liga_id
     )
@@ -66,21 +53,16 @@ def cargar_movimientos(
 
     try:
 
-        board = client.board(
+        board=client.board(
             liga_id
         )
 
 
-        return (
-            board
-            .get(
-                "data",
-                []
-            )
-        )
+        return board["data"]
 
 
     except Exception as e:
+
 
         print(
             "ERROR MOVIMIENTOS:",
@@ -96,18 +78,17 @@ def patrimonio(
     usuario
 ):
 
-
-    dinero = usuario.get(
+    dinero=usuario.get(
         "balance",
         0
     )
 
 
-    valor = 0
+    valor=0
 
 
     return (
         dinero,
         valor,
-        dinero + valor
+        dinero+valor
     )
