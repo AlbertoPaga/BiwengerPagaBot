@@ -1,6 +1,7 @@
 from pprint import pprint
 
 from biwenger_client import BiwengerClient
+from player_cache import get_player_name
 
 
 def obtener_ligas():
@@ -33,19 +34,26 @@ def cargar_liga(liga_id):
 
     print("CLAVES DE DATA:", list(data.keys()))
 
-    # Mostrar si existe información de jugadores
-    for key in data.keys():
-
-        valor = data[key]
+    for key, valor in data.items():
 
         if isinstance(valor, list):
-            print(f"{key}: lista con {len(valor)} elementos")
+
+            print(
+                f"{key}: lista con {len(valor)} elementos"
+            )
 
         elif isinstance(valor, dict):
-            print(f"{key}: diccionario con {len(valor)} claves")
+
+            print(
+                f"{key}: diccionario con {len(valor)} claves"
+            )
 
         else:
-            print(f"{key}: {type(valor)}")
+
+            print(
+                f"{key}: {type(valor)}"
+            )
+
 
     usuarios = []
 
@@ -61,15 +69,18 @@ def cargar_liga(liga_id):
 
         usuarios = data["managers"]
 
+
     movimientos = cargar_movimientos(
         client,
         liga_id
     )
 
+
     return (
         usuarios,
         movimientos
     )
+
 
 
 def cargar_movimientos(
@@ -83,18 +94,25 @@ def cargar_movimientos(
             liga_id
         )
 
+
         print("\n================ BOARD =================")
         pprint(board)
         print("========================================\n")
+
 
         data = board.get(
             "data",
             []
         )
 
+
         if isinstance(data, dict):
 
-            print("CLAVES BOARD:", list(data.keys()))
+            print(
+                "CLAVES BOARD:",
+                list(data.keys())
+            )
+
 
             for key in [
                 "items",
@@ -109,9 +127,11 @@ def cargar_movimientos(
 
                     break
 
+
         return formatear_movimientos(
             data
         )
+
 
     except Exception as e:
 
@@ -123,11 +143,54 @@ def cargar_movimientos(
         return []
 
 
+
+def obtener_id_jugador(item):
+
+    """
+    Biwenger puede devolver:
+
+    {
+        "player": 123
+    }
+
+    o
+
+    {
+        "player": {
+            "id":123
+        }
+    }
+
+    o directamente:
+
+    123
+
+    """
+
+    jugador = item
+
+
+    if isinstance(
+        jugador,
+        dict
+    ):
+
+        return jugador.get(
+            "id",
+            "?"
+        )
+
+
+    return jugador
+
+
+
 def formatear_movimientos(
     movimientos
 ):
 
     resultado = []
+
 
     if not isinstance(
         movimientos,
@@ -136,45 +199,74 @@ def formatear_movimientos(
 
         return resultado
 
-    print(f"TOTAL MOVIMIENTOS: {len(movimientos)}")
 
-    for i, m in enumerate(movimientos[:3]):
 
-        print(f"\n------ MOVIMIENTO {i+1} ------")
-        pprint(m)
+    print(
+        f"TOTAL MOVIMIENTOS: {len(movimientos)}"
+    )
+
+
+    for i, movimiento in enumerate(
+        movimientos[:3]
+    ):
+
+        print(
+            f"\n------ MOVIMIENTO {i+1} ------"
+        )
+
+        pprint(
+            movimiento
+        )
+
+
 
     for m in movimientos:
+
 
         tipo = m.get(
             "type",
             ""
         )
 
+
         contenido = m.get(
             "content",
             []
         )
+
 
         if tipo in [
             "market",
             "transfer"
         ]:
 
+
             for item in contenido:
 
-                jugador = item.get(
-                    "player",
-                    "?"
+
+                player_id = obtener_id_jugador(
+                    item.get(
+                        "player",
+                        "?"
+                    )
                 )
+
+
+                jugador = get_player_name(
+                    player_id
+                )
+
 
                 cantidad = item.get(
                     "amount",
                     0
                 )
 
+
                 comprador = ""
 
                 vendedor = ""
+
 
                 if item.get("to"):
 
@@ -183,6 +275,7 @@ def formatear_movimientos(
                         ""
                     )
 
+
                 if item.get("from"):
 
                     vendedor = item["from"].get(
@@ -190,38 +283,60 @@ def formatear_movimientos(
                         ""
                     )
 
+
+
                 if comprador:
 
+
                     resultado.append(
-                        f"🟢 {comprador} ficha jugador {jugador} por {cantidad:,}€"
+                        f"🟢 {comprador} ficha a {jugador} por {cantidad:,}€"
                     )
+
 
                 elif vendedor:
 
+
                     resultado.append(
-                        f"🔴 {vendedor} vende jugador {jugador} por {cantidad:,}€"
+                        f"🔴 {vendedor} vende a {jugador} por {cantidad:,}€"
                     )
+
 
                 else:
 
+
                     resultado.append(
-                        f"⚽ Movimiento jugador {jugador} ({cantidad:,}€)"
+                        f"⚽ Movimiento de {jugador} ({cantidad:,}€)"
                     )
+
+
 
         elif tipo == "playerMovements":
 
+
             for item in contenido:
 
-                jugador = item.get(
-                    "player",
-                    "?"
+
+                player_id = obtener_id_jugador(
+                    item.get(
+                        "player",
+                        "?"
+                    )
                 )
+
+
+                jugador = get_player_name(
+                    player_id
+                )
+
 
                 resultado.append(
-                    f"🔄 Cambio jugador {jugador}"
+                    f"🔄 Cambio de {jugador}"
                 )
 
+
+
     return resultado[:30]
+
 
 
 def patrimonio(
@@ -233,10 +348,12 @@ def patrimonio(
         0
     )
 
+
     valor = usuario.get(
         "teamValue",
         0
     )
+
 
     return (
         dinero,

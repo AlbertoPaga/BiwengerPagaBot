@@ -28,20 +28,25 @@ logging.basicConfig(
 MAX_TELEGRAM = 4000
 
 
-async def enviar_largo(update, texto):
 
-    """
-    Telegram permite unos 4096 caracteres.
-    Divide mensajes largos automáticamente.
-    """
+async def enviar_largo(
+    update,
+    texto
+):
 
     if not texto:
         texto = "Sin datos"
 
+
     partes = [
         texto[i:i + MAX_TELEGRAM]
-        for i in range(0, len(texto), MAX_TELEGRAM)
+        for i in range(
+            0,
+            len(texto),
+            MAX_TELEGRAM
+        )
     ]
+
 
     for parte in partes:
 
@@ -50,7 +55,11 @@ async def enviar_largo(update, texto):
         )
 
 
-async def start(update, context):
+
+async def start(
+    update,
+    context
+):
 
     await update.message.reply_text(
         """
@@ -59,20 +68,25 @@ async def start(update, context):
 Comandos:
 
 /liga - seleccionar liga
-/informe - ver jugadores
+/informe - ver usuarios
 /movimientos - ver movimientos
 /ayuda - ayuda
 """
     )
 
 
-async def liga(update, context):
+
+async def liga(
+    update,
+    context
+):
 
     try:
 
         ligas = obtener_ligas()
 
         botones = []
+
 
         for l in ligas:
 
@@ -107,7 +121,11 @@ async def liga(update, context):
         )
 
 
-async def elegir_liga(update, context):
+
+async def elegir_liga(
+    update,
+    context
+):
 
     query = update.callback_query
 
@@ -127,8 +145,11 @@ async def elegir_liga(update, context):
     )
 
 
-async def informe(update, context):
 
+async def informe(
+    update,
+    context
+):
 
     liga_id = context.user_data.get(
         "liga"
@@ -146,23 +167,26 @@ async def informe(update, context):
 
     try:
 
-        usuarios, movs = cargar_liga(
+        usuarios, movimientos = cargar_liga(
             liga_id
         )
 
 
-        texto = "🏆 PATRIMONIO\n\n"
+        texto = (
+            "🏆 USUARIOS LIGA\n\n"
+        )
 
 
         if not usuarios:
 
             texto += "No hay usuarios"
 
+
         else:
 
-            for u in usuarios:
+            for usuario in usuarios:
 
-                nombre = u.get(
+                nombre = usuario.get(
                     "name",
                     "Sin nombre"
                 )
@@ -190,8 +214,10 @@ async def informe(update, context):
 
 
 
-async def movimientos(update, context):
-
+async def movimientos(
+    update,
+    context
+):
 
     liga_id = context.user_data.get(
         "liga"
@@ -214,7 +240,9 @@ async def movimientos(update, context):
         )
 
 
-        texto = "🔄 MOVIMIENTOS\n\n"
+        texto = (
+            "🔄 MOVIMIENTOS\n\n"
+        )
 
 
         if not movs:
@@ -224,10 +252,10 @@ async def movimientos(update, context):
 
         else:
 
-            for m in movs[:20]:
+            for movimiento in movs:
 
                 texto += (
-                    f"• {str(m)[:200]}\n"
+                    f"• {movimiento}\n"
                 )
 
 
@@ -249,7 +277,10 @@ async def movimientos(update, context):
 
 
 
-async def ayuda(update, context):
+async def ayuda(
+    update,
+    context
+):
 
     await update.message.reply_text(
         """
@@ -271,7 +302,10 @@ Iniciar bot
 
 
 
-async def error_handler(update, context):
+async def error_handler(
+    update,
+    context
+):
 
     logging.error(
         "ERROR GLOBAL: %s",
