@@ -4,6 +4,7 @@ from biwenger_client import BiwengerClient
 from player_cache import get_player_name
 
 
+
 def obtener_ligas():
 
     client = BiwengerClient()
@@ -13,7 +14,10 @@ def obtener_ligas():
     return client.leagues()
 
 
-def cargar_liga(liga_id):
+
+def cargar_liga(
+    liga_id
+):
 
     client = BiwengerClient()
 
@@ -23,18 +27,32 @@ def cargar_liga(liga_id):
         liga_id
     )
 
-    print("\n================ LIGA =================")
+    print(
+        "\n================ LIGA ================="
+    )
+
     pprint(liga)
-    print("=======================================\n")
+
+    print(
+        "=======================================\n"
+    )
+
 
     data = liga.get(
         "data",
         {}
     )
 
-    print("CLAVES DE DATA:", list(data.keys()))
 
-    for key, valor in data.items():
+    print(
+        "CLAVES DE DATA:",
+        list(data.keys())
+    )
+
+
+    for key in data.keys():
+
+        valor = data[key]
 
         if isinstance(valor, list):
 
@@ -56,6 +74,7 @@ def cargar_liga(liga_id):
 
 
     usuarios = []
+
 
     if "users" in data:
 
@@ -95,9 +114,15 @@ def cargar_movimientos(
         )
 
 
-        print("\n================ BOARD =================")
+        print(
+            "\n================ BOARD ================="
+        )
+
         pprint(board)
-        print("========================================\n")
+
+        print(
+            "========================================\n"
+        )
 
 
         data = board.get(
@@ -144,47 +169,6 @@ def cargar_movimientos(
 
 
 
-def obtener_id_jugador(item):
-
-    """
-    Biwenger puede devolver:
-
-    {
-        "player": 123
-    }
-
-    o
-
-    {
-        "player": {
-            "id":123
-        }
-    }
-
-    o directamente:
-
-    123
-
-    """
-
-    jugador = item
-
-
-    if isinstance(
-        jugador,
-        dict
-    ):
-
-        return jugador.get(
-            "id",
-            "?"
-        )
-
-
-    return jugador
-
-
-
 def formatear_movimientos(
     movimientos
 ):
@@ -206,7 +190,7 @@ def formatear_movimientos(
     )
 
 
-    for i, movimiento in enumerate(
+    for i, m in enumerate(
         movimientos[:3]
     ):
 
@@ -214,9 +198,7 @@ def formatear_movimientos(
             f"\n------ MOVIMIENTO {i+1} ------"
         )
 
-        pprint(
-            movimiento
-        )
+        pprint(m)
 
 
 
@@ -244,16 +226,22 @@ def formatear_movimientos(
             for item in contenido:
 
 
-                player_id = obtener_id_jugador(
-                    item.get(
-                        "player",
-                        "?"
-                    )
+                player_id = item.get(
+                    "player",
+                    "?"
                 )
 
 
                 jugador = get_player_name(
                     player_id
+                )
+
+
+                print(
+                    "CACHE JUGADOR:",
+                    player_id,
+                    "->",
+                    jugador
                 )
 
 
@@ -284,9 +272,7 @@ def formatear_movimientos(
                     )
 
 
-
                 if comprador:
-
 
                     resultado.append(
                         f"🟢 {comprador} ficha a {jugador} por {cantidad:,}€"
@@ -295,14 +281,12 @@ def formatear_movimientos(
 
                 elif vendedor:
 
-
                     resultado.append(
                         f"🔴 {vendedor} vende a {jugador} por {cantidad:,}€"
                     )
 
 
                 else:
-
 
                     resultado.append(
                         f"⚽ Movimiento de {jugador} ({cantidad:,}€)"
@@ -316,16 +300,22 @@ def formatear_movimientos(
             for item in contenido:
 
 
-                player_id = obtener_id_jugador(
-                    item.get(
-                        "player",
-                        "?"
-                    )
+                player_id = item.get(
+                    "player",
+                    "?"
                 )
 
 
                 jugador = get_player_name(
                     player_id
+                )
+
+
+                print(
+                    "CACHE JUGADOR:",
+                    player_id,
+                    "->",
+                    jugador
                 )
 
 
