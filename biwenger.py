@@ -1,288 +1,237 @@
-import pybiwenger
-
-from pybiwenger import PlayersAPI, LeagueAPI
-
-from config import (
-    BIWENGER_USER,
-    BIWENGER_PASSWORD
-)
+from biwenger_client import BiwengerClient
 
 
 def cargar_liga():
 
-    pybiwenger.authenticate(
-        username=BIWENGER_USER,
-        password=BIWENGER_PASSWORD
-    )
+    client = BiwengerClient()
+    client.login()
 
-    try:
-        league = LeagueAPI()
-        players = PlayersAPI()
+    liga = client.get_league_by_name("Los más sucios")
 
-    except Exception as e:
-        print("ERROR CREANDO LEAGUE/PLAYERS:")
-        print(type(e))
-        print(repr(e))
-        raise
+    liga_id = liga["id"]
 
-    liga = league.account.leagues[1]
-
-    players.league_id = liga.id
+    datos_liga = client.league(liga_id)
 
     usuarios = {}
 
-    for u in players.get_league_users():
+    for u in datos_liga["data"]["users"]:
 
-        usuarios[u.id] = {
-            "nombre": u.name,
+        usuarios[u["id"]] = {
+            "nombre": u["name"],
             "compras": 0,
             "ventas": 0,
             "comprados": [],
-            "vendidos": []
+            "vendidos": [],
         }
 
-
     eventos = descargar_tablon(
-        league,
-        liga.id
+        client,
+        liga_id,
     )
 
+    try:
+        jugadores = client.players()
 
-    catalogo = {
-        p.id:p
-        for p in players.get_all_players()
-    }
+        catalogo = {
+            p["id"]: p
+            for p in jugadores["data"]
+        }
 
+    except Exception:
+
+        # Todavía no conocemos el endpoint definitivo.
+        catalogo = {}
 
     procesar_movimientos(
         eventos,
         usuarios,
-        catalogo
+        catalogo,
     )
-
 
     plantillas = cargar_plantillas(
-        league,
-        liga.id,
+        client,
+        liga_id,
         usuarios,
-        catalogo
+        catalogo,
     )
-
 
     return usuarios, plantillas
 
 
-
-
 def descargar_tablon(
-    league,
-    liga_id
+    client,
+    liga_id,
 ):
 
-    movimientos=[]
+    movimientos = []
 
-    cursor=None
-
+    cursor = None
 
     while True:
 
+        endpoint = (
+            f"/league/{liga_id}/board"
+            "?type=transfer,market"
+            "&limit=100"
+        )
 
         if cursor:
 
-            url=(
-                f"https://biwenger.as.com/api/v2/league/"
-                f"{liga_id}/board"
-                f"?type=transfer,market"
-                f"&limit=100"
-                f"&date={cursor}"
-            )
+            endpoint += f"&date={cursor}"
 
-        else:
+        respuesta = client.get(endpoint)
 
-            url=(
-                f"https://biwenger.as.com/api/v2/league/"
-                f"{liga_id}/board"
-                f"?type=transfer,market"
-                f"&limit=100"
-            )
-
-
-        respuesta=league.fetch(url)
-
-
-        if not respuesta:
-            break
-
-
-        pagina=respuesta.get(
+        pagina = respuesta.get(
             "data",
-            []
+            [],
         )
-
 
         if not pagina:
             break
 
+        movimientos.extend(pagina)
 
-        movimientos.extend(
-            pagina
-        )
-
-
-        fecha=min(
+        fecha = min(
             x["date"]
             for x in pagina
         )
 
-
-        if cursor == fecha:
+        if fecha == cursor:
             break
 
-
-        cursor=fecha-1
-
+        cursor = fecha - 1
 
     return movimientos
-
-
 
 
 def procesar_movimientos(
     eventos,
     usuarios,
-    catalogo
+    catalogo,
 ):
-
 
     for evento in eventos:
 
-        tipo=evento.get(
-            "type"
-        )
-
+        tipo = evento.get("type")
 
         for mov in evento.get(
             "content",
-            []
+            [],
         ):
 
-
-            jugador=catalogo.get(
+            jugador = catalogo.get(
                 mov.get("player")
             )
 
+            if jugador:
 
-            nombre=(
-                jugador.name
-                if jugador
-                else str(mov.get("player"))
-            )
+                nombre = jugador.get(
+                    "name",
+                    str(mov.get("player"))
+                )
 
+            else:
 
-            cantidad=mov.get(
+                nombre = str(
+                    mov.get("player")
+                )
+
+            cantidad = mov.get(
                 "amount",
-                0
+                0,
             )
 
+            if tipo == "transfer":
 
-            if tipo=="transfer":
-
-                vendedor=mov["from"]["id"]
+                vendedor = mov["from"]["id"]
 
                 if vendedor in usuarios:
 
                     usuarios[vendedor]["ventas"] += cantidad
 
                     usuarios[vendedor]["vendidos"].append(
-                        (nombre,cantidad)
+                        (
+                            nombre,
+                            cantidad,
+                        )
                     )
 
+            elif tipo == "market":
 
-            elif tipo=="market":
-
-                comprador=(
-                    mov.get("to",{})
+                comprador = (
+                    mov.get("to", {})
                     .get("id")
                 )
-
 
                 if comprador in usuarios:
 
                     usuarios[comprador]["compras"] += cantidad
 
                     usuarios[comprador]["comprados"].append(
-                        (nombre,cantidad)
+                        (
+                            nombre,
+                            cantidad,
+                        )
                     )
 
 
-
-
 def cargar_plantillas(
-    league,
+    client,
     liga_id,
     usuarios,
-    catalogo
+    catalogo,
 ):
 
+    """
+    TODO
 
-    url=(
-        f"https://biwenger.as.com/api/v2/league/"
-        f"{liga_id}?fields=users(players)"
-    )
+    Este endpoint ha cambiado en la API v2.
 
+    En cuanto localicemos el endpoint correcto
+    devolveremos aquí las plantillas.
+    """
 
-    data=league.fetch(url)
+    resultado = {}
 
+    for uid in usuarios:
 
-    resultado={}
-
-
-    ids=list(
-        usuarios.keys()
-    )
-
-
-    for i,u in enumerate(
-        data["data"]["users"]
-    ):
-
-        uid=ids[i]
-
-        resultado[uid]=[]
-
-
-        for p in u["players"]:
-
-            jugador=catalogo.get(
-                p["id"]
-            )
-
-            if jugador:
-                resultado[uid].append(
-                    jugador
-                )
-
+        resultado[uid] = []
 
     return resultado
 
 
+def patrimonio(
+    usuario,
+    plantilla,
+):
 
+    valor = 0
 
-def patrimonio(usuario, plantilla):
+    for jugador in plantilla:
 
-    valor=sum(
-        getattr(p,"price",0) or 0
-        for p in plantilla
-    )
+        if isinstance(jugador, dict):
 
+            valor += jugador.get(
+                "price",
+                0,
+            )
 
-    dinero=(
+        else:
+
+            valor += getattr(
+                jugador,
+                "price",
+                0,
+            )
+
+    dinero = (
         20000000
-        +
-        usuario["ventas"]
-        -
-        usuario["compras"]
+        + usuario["ventas"]
+        - usuario["compras"]
     )
 
-
-    return dinero,valor,dinero+valor
+    return (
+        dinero,
+        valor,
+        dinero + valor,
+    )
