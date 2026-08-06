@@ -1,3 +1,5 @@
+from config import BIWENGER_LEAGUE
+
 from biwenger_client import BiwengerClient
 
 
@@ -9,120 +11,70 @@ def cargar_liga():
     client.login()
 
 
-    liga = client.get_league_by_name(
-        "Los más sucios"
+    liga_id = int(
+        BIWENGER_LEAGUE
     )
 
 
-    liga_id = liga["id"]
-
-    usuario_id = liga["user"]["id"]
-
-
-    client.league_id = liga_id
-
-    client.user_id = usuario_id
+    client.set_context(
+        league_id=liga_id
+    )
 
 
-
-    datos_liga = client.league(
+    liga = client.league(
         liga_id
     )
 
 
-    usuarios = {}
+    usuarios = liga["data"]["users"]
 
 
-    for u in datos_liga["data"]["users"]:
+    plantillas = {}
 
-        usuarios[u["id"]] = {
+    for usuario in usuarios:
 
-            "nombre":
-                u["name"],
+        uid = usuario["id"]
 
-            "compras":
-                0,
+        # De momento la API no da plantilla
+        # con endpoints públicos v2
 
-            "ventas":
-                0,
-
-            "comprados":
-                [],
-
-            "vendidos":
-                [],
-        }
+        plantillas[uid] = []
 
 
 
-    catalogo = {}
-
-
-
-    try:
-
-        jugadores = client.league_players(
-            liga_id
-        )
-
-
-        for jugador in jugadores["data"]:
-
-            catalogo[
-                jugador["id"]
-            ] = jugador
-
-
-    except Exception as e:
-
-        print(
-            "ERROR PLAYERS:",
-            e
-        )
-
-
-
-    eventos = descargar_tablon(
+    movimientos = cargar_movimientos(
         client,
         liga_id
     )
 
 
-    procesar_movimientos(
-        eventos,
+    return (
         usuarios,
-        catalogo
+        plantillas,
+        movimientos
     )
 
 
 
-    plantillas = cargar_plantillas(
-        client,
-        liga_id,
-        usuarios
-    )
 
-
-
-    return usuarios, plantillas
-
-
-
-
-
-def descargar_tablon(
+def cargar_movimientos(
     client,
     liga_id
 ):
 
     try:
 
-        data = client.board(
+        client.set_context(
+            league_id=liga_id
+        )
+
+
+        respuesta = client.board(
             liga_id
         )
 
 
-        return data.get(
+        return respuesta.get(
             "data",
             []
         )
@@ -131,74 +83,11 @@ def descargar_tablon(
     except Exception as e:
 
         print(
-            "ERROR BOARD:",
+            "ERROR MOVIMIENTOS:",
             e
         )
 
         return []
-
-
-
-
-
-def procesar_movimientos(
-    eventos,
-    usuarios,
-    catalogo
-):
-
-    for evento in eventos:
-
-
-        for mov in evento.get(
-            "content",
-            []
-        ):
-
-
-            pass
-
-
-
-
-
-def cargar_plantillas(
-    client,
-    liga_id,
-    usuarios
-):
-
-    resultado = {}
-
-
-    for uid in usuarios:
-
-
-        resultado[uid] = []
-
-
-        try:
-
-
-            data = client.league_user_players(
-                liga_id,
-                uid
-            )
-
-
-            resultado[uid] = data["data"]
-
-
-        except Exception as e:
-
-            print(
-                "ERROR PLANTILLA",
-                uid,
-                e
-            )
-
-
-    return resultado
 
 
 
@@ -209,34 +98,20 @@ def patrimonio(
     plantilla
 ):
 
+    dinero = usuario.get(
+        "balance",
+        0
+    )
+
+
     valor = 0
 
 
-    for jugador in plantilla:
-
-
-        if isinstance(
-            jugador,
-            dict
-        ):
-
-            valor += jugador.get(
-                "price",
-                0
-            )
-
-
-    dinero = (
-        20000000
-        +
-        usuario["ventas"]
-        -
-        usuario["compras"]
-    )
+    total = dinero + valor
 
 
     return (
         dinero,
         valor,
-        dinero + valor
+        total
     )

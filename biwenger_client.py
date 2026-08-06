@@ -21,16 +21,22 @@ class BiwengerClient:
         self.user_id = None
 
 
-    # --------------------------------------------------
+    def set_context(
+        self,
+        league_id=None,
+        user_id=None
+    ):
+
+        self.league_id = league_id
+        self.user_id = user_id
+
+
+
     # LOGIN
-    # --------------------------------------------------
 
     def login(self):
 
-        print(
-            "LOGIN USER:",
-            BIWENGER_USERNAME
-        )
+        print("LOGIN USER:", BIWENGER_USERNAME)
 
         print(
             "PASSWORD LENGTH:",
@@ -43,7 +49,7 @@ class BiwengerClient:
             json={
                 "email": BIWENGER_USERNAME,
                 "password": BIWENGER_PASSWORD,
-            },
+            }
         )
 
 
@@ -80,50 +86,36 @@ class BiwengerClient:
 
 
 
-    # --------------------------------------------------
-    # REQUESTS
-    # --------------------------------------------------
+    # GET
 
     def get(
         self,
         endpoint,
-        headers=None,
         params=None
     ):
 
 
-        final_headers = {}
-
-
-        if headers:
-
-            final_headers.update(
-                headers
-            )
+        headers = {}
 
 
         if self.league_id:
 
-            final_headers[
-                "X-League"
-            ] = str(
+            headers["X-League"] = str(
                 self.league_id
             )
 
 
         if self.user_id:
 
-            final_headers[
-                "X-User"
-            ] = str(
+            headers["X-User"] = str(
                 self.user_id
             )
 
 
         response = self.session.get(
-            f"{BASE_URL}{endpoint}",
-            headers=final_headers,
-            params=params,
+            BASE_URL + endpoint,
+            headers=headers,
+            params=params
         )
 
 
@@ -137,33 +129,7 @@ class BiwengerClient:
 
 
 
-    def post(
-        self,
-        endpoint,
-        payload=None
-    ):
-
-        response = self.session.post(
-            f"{BASE_URL}{endpoint}",
-            json=payload or {},
-        )
-
-        self.debug(response)
-
-        response.raise_for_status()
-
-        return response.json()
-
-
-
-    # --------------------------------------------------
-    # DEBUG
-    # --------------------------------------------------
-
-    def debug(
-        self,
-        response
-    ):
+    def debug(self,response):
 
         print("==============================")
 
@@ -177,27 +143,18 @@ class BiwengerClient:
             response.status_code
         )
 
-
         try:
-
-            print(
-                response.json()
-            )
+            print(response.json())
 
         except:
-
-            print(
-                response.text
-            )
+            print(response.text)
 
 
         print("==============================")
 
 
 
-    # --------------------------------------------------
     # ACCOUNT
-    # --------------------------------------------------
 
     def account(self):
 
@@ -207,33 +164,7 @@ class BiwengerClient:
 
 
 
-    # --------------------------------------------------
-    # LIGAS
-    # --------------------------------------------------
-
-    def get_league_by_name(
-        self,
-        name
-    ):
-
-
-        account = self.account()
-
-
-        for liga in account["data"]["leagues"]:
-
-
-            if liga["name"] == name:
-
-                return liga
-
-
-
-        raise Exception(
-            f"Liga {name} no encontrada"
-        )
-
-
+    # LEAGUE
 
     def league(
         self,
@@ -242,42 +173,6 @@ class BiwengerClient:
 
         return self.get(
             f"/league/{league_id}"
-        )
-
-
-
-    # --------------------------------------------------
-    # DATOS
-    # --------------------------------------------------
-
-    def players(
-        self
-    ):
-
-        return self.get(
-            "/players"
-        )
-
-
-    def league_players(
-        self,
-        league_id
-    ):
-
-        return self.get(
-            f"/league/{league_id}/players"
-        )
-
-
-
-    def league_user_players(
-        self,
-        league_id,
-        user_id
-    ):
-
-        return self.get(
-            f"/league/{league_id}/user/{user_id}/players"
         )
 
 
