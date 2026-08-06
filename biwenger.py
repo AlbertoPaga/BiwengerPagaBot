@@ -21,12 +21,29 @@ def cargar_liga(
     client.login()
 
 
-    liga = client.league(
-        liga_id
-    )
+    usuarios = []
 
 
-    usuarios = liga["data"]["users"]
+    try:
+
+        liga = client.league(
+            liga_id
+        )
+
+
+        usuarios = (
+            liga["data"]
+            ["users"]
+        )
+
+
+    except Exception as e:
+
+        print(
+            "ERROR LIGA:",
+            e
+        )
+
 
 
     movimientos = cargar_movimientos(
@@ -53,15 +70,23 @@ def cargar_movimientos(
             liga_id
         )
 
-        return board["data"]
+
+        return (
+            board
+            .get(
+                "data",
+                []
+            )
+        )
 
 
     except Exception as e:
 
         print(
-            "ERROR MOVIMIENTOS",
+            "ERROR MOVIMIENTOS:",
             e
         )
+
 
         return []
 
@@ -71,10 +96,12 @@ def patrimonio(
     usuario
 ):
 
+
     dinero = usuario.get(
         "balance",
         0
     )
+
 
     valor = 0
 

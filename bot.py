@@ -1,10 +1,12 @@
 import logging
 
+
 from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup
 )
+
 
 from telegram.ext import (
     Application,
@@ -15,6 +17,7 @@ from telegram.ext import (
 
 
 from config import TELEGRAM_TOKEN
+
 
 from biwenger import (
     obtener_ligas,
@@ -29,7 +32,7 @@ logging.basicConfig(
 
 
 
-CACHE={}
+CACHE = {}
 
 
 
@@ -38,10 +41,11 @@ async def liga(
     context
 ):
 
+
     ligas = obtener_ligas()
 
 
-    botones=[]
+    botones = []
 
 
     for l in ligas:
@@ -59,7 +63,7 @@ async def liga(
 
 
     await update.message.reply_text(
-        "Selecciona liga:",
+        "🏟 Selecciona liga:",
         reply_markup=
         InlineKeyboardMarkup(
             botones
@@ -73,12 +77,14 @@ async def elegir_liga(
     context
 ):
 
+
     query = update.callback_query
+
 
     await query.answer()
 
 
-    liga_id=int(
+    liga_id = int(
         query.data
     )
 
@@ -94,13 +100,29 @@ async def elegir_liga(
 
 
 
+async def obtener_datos_liga(
+    liga_id
+):
+
+
+    if liga_id not in CACHE:
+
+        CACHE[liga_id] = cargar_liga(
+            liga_id
+        )
+
+
+    return CACHE[liga_id]
+
+
+
 async def informe(
     update,
     context
 ):
 
 
-    liga_id=context.user_data.get(
+    liga_id = context.user_data.get(
         "liga"
     )
 
@@ -115,12 +137,14 @@ async def informe(
 
 
 
-    usuarios,movimientos = cargar_liga(
+    usuarios, _ = await obtener_datos_liga(
         liga_id
     )
 
 
-    texto="🏆 PATRIMONIO\n\n"
+    texto = (
+        "🏆 PATRIMONIO\n\n"
+    )
 
 
     for u in usuarios:
@@ -141,7 +165,8 @@ async def movimientos(
     context
 ):
 
-    liga_id=context.user_data.get(
+
+    liga_id = context.user_data.get(
         "liga"
     )
 
@@ -156,18 +181,20 @@ async def movimientos(
 
 
 
-    usuarios,movs = cargar_liga(
+    _, movimientos = await obtener_datos_liga(
         liga_id
     )
 
 
-    texto="🔄 MOVIMIENTOS\n\n"
+    texto = (
+        "🔄 MOVIMIENTOS\n\n"
+    )
 
 
-    for m in movs[:15]:
+    for m in movimientos[:20]:
 
         texto += (
-            f"{m.get('type')}\n"
+            f"• {m.get('type')}\n"
         )
 
 
@@ -181,6 +208,7 @@ async def ayuda(
     update,
     context
 ):
+
 
     await update.message.reply_text(
         """
@@ -196,8 +224,7 @@ async def ayuda(
 
 def main():
 
-
-    app=(
+    app = (
         Application
         .builder()
         .token(
@@ -257,6 +284,6 @@ def main():
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
     main()

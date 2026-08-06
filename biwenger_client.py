@@ -30,12 +30,17 @@ class BiwengerClient:
         user_id=None
     ):
 
-        self.league_id = league_id
-        self.user_id = user_id
+        if league_id is not None:
+            self.league_id = league_id
+
+        if user_id is not None:
+            self.user_id = user_id
 
 
 
+    # --------------------------------------------------
     # LOGIN
+    # --------------------------------------------------
 
     def login(self):
 
@@ -43,6 +48,7 @@ class BiwengerClient:
             "LOGIN USER:",
             BIWENGER_USERNAME
         )
+
 
         response = self.session.post(
             f"{BASE_URL}/auth/login",
@@ -71,11 +77,32 @@ class BiwengerClient:
         self.session.headers.update(
             {
                 "Authorization":
-                f"Bearer {self.token}",
+                    f"Bearer {self.token}",
 
                 "Accept":
-                "application/json"
+                    "application/json",
+
+                "Content-Type":
+                    "application/json",
             }
+        )
+
+
+        # Guardar usuario automáticamente
+
+        account = self.account()
+
+
+        self.user_id = (
+            account["data"]
+            ["account"]
+            ["id"]
+        )
+
+
+        print(
+            "USER ID:",
+            self.user_id
         )
 
 
@@ -83,7 +110,9 @@ class BiwengerClient:
 
 
 
-    # REQUEST GENERAL
+    # --------------------------------------------------
+    # REQUEST
+    # --------------------------------------------------
 
     def get(
         self,
@@ -124,6 +153,10 @@ class BiwengerClient:
 
 
 
+    # --------------------------------------------------
+    # DEBUG
+    # --------------------------------------------------
+
     def debug(
         self,
         response
@@ -139,21 +172,27 @@ class BiwengerClient:
             response.status_code
         )
 
+
         try:
+
             print(
                 response.json()
             )
 
         except:
+
             print(
                 response.text
             )
+
 
         print("===================")
 
 
 
-    # CUENTA
+    # --------------------------------------------------
+    # ACCOUNT
+    # --------------------------------------------------
 
     def account(self):
 
@@ -167,20 +206,27 @@ class BiwengerClient:
 
         data = self.account()
 
-        return data["data"]["leagues"]
+        return (
+            data["data"]
+            ["leagues"]
+        )
 
 
 
+    # --------------------------------------------------
     # LIGA
+    # --------------------------------------------------
 
     def league(
         self,
         league_id
     ):
 
+
         self.set_context(
             league_id=league_id
         )
+
 
         return self.get(
             f"/league/{league_id}"
@@ -188,16 +234,20 @@ class BiwengerClient:
 
 
 
-    # TABLON MOVIMIENTOS
+    # --------------------------------------------------
+    # TABLON
+    # --------------------------------------------------
 
     def board(
         self,
         league_id
     ):
 
+
         self.set_context(
             league_id=league_id
         )
+
 
         return self.get(
             f"/league/{league_id}/board"
