@@ -2,7 +2,7 @@ import os
 
 
 BIWENGER_USER = os.getenv(
-    "BIWENGER_USER"
+    "BIWENGER_USERNAME"
 )
 
 BIWENGER_PASSWORD = os.getenv(
