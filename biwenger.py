@@ -27,6 +27,7 @@ def cargar_liga(
         liga_id
     )
 
+
     print(
         "\n================ LIGA ================="
     )
@@ -118,12 +119,6 @@ def cargar_movimientos(
             "\n================ BOARD ================="
         )
 
-        pprint(board)
-
-        print(
-            "========================================\n"
-        )
-
 
         data = board.get(
             "data",
@@ -131,26 +126,59 @@ def cargar_movimientos(
         )
 
 
-        if isinstance(data, dict):
+        print(
+            "TIPO DATA BOARD:",
+            type(data)
+        )
+
+
+        if isinstance(
+            data,
+            list
+        ):
 
             print(
-                "CLAVES BOARD:",
-                list(data.keys())
+                "TOTAL ELEMENTOS BOARD:",
+                len(data)
             )
 
 
-            for key in [
-                "items",
-                "movements",
-                "transactions",
-                "board"
-            ]:
+            for i, item in enumerate(
+                data[:5]
+            ):
 
-                if key in data:
+                print(
+                    "\nMOVIMIENTO RAW",
+                    i
+                )
 
-                    data = data[key]
 
-                    break
+                print(
+                    "TYPE:",
+                    item.get(
+                        "type"
+                    )
+                )
+
+
+                print(
+                    "CONTENT:",
+                    item.get(
+                        "content"
+                    )
+                )
+
+
+        else:
+
+            print(
+                "DATA BOARD NO ES LISTA"
+            )
+
+
+        print(
+            "========================================\n"
+        )
 
 
         return formatear_movimientos(
@@ -188,18 +216,6 @@ def formatear_movimientos(
     print(
         f"TOTAL MOVIMIENTOS: {len(movimientos)}"
     )
-
-
-    for i, m in enumerate(
-        movimientos[:3]
-    ):
-
-        print(
-            f"\n------ MOVIMIENTO {i+1} ------"
-        )
-
-        pprint(m)
-
 
 
     for m in movimientos:
@@ -256,7 +272,9 @@ def formatear_movimientos(
                 vendedor = ""
 
 
-                if item.get("to"):
+                if item.get(
+                    "to"
+                ):
 
                     comprador = item["to"].get(
                         "name",
@@ -264,7 +282,9 @@ def formatear_movimientos(
                     )
 
 
-                if item.get("from"):
+                if item.get(
+                    "from"
+                ):
 
                     vendedor = item["from"].get(
                         "name",
@@ -291,7 +311,6 @@ def formatear_movimientos(
                     resultado.append(
                         f"⚽ Movimiento de {jugador} ({cantidad:,}€)"
                     )
-
 
 
         elif tipo == "playerMovements":
@@ -322,7 +341,6 @@ def formatear_movimientos(
                 resultado.append(
                     f"🔄 Cambio de {jugador}"
                 )
-
 
 
     return resultado[:30]
