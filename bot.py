@@ -1,11 +1,9 @@
 import logging
 
-
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup
 )
-
 
 from telegram.ext import (
     Application,
@@ -14,9 +12,7 @@ from telegram.ext import (
     ContextTypes
 )
 
-
 from config import TELEGRAM_TOKEN
-
 
 from biwenger import (
     obtener_ligas,
@@ -24,26 +20,59 @@ from biwenger import (
 )
 
 
-
 logging.basicConfig(
     level=logging.INFO
 )
 
 
+MAX_TELEGRAM = 4000
 
-async def liga(
-    update,
-    context
-):
 
+async def enviar_largo(update, texto):
+
+    """
+    Telegram permite unos 4096 caracteres.
+    Divide mensajes largos automáticamente.
+    """
+
+    if not texto:
+        texto = "Sin datos"
+
+    partes = [
+        texto[i:i + MAX_TELEGRAM]
+        for i in range(0, len(texto), MAX_TELEGRAM)
+    ]
+
+    for parte in partes:
+
+        await update.message.reply_text(
+            parte
+        )
+
+
+async def start(update, context):
+
+    await update.message.reply_text(
+        """
+🤖 Bot Biwenger activo
+
+Comandos:
+
+/liga - seleccionar liga
+/informe - ver jugadores
+/movimientos - ver movimientos
+/ayuda - ayuda
+"""
+    )
+
+
+async def liga(update, context):
 
     try:
 
-        ligas=obtener_ligas()
+        ligas = obtener_ligas()
 
-
-        botones=[]
-
+        botones = []
 
         for l in ligas:
 
@@ -69,31 +98,28 @@ async def liga(
 
     except Exception as e:
 
-        print(
-            "ERROR LIGA:",
-            e
+        logging.exception(
+            "ERROR LIGA"
+        )
+
+        await update.message.reply_text(
+            f"Error obteniendo ligas:\n{e}"
         )
 
 
+async def elegir_liga(update, context):
 
-async def elegir_liga(
-    update,
-    context
-):
-
-
-    query=update.callback_query
-
+    query = update.callback_query
 
     await query.answer()
 
 
-    liga_id=int(
+    liga_id = int(
         query.data
     )
 
 
-    context.user_data["liga"]=liga_id
+    context.user_data["liga"] = liga_id
 
 
     await query.edit_message_text(
@@ -101,14 +127,10 @@ async def elegir_liga(
     )
 
 
-
-async def informe(
-    update,
-    context
-):
+async def informe(update, context):
 
 
-    liga_id=context.user_data.get(
+    liga_id = context.user_data.get(
         "liga"
     )
 
@@ -122,42 +144,56 @@ async def informe(
         return
 
 
+    try:
 
-    usuarios,movs=cargar_liga(
-        liga_id
-    )
-
-
-    texto="🏆 PATRIMONIO\n\n"
+        usuarios, movs = cargar_liga(
+            liga_id
+        )
 
 
-    if not usuarios:
-
-        texto+="No se encontraron usuarios"
+        texto = "🏆 PATRIMONIO\n\n"
 
 
-    else:
+        if not usuarios:
 
-        for u in usuarios:
+            texto += "No hay usuarios"
 
-            texto+=(
-                f"• {u.get('name','Sin nombre')}\n"
-            )
+        else:
 
+            for u in usuarios:
 
-    await update.message.reply_text(
-        texto
-    )
+                nombre = u.get(
+                    "name",
+                    "Sin nombre"
+                )
 
-
-
-async def movimientos(
-    update,
-    context
-):
+                texto += (
+                    f"• {nombre}\n"
+                )
 
 
-    liga_id=context.user_data.get(
+        await enviar_largo(
+            update,
+            texto
+        )
+
+
+    except Exception as e:
+
+        logging.exception(
+            "ERROR INFORME"
+        )
+
+        await update.message.reply_text(
+            f"Error:\n{e}"
+        )
+
+
+
+async def movimientos(update, context):
+
+
+    liga_id = context.user_data.get(
         "liga"
     )
 
@@ -171,59 +207,74 @@ async def movimientos(
         return
 
 
+    try:
 
-    usuarios,movs=cargar_liga(
-        liga_id
-    )
-
-
-    texto="🔄 MOVIMIENTOS\n\n"
+        usuarios, movs = cargar_liga(
+            liga_id
+        )
 
 
-    if not movs:
-
-        texto+="Sin movimientos"
+        texto = "🔄 MOVIMIENTOS\n\n"
 
 
-    else:
+        if not movs:
 
-        for m in movs[:15]:
-
-            texto+=(
-                f"• {m}\n"
-            )
+            texto += "Sin movimientos"
 
 
-    await update.message.reply_text(
-        texto
-    )
+        else:
+
+            for m in movs[:20]:
+
+                texto += (
+                    f"• {str(m)[:200]}\n"
+                )
+
+
+        await enviar_largo(
+            update,
+            texto
+        )
+
+
+    except Exception as e:
+
+        logging.exception(
+            "ERROR MOVIMIENTOS"
+        )
+
+        await update.message.reply_text(
+            f"Error:\n{e}"
+        )
 
 
 
-async def ayuda(
-    update,
-    context
-):
+async def ayuda(update, context):
 
     await update.message.reply_text(
         """
-/liga - elegir liga
+📚 Comandos:
 
-/informe - ranking
+/liga
+Seleccionar liga Biwenger
 
-/movimientos - movimientos
+/informe
+Ver usuarios
+
+/movimientos
+Últimos movimientos
+
+/start
+Iniciar bot
 """
     )
 
 
 
-async def error_handler(
-    update,
-    context
-):
+async def error_handler(update, context):
 
-    print(
-        "ERROR GLOBAL:",
+    logging.error(
+        "ERROR GLOBAL: %s",
         context.error
     )
 
@@ -231,14 +282,21 @@ async def error_handler(
 
 def main():
 
-
-    app=(
+    app = (
         Application
         .builder()
         .token(
             TELEGRAM_TOKEN
         )
         .build()
+    )
+
+
+    app.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
 
@@ -297,6 +355,6 @@ def main():
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
     main()

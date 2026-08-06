@@ -1,4 +1,5 @@
 import requests
+import time
 
 from config import (
     BIWENGER_USERNAME,
@@ -22,6 +23,8 @@ class BiwengerClient:
 
         self.user_id = None
 
+        self.login_time = 0
+
 
 
     def set_context(
@@ -31,19 +34,24 @@ class BiwengerClient:
     ):
 
         if league_id:
+
             self.league_id = league_id
 
+
         if user_id:
+
             self.user_id = user_id
 
 
 
     def login(self):
 
-        print(
-            "LOGIN USER:",
-            BIWENGER_USERNAME
-        )
+        # reutiliza token durante 1 hora
+        if (
+            self.token
+            and time.time() - self.login_time < 3600
+        ):
+            return
 
 
         response = self.session.post(
@@ -51,32 +59,29 @@ class BiwengerClient:
             json={
                 "email": BIWENGER_USERNAME,
                 "password": BIWENGER_PASSWORD
-            }
-        )
-
-
-        print(
-            "LOGIN STATUS:",
-            response.status_code
+            },
+            timeout=15
         )
 
 
         response.raise_for_status()
 
 
-        data=response.json()
+        data = response.json()
 
 
-        self.token=data["token"]
+        self.token = data["token"]
+
+        self.login_time = time.time()
 
 
         self.session.headers.update(
             {
                 "Authorization":
-                f"Bearer {self.token}",
+                    f"Bearer {self.token}",
 
                 "Accept":
-                "application/json"
+                    "application/json"
             }
         )
 
@@ -91,31 +96,30 @@ class BiwengerClient:
     ):
 
 
-        headers={}
+        self.login()
+
+
+        headers = {}
 
 
         if self.league_id:
 
-            headers["X-League"]=str(
+            headers["X-League"] = str(
                 self.league_id
             )
 
 
         if self.user_id:
 
-            headers["X-User"]=str(
+            headers["X-User"] = str(
                 self.user_id
             )
 
 
-        response=self.session.get(
+        response = self.session.get(
             BASE_URL + endpoint,
-            headers=headers
-        )
-
-
-        self.debug(
-            response
+            headers=headers,
+            timeout=15
         )
 
 
@@ -123,37 +127,6 @@ class BiwengerClient:
 
 
         return response.json()
-
-
-
-    def debug(
-        self,
-        response
-    ):
-
-        print("===================")
-
-        print(
-            response.url
-        )
-
-        print(
-            response.status_code
-        )
-
-        try:
-
-            print(
-                response.json()
-            )
-
-        except:
-
-            print(
-                response.text
-            )
-
-        print("===================")
 
 
 
@@ -167,7 +140,8 @@ class BiwengerClient:
 
     def leagues(self):
 
-        data=self.account()
+        data = self.account()
+
 
         return data["data"]["leagues"]
 
@@ -179,7 +153,7 @@ class BiwengerClient:
     ):
 
 
-        leagues=self.leagues()
+        leagues = self.leagues()
 
 
         for liga in leagues:
@@ -201,19 +175,12 @@ class BiwengerClient:
     ):
 
 
-        user_id=self.find_league_user(
+        user_id = self.find_league_user(
             league_id
         )
 
 
         self.set_context(
-            league_id,
-            user_id
-        )
-
-
-        print(
-            "CONTEXTO:",
             league_id,
             user_id
         )
@@ -231,7 +198,7 @@ class BiwengerClient:
     ):
 
 
-        user_id=self.find_league_user(
+        user_id = self.find_league_user(
             league_id
         )
 
