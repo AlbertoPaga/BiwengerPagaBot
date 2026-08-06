@@ -1,14 +1,20 @@
 import os
+from dotenv import load_dotenv
 
 
-BIWENGER_USER = os.getenv(
-    "BIWENGER_USERNAME"
-)
+load_dotenv()
 
-BIWENGER_PASSWORD = os.getenv(
-    "BIWENGER_PASSWORD"
-)
 
 TELEGRAM_TOKEN = os.getenv(
     "TELEGRAM_TOKEN"
+)
+
+
+BIWENGER_USERNAME = os.getenv(
+    "BIWENGER_USERNAME"
+)
+
+
+BIWENGER_PASSWORD = os.getenv(
+    "BIWENGER_PASSWORD"
 )
