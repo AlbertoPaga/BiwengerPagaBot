@@ -12,7 +12,6 @@ BASE_URL = "https://biwenger.as.com/api/v2"
 
 class BiwengerClient:
 
-
     def __init__(self):
 
         self.session = requests.Session()
@@ -24,7 +23,6 @@ class BiwengerClient:
         self.user_id = None
 
         self.login_time = 0
-
 
 
     def set_context(
@@ -40,9 +38,9 @@ class BiwengerClient:
             self.user_id = user_id
 
 
-
     def login(self):
 
+        # reutilizar token durante una hora
         if (
             self.token
             and time.time() - self.login_time < 3600
@@ -80,10 +78,6 @@ class BiwengerClient:
                     "application/json"
             }
         )
-
-
-        return data
-
 
 
     def get(
@@ -165,7 +159,6 @@ class BiwengerClient:
         league_id
     ):
 
-
         user_id = self.find_league_user(
             league_id
         )
@@ -188,7 +181,6 @@ class BiwengerClient:
         league_id
     ):
 
-
         user_id = self.find_league_user(
             league_id
         )
@@ -209,23 +201,10 @@ class BiwengerClient:
     def players(self):
 
         """
-        Obtiene jugadores autenticado.
+        Descarga todos los jugadores
+        usando la sesión autenticada.
         """
 
-        self.login()
-
-
-        response = self.session.get(
-            "https://cf.biwenger.com/api/v2/competitions/la-liga/data",
-            params={
-                "lang": "es",
-                "score": 2
-            },
-            timeout=15
+        return self.get(
+            "/competitions/la-liga/data?lang=es&score=2"
         )
-
-
-        response.raise_for_status()
-
-
-        return response.json()

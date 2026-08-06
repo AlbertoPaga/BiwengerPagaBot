@@ -18,50 +18,6 @@ def cargar_jugadores():
     global _players
 
 
-    if _players is not None:
-
-        return _players
-
-
-
-    # 1. Intentar cargar cache existente
-
-    if CACHE_FILE.exists():
-
-        try:
-
-            with open(
-                CACHE_FILE,
-                encoding="utf-8"
-            ) as f:
-
-                data = json.load(f)
-
-
-            _players = data.get(
-                "players",
-                {}
-            )
-
-
-            logging.info(
-                f"Jugadores cargados desde cache: {len(_players)}"
-            )
-
-
-            return _players
-
-
-        except Exception:
-
-            logging.exception(
-                "Error leyendo players.json"
-            )
-
-
-
-    # 2. Crear cache nueva
-
     try:
 
         logging.info(
@@ -75,43 +31,57 @@ def cargar_jugadores():
         datos = client.players()
 
 
-        jugadores = datos.get(
-            "players",
+        jugadores = {}
+
+
+        data = datos.get(
+            "data",
             {}
         )
 
 
-        if not jugadores:
+        # Biwenger devuelve estructuras distintas
+        # según endpoint/temporada
 
-            raise Exception(
-                "Respuesta sin jugadores"
-            )
-
-
-
-        with open(
-            CACHE_FILE,
-            "w",
-            encoding="utf-8"
-        ) as f:
+        lista = data.get(
+            "players",
+            []
+        )
 
 
-            json.dump(
+        for jugador in lista:
+
+            jugadores[
+                str(jugador["id"])
+            ] = {
+
+                "name":
+                    jugador.get(
+                        "name",
+                        f"Jugador {jugador['id']}"
+                    )
+            }
+
+
+
+        CACHE_FILE.write_text(
+            json.dumps(
                 {
                     "players": jugadores
                 },
-                f,
                 ensure_ascii=False,
                 indent=2
-            )
-
-
-        logging.info(
-            f"Cache creada con {len(jugadores)} jugadores"
+            ),
+            encoding="utf-8"
         )
 
 
         _players = jugadores
+
+
+        logging.info(
+            f"Jugadores guardados: {len(jugadores)}"
+        )
 
 
         return jugadores
@@ -125,20 +95,49 @@ def cargar_jugadores():
         )
 
 
-        _players = {}
-
-
         return {}
-
-
 
 
 
 def get_players():
 
-    return cargar_jugadores()
+    global _players
 
 
+    if _players is None:
+
+
+        if CACHE_FILE.exists():
+
+            try:
+
+                with open(
+                    CACHE_FILE,
+                    encoding="utf-8"
+                ) as f:
+
+                    data = json.load(f)
+
+
+                _players = data.get(
+                    "players",
+                    {}
+                )
+
+
+            except Exception:
+
+                _players = {}
+
+
+
+        else:
+
+            _players = cargar_jugadores()
+
+
+
+    return _players
 
 
 
@@ -146,23 +145,17 @@ def get_player_name(
     player_id
 ):
 
-
-    jugadores = get_players()
-
-
-    jugador = jugadores.get(
+    jugador = get_players().get(
         str(player_id)
     )
 
 
     if jugador:
 
-
         return jugador.get(
             "name",
             f"Jugador {player_id}"
         )
-
 
 
     return f"Jugador {player_id}"
