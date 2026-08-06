@@ -1,4 +1,12 @@
 from telegram import Update
+from importlib.metadata import version
+import pybiwenger
+import pydantic
+import sys
+
+print("Python:", sys.version)
+print("Pybiwenger:", version("pybiwenger"))
+print("Pydantic:", pydantic.__version__)
 
 from telegram.ext import (
     Application,
