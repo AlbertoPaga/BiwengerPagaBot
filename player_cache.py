@@ -1,29 +1,26 @@
 import json
 import logging
-
 from pathlib import Path
+
 
 from biwenger_client import BiwengerClient
 
 
-CACHE_FILE = Path(__file__).parent / "players.json"
 
-
-_players = None
+PLAYERS_FILE = Path(
+    "/app/players.json"
+)
 
 
 
 def cargar_jugadores():
 
-    global _players
+    logging.info(
+        "Descargando jugadores desde Biwenger..."
+    )
 
 
     try:
-
-        logging.info(
-            "Descargando jugadores desde Biwenger..."
-        )
-
 
         client = BiwengerClient()
 
@@ -31,52 +28,115 @@ def cargar_jugadores():
         datos = client.players()
 
 
-        jugadores = {}
 
-
-        data = datos.get(
+        jugadores_api = datos.get(
             "data",
             {}
         )
 
 
-        # Biwenger devuelve estructuras distintas
-        # según endpoint/temporada
+        jugadores = {}
 
-        lista = data.get(
+
+
+        # Normalmente viene como diccionario
+        players = jugadores_api.get(
             "players",
-            []
+            {}
         )
 
 
-        for jugador in lista:
 
-            jugadores[
-                str(jugador["id"])
-            ] = {
-
-                "name":
-                    jugador.get(
-                        "name",
-                        f"Jugador {jugador['id']}"
-                    )
-            }
+        if isinstance(
+            players,
+            dict
+        ):
 
 
+            for player_id, jugador in players.items():
 
-        CACHE_FILE.write_text(
-            json.dumps(
+
+                if not isinstance(
+                    jugador,
+                    dict
+                ):
+                    continue
+
+
+                jugadores[str(player_id)] = {
+
+                    "name":
+                        jugador.get(
+                            "name",
+                            f"Jugador {player_id}"
+                        ),
+
+                    "team":
+                        jugador.get(
+                            "team",
+                            {}
+                        )
+                }
+
+
+
+        elif isinstance(
+            players,
+            list
+        ):
+
+
+            for jugador in players:
+
+
+                if not isinstance(
+                    jugador,
+                    dict
+                ):
+                    continue
+
+
+                player_id = jugador.get(
+                    "id"
+                )
+
+
+                if player_id:
+
+
+                    jugadores[str(player_id)] = {
+
+                        "name":
+                            jugador.get(
+                                "name",
+                                f"Jugador {player_id}"
+                            ),
+
+                        "team":
+                            jugador.get(
+                                "team",
+                                {}
+                            )
+                    }
+
+
+
+        with open(
+            PLAYERS_FILE,
+            "w",
+            encoding="utf-8"
+        ) as archivo:
+
+
+            json.dump(
                 {
                     "players": jugadores
                 },
+                archivo,
                 ensure_ascii=False,
                 indent=2
-            ),
-            encoding="utf-8"
-        )
+            )
 
-
-        _players = jugadores
 
 
         logging.info(
@@ -84,11 +144,13 @@ def cargar_jugadores():
         )
 
 
+
         return jugadores
 
 
 
     except Exception:
+
 
         logging.exception(
             "Error cargando jugadores"
@@ -99,45 +161,51 @@ def cargar_jugadores():
 
 
 
-def get_players():
 
-    global _players
+def cargar_cache():
 
+    if not PLAYERS_FILE.exists():
 
-    if _players is None:
-
-
-        if CACHE_FILE.exists():
-
-            try:
-
-                with open(
-                    CACHE_FILE,
-                    encoding="utf-8"
-                ) as f:
-
-                    data = json.load(f)
-
-
-                _players = data.get(
-                    "players",
-                    {}
-                )
-
-
-            except Exception:
-
-                _players = {}
+        return cargar_jugadores()
 
 
 
-        else:
+    try:
 
-            _players = cargar_jugadores()
+        with open(
+            PLAYERS_FILE,
+            encoding="utf-8"
+        ) as archivo:
+
+
+            datos = json.load(
+                archivo
+            )
+
+
+        return datos.get(
+            "players",
+            {}
+        )
+
+
+    except Exception:
+
+
+        return cargar_jugadores()
 
 
 
-    return _players
+
+def actualizar_cache():
+
+    """
+    Fuerza actualización completa
+    cada vez que se quiera.
+    """
+
+    return cargar_jugadores()
+
 
 
 
@@ -145,12 +213,19 @@ def get_player_name(
     player_id
 ):
 
-    jugador = get_players().get(
+
+    jugadores = cargar_cache()
+
+
+
+    jugador = jugadores.get(
         str(player_id)
     )
 
 
+
     if jugador:
+
 
         return jugador.get(
             "name",
@@ -158,4 +233,7 @@ def get_player_name(
         )
 
 
-    return f"Jugador {player_id}"
+
+    return (
+        f"Jugador {player_id}"
+    )

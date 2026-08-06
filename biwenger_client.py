@@ -40,7 +40,7 @@ class BiwengerClient:
 
     def login(self):
 
-        # reutilizar token durante una hora
+        # reutilizar token durante 1 hora
         if (
             self.token
             and time.time() - self.login_time < 3600
@@ -66,6 +66,7 @@ class BiwengerClient:
 
         self.token = data["token"]
 
+
         self.login_time = time.time()
 
 
@@ -78,6 +79,10 @@ class BiwengerClient:
                     "application/json"
             }
         )
+
+
+        return data
+
 
 
     def get(
@@ -201,10 +206,24 @@ class BiwengerClient:
     def players(self):
 
         """
-        Descarga todos los jugadores
-        usando la sesión autenticada.
+        Descarga todos los jugadores.
+        Usa autenticación porque la API pública devuelve 403.
         """
 
-        return self.get(
-            "/competitions/la-liga/data?lang=es&score=2"
+        self.login()
+
+
+        response = self.session.get(
+            "https://cf.biwenger.com/api/v2/competitions/la-liga/data",
+            params={
+                "lang": "es",
+                "score": 2
+            },
+            timeout=15
         )
+
+
+        response.raise_for_status()
+
+
+        return response.json()
