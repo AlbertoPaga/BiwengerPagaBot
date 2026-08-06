@@ -11,6 +11,7 @@ BASE_URL = "https://biwenger.as.com/api/v2"
 
 class BiwengerClient:
 
+
     def __init__(self):
 
         self.session = requests.Session()
@@ -18,7 +19,9 @@ class BiwengerClient:
         self.token = None
 
         self.league_id = None
+
         self.user_id = None
+
 
 
     def set_context(
@@ -36,13 +39,10 @@ class BiwengerClient:
 
     def login(self):
 
-        print("LOGIN USER:", BIWENGER_USERNAME)
-
         print(
-            "PASSWORD LENGTH:",
-            len(BIWENGER_PASSWORD)
+            "LOGIN USER:",
+            BIWENGER_USERNAME
         )
-
 
         response = self.session.post(
             f"{BASE_URL}/auth/login",
@@ -71,13 +71,10 @@ class BiwengerClient:
         self.session.headers.update(
             {
                 "Authorization":
-                    f"Bearer {self.token}",
+                f"Bearer {self.token}",
 
                 "Accept":
-                    "application/json",
-
-                "Content-Type":
-                    "application/json",
+                "application/json"
             }
         )
 
@@ -86,12 +83,11 @@ class BiwengerClient:
 
 
 
-    # GET
+    # REQUEST GENERAL
 
     def get(
         self,
-        endpoint,
-        params=None
+        endpoint
     ):
 
 
@@ -114,8 +110,7 @@ class BiwengerClient:
 
         response = self.session.get(
             BASE_URL + endpoint,
-            headers=headers,
-            params=params
+            headers=headers
         )
 
 
@@ -129,32 +124,36 @@ class BiwengerClient:
 
 
 
-    def debug(self,response):
+    def debug(
+        self,
+        response
+    ):
 
-        print("==============================")
+        print("===================")
 
         print(
-            "URL:",
             response.url
         )
 
         print(
-            "STATUS:",
             response.status_code
         )
 
         try:
-            print(response.json())
+            print(
+                response.json()
+            )
 
         except:
-            print(response.text)
+            print(
+                response.text
+            )
+
+        print("===================")
 
 
-        print("==============================")
 
-
-
-    # ACCOUNT
+    # CUENTA
 
     def account(self):
 
@@ -164,12 +163,24 @@ class BiwengerClient:
 
 
 
-    # LEAGUE
+    def leagues(self):
+
+        data = self.account()
+
+        return data["data"]["leagues"]
+
+
+
+    # LIGA
 
     def league(
         self,
         league_id
     ):
+
+        self.set_context(
+            league_id=league_id
+        )
 
         return self.get(
             f"/league/{league_id}"
@@ -177,10 +188,16 @@ class BiwengerClient:
 
 
 
+    # TABLON MOVIMIENTOS
+
     def board(
         self,
         league_id
     ):
+
+        self.set_context(
+            league_id=league_id
+        )
 
         return self.get(
             f"/league/{league_id}/board"

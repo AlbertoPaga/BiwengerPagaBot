@@ -1,24 +1,24 @@
-from config import BIWENGER_LEAGUE
-
 from biwenger_client import BiwengerClient
 
 
 
-def cargar_liga():
+def obtener_ligas():
 
     client = BiwengerClient()
 
     client.login()
 
-
-    liga_id = int(
-        BIWENGER_LEAGUE
-    )
+    return client.leagues()
 
 
-    client.set_context(
-        league_id=liga_id
-    )
+
+def cargar_liga(
+    liga_id
+):
+
+    client = BiwengerClient()
+
+    client.login()
 
 
     liga = client.league(
@@ -29,19 +29,6 @@ def cargar_liga():
     usuarios = liga["data"]["users"]
 
 
-    plantillas = {}
-
-    for usuario in usuarios:
-
-        uid = usuario["id"]
-
-        # De momento la API no da plantilla
-        # con endpoints públicos v2
-
-        plantillas[uid] = []
-
-
-
     movimientos = cargar_movimientos(
         client,
         liga_id
@@ -50,10 +37,8 @@ def cargar_liga():
 
     return (
         usuarios,
-        plantillas,
         movimientos
     )
-
 
 
 
@@ -64,26 +49,17 @@ def cargar_movimientos(
 
     try:
 
-        client.set_context(
-            league_id=liga_id
-        )
-
-
-        respuesta = client.board(
+        board = client.board(
             liga_id
         )
 
-
-        return respuesta.get(
-            "data",
-            []
-        )
+        return board["data"]
 
 
     except Exception as e:
 
         print(
-            "ERROR MOVIMIENTOS:",
+            "ERROR MOVIMIENTOS",
             e
         )
 
@@ -91,11 +67,8 @@ def cargar_movimientos(
 
 
 
-
-
 def patrimonio(
-    usuario,
-    plantilla
+    usuario
 ):
 
     dinero = usuario.get(
@@ -103,15 +76,11 @@ def patrimonio(
         0
     )
 
-
     valor = 0
-
-
-    total = dinero + valor
 
 
     return (
         dinero,
         valor,
-        total
+        dinero + valor
     )
