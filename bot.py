@@ -16,8 +16,9 @@ from config import TELEGRAM_TOKEN
 
 from biwenger import (
     obtener_ligas,
-    cargar_liga,
     obtener_informe,
+    obtener_mercado_completo,
+    obtener_mercado_24h,
 )
 
 
@@ -30,7 +31,7 @@ MAX_TELEGRAM = 4000
 
 
 # ==============================================================
-# UTILIDADES
+# ENVIAR MENSAJES LARGOS
 # ==============================================================
 
 async def enviar_largo(
@@ -39,6 +40,7 @@ async def enviar_largo(
 ):
 
     if not texto:
+
         texto = "Sin datos"
 
     partes = [
@@ -57,16 +59,6 @@ async def enviar_largo(
         )
 
 
-def euros(
-    cantidad,
-):
-
-    try:
-        return f"{int(cantidad):,}€"
-    except Exception:
-        return "0€"
-
-
 # ==============================================================
 # START
 # ==============================================================
@@ -83,15 +75,16 @@ async def start(
 Comandos:
 
 /liga - seleccionar liga
-/informe - informe del mercado
-/movimientos - ver movimientos
+/informe - informe de saldos
+/movimientos - mercado completo
+/mercado24 - mercado últimas 24 horas
 /ayuda - ayuda
 """
     )
 
 
 # ==============================================================
-# SELECCIONAR LIGA
+# LIGA
 # ==============================================================
 
 async def liga(
@@ -163,24 +156,24 @@ async def elegir_liga(
             query.data
         )
 
-        context.user_data["liga"] = liga_id
+    except Exception:
 
         await query.edit_message_text(
-            f"✅ Liga seleccionada\n\n"
-            f"ID: {liga_id}\n\n"
-            f"Ya puedes usar /informe "
-            f"o /movimientos."
+            "❌ ID de liga inválido."
         )
 
-    except Exception as e:
+        return
 
-        logging.exception(
-            "ERROR SELECCIONANDO LIGA"
-        )
+    context.user_data[
+        "liga"
+    ] = liga_id
 
-        await query.edit_message_text(
-            f"Error seleccionando liga:\n{e}"
-        )
+    await query.edit_message_text(
+        "✅ Liga seleccionada\n\n"
+        f"ID: {liga_id}\n\n"
+        "Ya puedes usar /informe, "
+        "/movimientos o /mercado24."
+    )
 
 
 # ==============================================================
@@ -210,135 +203,47 @@ async def informe(
             "📊 Calculando informe del mercado..."
         )
 
-        informe_data = obtener_informe(
+        report = obtener_informe(
             liga_id
         )
-
-        if not informe_data:
-
-            await update.message.reply_text(
-                "No se pudo obtener el informe."
-            )
-
-            return
-
-        managers = informe_data.get(
-            "managers",
-            {}
-        )
-
-        if not managers:
-
-            await update.message.reply_text(
-                "No hay movimientos suficientes "
-                "para generar el informe."
-            )
-
-            return
 
         texto = (
             "📊 INFORME DEL MERCADO\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-        )
-
-        # ----------------------------------------------------------
-        # RESUMEN GENERAL
-        # ----------------------------------------------------------
-
-        texto += (
-            "🌐 RESUMEN GENERAL\n\n"
-            f"💰 Compras: "
-            f"{euros(informe_data.get('total_compras', 0))}\n"
-            f"💵 Ventas: "
-            f"{euros(informe_data.get('total_ventas', 0))}\n"
-            f"⚖️ Balance: "
-            f"{euros(informe_data.get('balance_total', 0))}\n\n"
-        )
-
-        # ----------------------------------------------------------
-        # MAYOR GASTO
-        # ----------------------------------------------------------
-
-        mayor_gasto = informe_data.get(
-            "mayor_gasto"
-        )
-
-        if mayor_gasto:
-
-            texto += (
-                "💸 MAYOR GASTO\n"
-                f"• {mayor_gasto['manager']}: "
-                f"{euros(mayor_gasto['amount'])}\n\n"
-            )
-
-        # ----------------------------------------------------------
-        # MAYOR INGRESO
-        # ----------------------------------------------------------
-
-        mayor_ingreso = informe_data.get(
-            "mayor_ingreso"
-        )
-
-        if mayor_ingreso:
-
-            texto += (
-                "💰 MAYOR INGRESO\n"
-                f"• {mayor_ingreso['manager']}: "
-                f"{euros(mayor_ingreso['amount'])}\n\n"
-            )
-
-        # ----------------------------------------------------------
-        # MEJOR BALANCE
-        # ----------------------------------------------------------
-
-        mejor_balance = informe_data.get(
-            "mejor_balance"
-        )
-
-        if mejor_balance:
-
-            texto += (
-                "📈 MEJOR BALANCE\n"
-                f"• {mejor_balance['manager']}: "
-                f"{euros(mejor_balance['amount'])}\n\n"
-            )
-
-        # ----------------------------------------------------------
-        # PEOR BALANCE
-        # ----------------------------------------------------------
-
-        peor_balance = informe_data.get(
-            "peor_balance"
-        )
-
-        if peor_balance:
-
-            texto += (
-                "📉 PEOR BALANCE\n"
-                f"• {peor_balance['manager']}: "
-                f"{euros(peor_balance['amount'])}\n\n"
-            )
-
-        # ----------------------------------------------------------
-        # DETALLE POR MANAGER
-        # ----------------------------------------------------------
-
-        texto += (
             "👥 DETALLE POR MANAGER\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
         )
 
-        managers_ordenados = sorted(
-            managers.items(),
+        if not report:
+
+            texto += (
+                "No hay movimientos "
+                "registrados."
+            )
+
+            await enviar_largo(
+                update,
+                texto,
+            )
+
+            return
+
+        # ------------------------------------------------------
+        # Ordenar managers por saldo actual
+        # De mayor a menor
+        # ------------------------------------------------------
+
+        managers = sorted(
+            report.items(),
             key=lambda item:
                 item[1].get(
-                    "total_compras",
+                    "saldo_actual",
                     0,
                 ),
             reverse=True,
         )
 
-        for nombre, datos in managers_ordenados:
+        for manager, datos in managers:
 
             compras = datos.get(
                 "total_compras",
@@ -347,11 +252,6 @@ async def informe(
 
             ventas = datos.get(
                 "total_ventas",
-                0,
-            )
-
-            balance = datos.get(
-                "balance",
                 0,
             )
 
@@ -365,23 +265,28 @@ async def informe(
                 0,
             )
 
-            if balance > 0:
-                icono_balance = "🟢"
-            elif balance < 0:
-                icono_balance = "🔴"
-            else:
-                icono_balance = "⚪"
+            saldo = datos.get(
+                "saldo_actual",
+                20_000_000,
+            )
+
+            emoji_saldo = (
+                "💰"
+                if saldo >= 0
+                else "🔴"
+            )
 
             texto += (
-                f"👤 {nombre}\n"
+                f"👤 {manager}\n"
                 f"   🟢 Compras: "
                 f"{numero_compras} "
-                f"({euros(compras)})\n"
+                f"({compras:,}€)\n"
                 f"   🔴 Ventas: "
                 f"{numero_ventas} "
-                f"({euros(ventas)})\n"
-                f"   {icono_balance} Balance: "
-                f"{euros(balance)}\n\n"
+                f"({ventas:,}€)\n"
+                f"   {emoji_saldo} "
+                f"Saldo actual: "
+                f"{saldo:,}€\n\n"
             )
 
         await enviar_largo(
@@ -401,7 +306,7 @@ async def informe(
 
 
 # ==============================================================
-# MOVIMIENTOS
+# MERCADO COMPLETO
 # ==============================================================
 
 async def movimientos(
@@ -424,28 +329,12 @@ async def movimientos(
     try:
 
         await update.message.reply_text(
-            "🔄 Cargando movimientos..."
+            "🔄 Cargando mercado completo..."
         )
 
-        usuarios, movs = cargar_liga(
+        texto = obtener_mercado_completo(
             liga_id
         )
-
-        texto = (
-            "🔄 MOVIMIENTOS\n\n"
-        )
-
-        if not movs:
-
-            texto += "Sin movimientos"
-
-        else:
-
-            for movimiento in movs:
-
-                texto += (
-                    f"• {movimiento}\n"
-                )
 
         await enviar_largo(
             update,
@@ -455,11 +344,60 @@ async def movimientos(
     except Exception as e:
 
         logging.exception(
-            "ERROR MOVIMIENTOS"
+            "ERROR MERCADO COMPLETO"
         )
 
         await update.message.reply_text(
-            f"Error:\n{e}"
+            f"Error obteniendo el mercado:\n{e}"
+        )
+
+
+# ==============================================================
+# MERCADO ÚLTIMAS 24 HORAS
+# ==============================================================
+
+async def mercado24(
+    update,
+    context,
+):
+
+    liga_id = context.user_data.get(
+        "liga"
+    )
+
+    if not liga_id:
+
+        await update.message.reply_text(
+            "Usa primero /liga"
+        )
+
+        return
+
+    try:
+
+        await update.message.reply_text(
+            "⏱️ Cargando mercado de las "
+            "últimas 24 horas..."
+        )
+
+        texto = obtener_mercado_24h(
+            liga_id
+        )
+
+        await enviar_largo(
+            update,
+            texto,
+        )
+
+    except Exception as e:
+
+        logging.exception(
+            "ERROR MERCADO 24H"
+        )
+
+        await update.message.reply_text(
+            "Error obteniendo el mercado "
+            f"de las últimas 24 horas:\n{e}"
         )
 
 
@@ -477,27 +415,21 @@ async def ayuda(
 📚 Comandos:
 
 /liga
-Seleccionar liga Biwenger.
+Seleccionar liga Biwenger
 
 /informe
-Calcula el informe completo del mercado:
-• compras
-• ventas
-• gasto total
-• ingresos totales
-• balance
-• número de operaciones
-• mayor gasto
-• mayor ingreso
-• mejor balance
-• peor balance
+Informe del mercado y saldo actual
+de cada manager.
 
 /movimientos
-Muestra los movimientos individuales
-extraídos del historial de Biwenger.
+Mercado completo, agrupado por fechas.
+
+/mercado24
+Movimientos realizados durante
+las últimas 24 horas.
 
 /start
-Iniciar bot.
+Iniciar bot
 """
     )
 
@@ -532,12 +464,20 @@ def main():
         .build()
     )
 
+    # ----------------------------------------------------------
+    # START
+    # ----------------------------------------------------------
+
     app.add_handler(
         CommandHandler(
             "start",
             start,
         )
     )
+
+    # ----------------------------------------------------------
+    # LIGA
+    # ----------------------------------------------------------
 
     app.add_handler(
         CommandHandler(
@@ -552,12 +492,20 @@ def main():
         )
     )
 
+    # ----------------------------------------------------------
+    # INFORME
+    # ----------------------------------------------------------
+
     app.add_handler(
         CommandHandler(
             "informe",
             informe,
         )
     )
+
+    # ----------------------------------------------------------
+    # MERCADO COMPLETO
+    # ----------------------------------------------------------
 
     app.add_handler(
         CommandHandler(
@@ -566,12 +514,31 @@ def main():
         )
     )
 
+    # ----------------------------------------------------------
+    # MERCADO 24 HORAS
+    # ----------------------------------------------------------
+
+    app.add_handler(
+        CommandHandler(
+            "mercado24",
+            mercado24,
+        )
+    )
+
+    # ----------------------------------------------------------
+    # AYUDA
+    # ----------------------------------------------------------
+
     app.add_handler(
         CommandHandler(
             "ayuda",
             ayuda,
         )
     )
+
+    # ----------------------------------------------------------
+    # ERRORES
+    # ----------------------------------------------------------
 
     app.add_error_handler(
         error_handler
@@ -585,6 +552,10 @@ def main():
         drop_pending_updates=True
     )
 
+
+# ==============================================================
+# EJECUCIÓN
+# ==============================================================
 
 if __name__ == "__main__":
 

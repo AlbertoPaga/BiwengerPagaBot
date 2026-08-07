@@ -1,7 +1,9 @@
 import requests
 import time
+
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 from config import (
     BIWENGER_USERNAME,
@@ -16,12 +18,24 @@ PLAYERS_URL = (
     "competitions/la-liga/data"
 )
 
+SALDO_INICIAL = 20_000_000
+
+MADRID_TZ = ZoneInfo("Europe/Madrid")
+
 
 class BiwengerClient:
 
     def __init__(self):
 
+        # ==========================================================
+        # API PRIVADA
+        # ==========================================================
+
         self.session = requests.Session()
+
+        # ==========================================================
+        # API PÚBLICA DE JUGADORES
+        # ==========================================================
 
         self.public_session = requests.Session()
 
@@ -31,6 +45,10 @@ class BiwengerClient:
                 "User-Agent": "Mozilla/5.0",
             }
         )
+
+        # ==========================================================
+        # AUTENTICACIÓN / CONTEXTO
+        # ==========================================================
 
         self.token = None
         self.league_id = None
@@ -79,6 +97,7 @@ class BiwengerClient:
         data = response.json()
 
         self.token = data["token"]
+
         self.login_time = time.time()
 
         self.session.headers.update(
@@ -153,6 +172,7 @@ class BiwengerClient:
         for liga in leagues:
 
             if liga["id"] == league_id:
+
                 return liga["user"]["id"]
 
         return None
@@ -216,7 +236,7 @@ class BiwengerClient:
         )
 
     # ==============================================================
-    # PLANTILLAS
+    # PLANTILLAS DE LOS USUARIOS
     # ==============================================================
 
     def league_players(
@@ -282,7 +302,7 @@ class BiwengerClient:
         return response.json()
 
     # ==============================================================
-    # HISTORIAL
+    # HISTORIAL DEL MERCADO
     # ==============================================================
 
     def board_history(
@@ -337,7 +357,7 @@ class BiwengerClient:
         return response.json()
 
     # ==============================================================
-    # HISTORIAL COMPLETO
+    # DESCARGAR TODO EL HISTORIAL
     # ==============================================================
 
     def get_full_market_history(
@@ -350,6 +370,7 @@ class BiwengerClient:
         all_events = []
 
         current_date = None
+
         seen_events = set()
 
         for _ in range(max_pages):
@@ -380,13 +401,10 @@ class BiwengerClient:
 
                 event_date = event.get("date")
 
-                # Usamos también tipo y contenido como parte
-                # de la identificación para evitar perder eventos.
                 event_key = (
                     event_date,
                     event.get("type"),
                     event.get("title"),
-                    str(event.get("content", "")),
                 )
 
                 if event_key in seen_events:
@@ -395,9 +413,6 @@ class BiwengerClient:
                 seen_events.add(event_key)
 
                 new_events.append(event)
-
-            if not new_events:
-                break
 
             all_events.extend(new_events)
 
@@ -415,7 +430,11 @@ class BiwengerClient:
 
             oldest_date = min(dates)
 
+            if not new_events:
+                break
+
             if current_date is not None:
+
                 if oldest_date >= current_date:
                     break
 
@@ -435,7 +454,124 @@ class BiwengerClient:
         }
 
     # ==============================================================
-    # EXTRAER OPERACIONES INDIVIDUALES
+    # HISTORIAL ÚLTIMAS 24 HORAS
+    # ==============================================================
+
+    def get_market_history_last_24h(
+        self,
+        league_id,
+        limit=100,
+        max_pages=20,
+    ):
+        """
+        Descarga únicamente las páginas necesarias para cubrir
+        las últimas 24 horas.
+
+        Se empieza por el mercado actual y se retrocede hasta
+        alcanzar la marca temporal de hace 24 horas.
+        """
+
+        ahora = time.time()
+
+        desde = ahora - (
+            24 * 60 * 60
+        )
+
+        all_events = []
+
+        current_date = None
+
+        seen_events = set()
+
+        for _ in range(max_pages):
+
+            response = self.board_history(
+                league_id=league_id,
+                date=current_date,
+                limit=limit,
+            )
+
+            if not isinstance(response, dict):
+                break
+
+            data = response.get("data")
+
+            if not isinstance(data, list):
+                break
+
+            if not data:
+                break
+
+            for event in data:
+
+                if not isinstance(event, dict):
+                    continue
+
+                event_date = event.get("date")
+
+                if not isinstance(
+                    event_date,
+                    (int, float),
+                ):
+                    continue
+
+                event_key = (
+                    event_date,
+                    event.get("type"),
+                    event.get("title"),
+                )
+
+                if event_key in seen_events:
+                    continue
+
+                seen_events.add(event_key)
+
+                if event_date >= desde:
+
+                    all_events.append(
+                        event
+                    )
+
+            dates = [
+                event.get("date")
+                for event in data
+                if isinstance(
+                    event.get("date"),
+                    (int, float),
+                )
+            ]
+
+            if not dates:
+                break
+
+            oldest_date = min(dates)
+
+            # Ya hemos llegado a más de 24h hacia atrás.
+            if oldest_date < desde:
+                break
+
+            if current_date is not None:
+
+                if oldest_date >= current_date:
+                    break
+
+            current_date = oldest_date - 1
+
+            if len(data) < limit:
+                break
+
+        all_events.sort(
+            key=lambda x: x.get("date", 0),
+            reverse=True,
+        )
+
+        return {
+            "status": 200,
+            "data": all_events,
+        }
+
+    # ==============================================================
+    # CONVERTIR CONTENT EN OPERACIONES INDIVIDUALES
     # ==============================================================
 
     def extract_operations(
@@ -470,35 +606,60 @@ class BiwengerClient:
 
             event_date = event.get("date")
             event_type = event.get("type")
-            event_title = event.get("title", "")
-            event_fixed = event.get("fixed", False)
+            event_title = event.get(
+                "title",
+                "",
+            )
+            event_fixed = event.get(
+                "fixed",
+                False,
+            )
 
             content = event.get(
                 "content",
                 [],
             )
 
-            if not isinstance(content, list):
+            if not isinstance(
+                content,
+                list,
+            ):
                 continue
 
             for item in content:
 
-                if not isinstance(item, dict):
+                if not isinstance(
+                    item,
+                    dict,
+                ):
                     continue
 
                 operation = dict(item)
 
-                operation["_event_date"] = event_date
-                operation["_event_type"] = event_type
-                operation["_event_title"] = event_title
-                operation["_event_fixed"] = event_fixed
+                operation["_event_date"] = (
+                    event_date
+                )
 
-                operations.append(operation)
+                operation["_event_type"] = (
+                    event_type
+                )
+
+                operation["_event_title"] = (
+                    event_title
+                )
+
+                operation["_event_fixed"] = (
+                    event_fixed
+                )
+
+                operations.append(
+                    operation
+                )
 
         return operations
 
     # ==============================================================
-    # INFORME DE MERCADO
+    # INFORME DEL MERCADO
     # ==============================================================
 
     def calculate_market_report(
@@ -538,30 +699,49 @@ class BiwengerClient:
                 "player"
             )
 
-            buyer = operation.get("to")
-            seller = operation.get("from")
+            buyer = operation.get(
+                "to"
+            )
+
+            seller = operation.get(
+                "from"
+            )
 
             # ------------------------------------------------------
             # COMPRA
             # ------------------------------------------------------
 
-            if isinstance(buyer, dict):
+            if isinstance(
+                buyer,
+                dict,
+            ):
 
                 buyer_name = buyer.get(
                     "name",
                     "Desconocido",
                 )
 
-                buyer_id = buyer.get("id")
+                buyer_id = buyer.get(
+                    "id"
+                )
 
-                report[buyer_name]["compras"].append(
+                report[buyer_name][
+                    "compras"
+                ].append(
                     {
-                        "player_id": player_id,
-                        "amount": amount,
-                        "date": operation.get(
-                            "_event_date"
-                        ),
-                        "user_id": buyer_id,
+                        "player_id":
+                            player_id,
+
+                        "amount":
+                            amount,
+
+                        "date":
+                            operation.get(
+                                "_event_date"
+                            ),
+
+                        "user_id":
+                            buyer_id,
                     }
                 )
 
@@ -577,23 +757,37 @@ class BiwengerClient:
             # VENTA
             # ------------------------------------------------------
 
-            if isinstance(seller, dict):
+            if isinstance(
+                seller,
+                dict,
+            ):
 
                 seller_name = seller.get(
                     "name",
                     "Desconocido",
                 )
 
-                seller_id = seller.get("id")
+                seller_id = seller.get(
+                    "id"
+                )
 
-                report[seller_name]["ventas"].append(
+                report[seller_name][
+                    "ventas"
+                ].append(
                     {
-                        "player_id": player_id,
-                        "amount": amount,
-                        "date": operation.get(
-                            "_event_date"
-                        ),
-                        "user_id": seller_id,
+                        "player_id":
+                            player_id,
+
+                        "amount":
+                            amount,
+
+                        "date":
+                            operation.get(
+                                "_event_date"
+                            ),
+
+                        "user_id":
+                            seller_id,
                     }
                 )
 
@@ -604,6 +798,10 @@ class BiwengerClient:
                 report[seller_name][
                     "numero_ventas"
                 ] += 1
+
+        # ==========================================================
+        # CALCULAR SALDO ACTUAL
+        # ==========================================================
 
         final_report = {}
 
@@ -617,125 +815,41 @@ class BiwengerClient:
                 "total_ventas"
             ]
 
+            saldo_actual = (
+                SALDO_INICIAL
+                + total_ventas
+                - total_compras
+            )
+
             final_report[manager] = {
-                "compras": data["compras"],
-                "ventas": data["ventas"],
-                "total_compras": total_compras,
-                "total_ventas": total_ventas,
-                "numero_compras": data[
-                    "numero_compras"
-                ],
-                "numero_ventas": data[
-                    "numero_ventas"
-                ],
-                "balance": (
-                    total_ventas
-                    - total_compras
-                ),
+
+                "compras":
+                    data["compras"],
+
+                "ventas":
+                    data["ventas"],
+
+                "total_compras":
+                    total_compras,
+
+                "total_ventas":
+                    total_ventas,
+
+                "numero_compras":
+                    data[
+                        "numero_compras"
+                    ],
+
+                "numero_ventas":
+                    data[
+                        "numero_ventas"
+                    ],
+
+                "saldo_actual":
+                    saldo_actual,
             }
 
         return final_report
-
-    # ==============================================================
-    # RESUMEN GENERAL
-    # ==============================================================
-
-    def market_report_summary(
-        self,
-        history,
-    ):
-
-        report = self.calculate_market_report(
-            history
-        )
-
-        if not report:
-
-            return {
-                "managers": {},
-                "total_compras": 0,
-                "total_ventas": 0,
-                "balance_total": 0,
-                "mayor_gasto": None,
-                "mayor_ingreso": None,
-                "mejor_balance": None,
-                "peor_balance": None,
-            }
-
-        total_compras = sum(
-            manager["total_compras"]
-            for manager in report.values()
-        )
-
-        total_ventas = sum(
-            manager["total_ventas"]
-            for manager in report.values()
-        )
-
-        mayor_gasto = max(
-            report.items(),
-            key=lambda item:
-                item[1]["total_compras"],
-        )
-
-        mayor_ingreso = max(
-            report.items(),
-            key=lambda item:
-                item[1]["total_ventas"],
-        )
-
-        mejor_balance = max(
-            report.items(),
-            key=lambda item:
-                item[1]["balance"],
-        )
-
-        peor_balance = min(
-            report.items(),
-            key=lambda item:
-                item[1]["balance"],
-        )
-
-        return {
-            "managers": report,
-
-            "total_compras":
-                total_compras,
-
-            "total_ventas":
-                total_ventas,
-
-            "balance_total":
-                total_ventas - total_compras,
-
-            "mayor_gasto": {
-                "manager": mayor_gasto[0],
-                "amount": mayor_gasto[1][
-                    "total_compras"
-                ],
-            },
-
-            "mayor_ingreso": {
-                "manager": mayor_ingreso[0],
-                "amount": mayor_ingreso[1][
-                    "total_ventas"
-                ],
-            },
-
-            "mejor_balance": {
-                "manager": mejor_balance[0],
-                "amount": mejor_balance[1][
-                    "balance"
-                ],
-            },
-
-            "peor_balance": {
-                "manager": peor_balance[0],
-                "amount": peor_balance[1][
-                    "balance"
-                ],
-            },
-        }
 
 
 # ==============================================================
@@ -746,7 +860,7 @@ _CLIENT = BiwengerClient()
 
 
 # ==============================================================
-# FUNCIONES DE COMPATIBILIDAD CON BOT
+# FUNCIONES DE COMPATIBILIDAD
 # ==============================================================
 
 def obtener_ligas():
@@ -754,25 +868,46 @@ def obtener_ligas():
     return _CLIENT.leagues()
 
 
+# ==============================================================
+# MAPA DE JUGADORES
+# ==============================================================
+
 def _extraer_mapa_jugadores():
 
     try:
+
         respuesta = _CLIENT.players()
+
     except Exception:
+
         return {}
 
     mapa = {}
 
     def recorrer(obj):
 
-        if isinstance(obj, dict):
+        if isinstance(
+            obj,
+            dict,
+        ):
 
-            player_id = obj.get("id")
-            nombre = obj.get("name")
+            player_id = obj.get(
+                "id"
+            )
+
+            nombre = obj.get(
+                "name"
+            )
 
             if (
-                isinstance(player_id, int)
-                and isinstance(nombre, str)
+                isinstance(
+                    player_id,
+                    int,
+                )
+                and isinstance(
+                    nombre,
+                    str,
+                )
                 and nombre.strip()
             ):
 
@@ -788,14 +923,21 @@ def _extraer_mapa_jugadores():
                     )
                 ):
 
-                    mapa[player_id] = nombre.strip()
+                    mapa[
+                        player_id
+                    ] = nombre.strip()
 
             for valor in obj.values():
+
                 recorrer(valor)
 
-        elif isinstance(obj, list):
+        elif isinstance(
+            obj,
+            list,
+        ):
 
             for valor in obj:
+
                 recorrer(valor)
 
     recorrer(respuesta)
@@ -803,40 +945,126 @@ def _extraer_mapa_jugadores():
     return mapa
 
 
-def _formatear_fecha(timestamp):
+# ==============================================================
+# FECHAS
+# ==============================================================
+
+def _timestamp_datetime(
+    timestamp,
+):
 
     try:
 
         return datetime.fromtimestamp(
             float(timestamp),
             tz=timezone.utc,
-        ).strftime(
-            "%Y-%m-%d %H:%M:%S"
+        ).astimezone(
+            MADRID_TZ
         )
 
     except Exception:
 
+        return None
+
+
+def _formatear_fecha(
+    timestamp,
+):
+
+    fecha = _timestamp_datetime(
+        timestamp
+    )
+
+    if fecha is None:
+
         return str(timestamp)
 
+    return fecha.strftime(
+        "%d/%m/%Y %H:%M"
+    )
 
-def _formatear_importe(amount):
+
+def _nombre_fecha(
+    timestamp,
+):
+
+    fecha = _timestamp_datetime(
+        timestamp
+    )
+
+    if fecha is None:
+
+        return "FECHA DESCONOCIDA"
+
+    meses = [
+        "ENERO",
+        "FEBRERO",
+        "MARZO",
+        "ABRIL",
+        "MAYO",
+        "JUNIO",
+        "JULIO",
+        "AGOSTO",
+        "SEPTIEMBRE",
+        "OCTUBRE",
+        "NOVIEMBRE",
+        "DICIEMBRE",
+    ]
+
+    return (
+        f"{fecha.day} "
+        f"{meses[fecha.month - 1]} "
+        f"{fecha.year}"
+    )
+
+
+def _hora(
+    timestamp,
+):
+
+    fecha = _timestamp_datetime(
+        timestamp
+    )
+
+    if fecha is None:
+
+        return ""
+
+    return fecha.strftime(
+        "%H:%M"
+    )
+
+
+# ==============================================================
+# IMPORTES
+# ==============================================================
+
+def _formatear_importe(
+    amount,
+):
 
     try:
+
         return f"{int(amount):,}€"
+
     except Exception:
+
         return "0€"
 
+
+# ==============================================================
+# FORMATEAR MOVIMIENTO
+# ==============================================================
 
 def _formatear_movimiento(
     operation,
     jugadores,
+    incluir_hora=False,
 ):
 
-    fecha = _formatear_fecha(
-        operation.get("_event_date")
+    player_id = operation.get(
+        "player"
     )
-
-    player_id = operation.get("player")
 
     jugador = jugadores.get(
         player_id,
@@ -848,10 +1076,38 @@ def _formatear_movimiento(
         0,
     )
 
-    buyer = operation.get("to")
-    seller = operation.get("from")
+    buyer = operation.get(
+        "to"
+    )
 
-    if isinstance(buyer, dict):
+    seller = operation.get(
+        "from"
+    )
+
+    hora = ""
+
+    if incluir_hora:
+
+        hora_valor = _hora(
+            operation.get(
+                "_event_date"
+            )
+        )
+
+        if hora_valor:
+
+            hora = (
+                f"🕐 {hora_valor} | "
+            )
+
+    # ----------------------------------------------------------
+    # COMPRA
+    # ----------------------------------------------------------
+
+    if isinstance(
+        buyer,
+        dict,
+    ):
 
         nombre = buyer.get(
             "name",
@@ -859,12 +1115,20 @@ def _formatear_movimiento(
         )
 
         return (
-            f"🟢 {fecha} | "
-            f"{nombre} ficha a {jugador} "
-            f"por {_formatear_importe(amount)}"
+            f"🟢 {hora}"
+            f"{nombre} ficha a "
+            f"{jugador} por "
+            f"{_formatear_importe(amount)}"
         )
 
-    if isinstance(seller, dict):
+    # ----------------------------------------------------------
+    # VENTA
+    # ----------------------------------------------------------
+
+    if isinstance(
+        seller,
+        dict,
+    ):
 
         nombre = seller.get(
             "name",
@@ -872,12 +1136,49 @@ def _formatear_movimiento(
         )
 
         return (
-            f"🔴 {fecha} | "
-            f"{nombre} vende a {jugador} "
-            f"por {_formatear_importe(amount)}"
+            f"🔴 {hora}"
+            f"{nombre} vende a "
+            f"{jugador} por "
+            f"{_formatear_importe(amount)}"
         )
 
     return None
+
+
+# ==============================================================
+# OBTENER OPERACIONES
+# ==============================================================
+
+def _obtener_operaciones(
+    history,
+):
+
+    operations = _CLIENT.extract_operations(
+        history
+    )
+
+    def fecha_operacion(
+        operation,
+    ):
+
+        try:
+
+            return float(
+                operation.get(
+                    "_event_date",
+                    0,
+                )
+            )
+
+        except Exception:
+
+            return 0
+
+    return sorted(
+        operations,
+        key=fecha_operacion,
+        reverse=True,
+    )
 
 
 # ==============================================================
@@ -931,47 +1232,224 @@ def cargar_liga(
         max_pages=100,
     )
 
-    operations = _CLIENT.extract_operations(
+    operations = _obtener_operaciones(
         history
     )
 
     jugadores = _extraer_mapa_jugadores()
 
-    operaciones_ordenadas = sorted(
-        operations,
-        key=lambda op: (
-            float(
-                op.get(
-                    "_event_date",
-                    0,
-                )
-            )
-            if isinstance(
-                op.get("_event_date"),
-                (int, float),
-            )
-            else 0
-        ),
-        reverse=True,
-    )
-
     movimientos = []
 
-    for operation in operaciones_ordenadas:
+    for operation in operations:
 
         texto = _formatear_movimiento(
             operation,
             jugadores,
+            incluir_hora=True,
         )
 
         if texto:
-            movimientos.append(texto)
+
+            movimientos.append(
+                texto
+            )
 
     return usuarios, movimientos
 
 
 # ==============================================================
-# INFORME RESUMIDO
+# MERCADO COMPLETO AGRUPADO POR FECHA
+# ==============================================================
+
+def obtener_mercado_completo(
+    liga_id,
+):
+
+    history = _CLIENT.get_full_market_history(
+        liga_id,
+        limit=100,
+        max_pages=100,
+    )
+
+    operations = _obtener_operaciones(
+        history
+    )
+
+    jugadores = _extraer_mapa_jugadores()
+
+    grupos = {}
+
+    orden_fechas = []
+
+    for operation in operations:
+
+        timestamp = operation.get(
+            "_event_date"
+        )
+
+        fecha = _timestamp_datetime(
+            timestamp
+        )
+
+        if fecha is None:
+
+            clave = "desconocida"
+
+        else:
+
+            clave = fecha.strftime(
+                "%Y-%m-%d"
+            )
+
+        if clave not in grupos:
+
+            grupos[clave] = []
+
+            orden_fechas.append(
+                clave
+            )
+
+        texto = _formatear_movimiento(
+            operation,
+            jugadores,
+            incluir_hora=False,
+        )
+
+        if texto:
+
+            grupos[clave].append(
+                texto
+            )
+
+    partes = []
+
+    for clave in orden_fechas:
+
+        if clave == "desconocida":
+
+            titulo = (
+                "📅 FECHA DESCONOCIDA"
+            )
+
+        else:
+
+            timestamp = None
+
+            for operation in operations:
+
+                fecha = _timestamp_datetime(
+                    operation.get(
+                        "_event_date"
+                    )
+                )
+
+                if (
+                    fecha is not None
+                    and fecha.strftime(
+                        "%Y-%m-%d"
+                    ) == clave
+                ):
+
+                    timestamp = (
+                        operation.get(
+                            "_event_date"
+                        )
+                    )
+
+                    break
+
+            titulo = (
+                "📅 "
+                + _nombre_fecha(
+                    timestamp
+                )
+            )
+
+        bloque = [
+            titulo,
+            "",
+        ]
+
+        bloque.extend(
+            grupos[clave]
+        )
+
+        partes.append(
+            "\n".join(bloque)
+        )
+
+    if not partes:
+
+        return (
+            "🔄 MERCADO COMPLETO\n\n"
+            "Sin movimientos."
+        )
+
+    return (
+        "🔄 MERCADO COMPLETO\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        + "\n\n".join(partes)
+    )
+
+
+# ==============================================================
+# MERCADO ÚLTIMAS 24 HORAS
+# ==============================================================
+
+def obtener_mercado_24h(
+    liga_id,
+):
+
+    history = (
+        _CLIENT.get_market_history_last_24h(
+            liga_id,
+            limit=100,
+            max_pages=20,
+        )
+    )
+
+    operations = _obtener_operaciones(
+        history
+    )
+
+    jugadores = _extraer_mapa_jugadores()
+
+    if not operations:
+
+        return (
+            "⏱️ MERCADO — ÚLTIMAS 24 HORAS\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Sin movimientos en las últimas "
+            "24 horas."
+        )
+
+    lineas = [
+        "⏱️ MERCADO — ÚLTIMAS 24 HORAS",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+    ]
+
+    for operation in operations:
+
+        texto = _formatear_movimiento(
+            operation,
+            jugadores,
+            incluir_hora=True,
+        )
+
+        if texto:
+
+            lineas.append(
+                texto
+            )
+
+    return "\n".join(
+        lineas
+    )
+
+
+# ==============================================================
+# INFORME
 # ==============================================================
 
 def obtener_informe(
@@ -984,7 +1462,7 @@ def obtener_informe(
         max_pages=100,
     )
 
-    return _CLIENT.market_report_summary(
+    return _CLIENT.calculate_market_report(
         history
     )
 
@@ -997,12 +1475,6 @@ def obtener_informe_detallado(
     liga_id,
 ):
 
-    history = _CLIENT.get_full_market_history(
-        liga_id,
-        limit=100,
-        max_pages=100,
-    )
-
-    return _CLIENT.calculate_market_report(
-        history
+    return obtener_informe(
+        liga_id
     )
