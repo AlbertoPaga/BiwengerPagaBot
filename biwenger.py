@@ -1,4 +1,3 @@
-```python
 from pprint import pprint
 
 from biwenger_client import BiwengerClient
@@ -373,4 +372,3 @@ def patrimonio(
         valor,
         dinero + valor
     )
-```
