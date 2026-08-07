@@ -1,4 +1,3 @@
-```python
 import requests
 import time
 
@@ -371,4 +370,3 @@ class BiwengerClient:
 
 
         return response.json()
-```
