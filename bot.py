@@ -265,9 +265,7 @@ async def informe(update, context):
 
 
         texto = (
-            "📊 INFORME DEL MERCADO\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "👥 MANAGERS\n"
+            "📊 INFORME DE MANAGERS\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
         )
 
