@@ -878,3 +878,295 @@ class BiwengerClient:
                     ],
             },
         }
+
+
+# ==============================================================
+# FUNCIONES DE COMPATIBILIDAD CON bot.py
+# ==============================================================
+
+_CLIENT = BiwengerClient()
+
+
+def obtener_ligas():
+    """
+    Devuelve las ligas disponibles para la cuenta de Biwenger.
+
+    bot.py espera una lista de diccionarios con, al menos:
+        {"id": ..., "name": ...}
+    """
+    return _CLIENT.leagues()
+
+
+def _extraer_mapa_jugadores():
+    """
+    Obtiene el mapa player_id -> nombre usando la API pública.
+
+    La estructura de la respuesta pública puede variar, por lo que
+    se intenta localizar de forma robusta la lista de jugadores.
+    """
+    try:
+        respuesta = _CLIENT.players()
+    except Exception:
+        return {}
+
+    mapa = {}
+
+    def recorrer(obj):
+        if isinstance(obj, dict):
+            # Caso habitual: un jugador tiene id + name.
+            player_id = obj.get("id")
+            nombre = obj.get("name")
+
+            if (
+                isinstance(player_id, int)
+                and isinstance(nombre, str)
+                and nombre.strip()
+            ):
+                # Solo guardar como jugador si tiene algún indicio
+                # de que el objeto pertenece al catálogo de jugadores.
+                if any(
+                    clave in obj
+                    for clave in (
+                        "team",
+                        "position",
+                        "positions",
+                        "price",
+                        "points",
+                        "status",
+                    )
+                ):
+                    mapa[player_id] = nombre.strip()
+
+            for valor in obj.values():
+                recorrer(valor)
+
+        elif isinstance(obj, list):
+            for valor in obj:
+                recorrer(valor)
+
+    recorrer(respuesta)
+    return mapa
+
+
+def _formatear_fecha(timestamp):
+    """Convierte timestamp Unix a fecha/hora UTC."""
+    try:
+        from datetime import datetime, timezone
+
+        return datetime.fromtimestamp(
+            float(timestamp),
+            tz=timezone.utc,
+        ).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(timestamp)
+
+
+def _formatear_importe(amount):
+    """Formatea un importe para Telegram."""
+    try:
+        return f"{int(amount):,}€"
+    except Exception:
+        return "0€"
+
+
+def _formatear_movimiento(operation, jugadores):
+    """
+    Convierte una operación individual de Biwenger en el texto que
+    consume bot.py.
+
+    Compra:
+        🟢 fecha | usuario ficha a jugador por importe
+
+    Venta:
+        🔴 fecha | usuario vende a jugador por importe
+    """
+    fecha = _formatear_fecha(
+        operation.get("_event_date")
+    )
+
+    player_id = operation.get("player")
+    jugador = jugadores.get(
+        player_id,
+        f"Jugador {player_id}",
+    )
+
+    amount = operation.get("amount", 0)
+
+    buyer = operation.get("to")
+    seller = operation.get("from")
+
+    if isinstance(buyer, dict):
+        nombre = buyer.get(
+            "name",
+            "Desconocido",
+        )
+
+        return (
+            f"🟢 {fecha} | "
+            f"{nombre} ficha a {jugador} "
+            f"por {_formatear_importe(amount)}"
+        )
+
+    if isinstance(seller, dict):
+        nombre = seller.get(
+            "name",
+            "Desconocido",
+        )
+
+        return (
+            f"🔴 {fecha} | "
+            f"{nombre} vende a {jugador} "
+            f"por {_formatear_importe(amount)}"
+        )
+
+    return None
+
+
+def cargar_liga(liga_id):
+    """
+    Función que utiliza directamente bot.py.
+
+    Devuelve exactamente:
+
+        usuarios, movimientos
+
+    donde:
+        usuarios     -> lista de usuarios de la liga
+        movimientos  -> lista de cadenas listas para Telegram
+
+    Se descarga TODO el historial disponible mediante
+    get_full_market_history(), y después se descompone cada evento
+    en sus operaciones individuales de content.
+    """
+    # Cargar la información de la liga.
+    respuesta_liga = _CLIENT.league(liga_id)
+
+    if not isinstance(respuesta_liga, dict):
+        raise ValueError(
+            "Respuesta inválida al obtener la liga"
+        )
+
+    data_liga = respuesta_liga.get(
+        "data",
+        {},
+    )
+
+    if not isinstance(data_liga, dict):
+        data_liga = {}
+
+    usuarios = data_liga.get(
+        "users",
+        [],
+    )
+
+    if not isinstance(usuarios, list):
+        usuarios = []
+
+    # ----------------------------------------------------------
+    # HISTORIAL COMPLETO
+    # ----------------------------------------------------------
+
+    history = _CLIENT.get_full_market_history(
+        liga_id,
+        limit=100,
+        max_pages=100,
+    )
+
+    # Convertimos los eventos en operaciones individuales.
+    operations = _CLIENT.extract_operations(
+        history
+    )
+
+    # ----------------------------------------------------------
+    # NOMBRES DE JUGADORES
+    # ----------------------------------------------------------
+
+    jugadores = _extraer_mapa_jugadores()
+
+    # ----------------------------------------------------------
+    # FORMATEAR MOVIMIENTOS
+    # ----------------------------------------------------------
+
+    movimientos = []
+
+    for operation in operations:
+
+        texto = _formatear_movimiento(
+            operation,
+            jugadores,
+        )
+
+        if texto:
+            movimientos.append(texto)
+
+    # El historial ya viene ordenado por fecha descendente,
+    # pero mantenemos este orden también después de extraer
+    # content para garantizarlo.
+    def fecha_operacion(op):
+        try:
+            return float(
+                op.get("_event_date", 0)
+            )
+        except Exception:
+            return 0
+
+    # Volvemos a construir la lista ordenada directamente desde
+    # las operaciones para evitar depender de la estructura de
+    # la respuesta intermedia.
+    operaciones_ordenadas = sorted(
+        operations,
+        key=fecha_operacion,
+        reverse=True,
+    )
+
+    movimientos = []
+
+    for operation in operaciones_ordenadas:
+
+        texto = _formatear_movimiento(
+            operation,
+            jugadores,
+        )
+
+        if texto:
+            movimientos.append(texto)
+
+    return usuarios, movimientos
+
+
+# ==============================================================
+# INFORME DEL MERCADO
+# ==============================================================
+
+def obtener_informe(liga_id):
+    """
+    Obtiene el informe completo del mercado para una liga.
+
+    Se deja como función pública para que bot.py pueda utilizarla
+    posteriormente sin tener que conocer la implementación del
+    cliente.
+    """
+    history = _CLIENT.get_full_market_history(
+        liga_id,
+        limit=100,
+        max_pages=100,
+    )
+
+    return _CLIENT.market_report_summary(
+        history
+    )
+
+
+def obtener_informe_detallado(liga_id):
+    """
+    Devuelve el informe detallado por usuario.
+    """
+    history = _CLIENT.get_full_market_history(
+        liga_id,
+        limit=100,
+        max_pages=100,
+    )
+
+    return _CLIENT.calculate_market_report(
+        history
+    )
