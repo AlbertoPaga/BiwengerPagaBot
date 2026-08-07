@@ -265,6 +265,99 @@ class BiwengerClient:
 
 
 
+    def board_history(
+        self,
+        league_id,
+        date=None,
+        limit=100
+    ):
+
+        """
+        Obtiene el historial del tablón de la liga.
+
+        Permite consultar los movimientos de mercado
+        y transferencias utilizando paginación mediante
+        el parámetro date.
+
+        Primera petición:
+
+            type=transfer,market
+            limit=100
+
+        Siguientes peticiones:
+
+            type=transfer,market
+            limit=100
+            date=<timestamp>
+
+        El parámetro date permite continuar desde
+        una fecha anterior.
+        """
+
+
+        user_id = self.find_league_user(
+            league_id
+        )
+
+
+        if user_id is None:
+
+            raise ValueError(
+                f"No se encontró el usuario "
+                f"para la liga {league_id}"
+            )
+
+
+        self.set_context(
+            league_id,
+            user_id
+        )
+
+
+        self.login()
+
+
+        headers = {
+            "Authorization":
+                f"Bearer {self.token}",
+
+            "Accept":
+                "application/json",
+
+            "X-League":
+                str(self.league_id),
+
+            "X-User":
+                str(self.user_id)
+        }
+
+
+        params = {
+            "type": "transfer,market",
+            "limit": limit
+        }
+
+
+        if date is not None:
+
+            params["date"] = date
+
+
+        response = self.session.get(
+            f"{BASE_URL}/league/{league_id}/board",
+            headers=headers,
+            params=params,
+            timeout=15
+        )
+
+
+        response.raise_for_status()
+
+
+        return response.json()
+
+
+
     def league_players(
         self,
         league_id
