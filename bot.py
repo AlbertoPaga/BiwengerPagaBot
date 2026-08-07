@@ -31,16 +31,12 @@ MAX_TELEGRAM = 4000
 
 
 # ==============================================================
-# ENVIAR MENSAJES LARGOS
+# UTILIDADES
 # ==============================================================
 
-async def enviar_largo(
-    update,
-    texto,
-):
+async def enviar_largo(update, texto):
 
     if not texto:
-
         texto = "Sin datos"
 
     partes = [
@@ -53,77 +49,109 @@ async def enviar_largo(
     ]
 
     for parte in partes:
+        await update.message.reply_text(parte)
 
-        await update.message.reply_text(
-            parte
+
+
+async def mostrar_selector_liga(update):
+
+    ligas = obtener_ligas()
+
+    botones = []
+
+    for liga in ligas:
+        botones.append(
+            [
+                InlineKeyboardButton(
+                    liga["name"],
+                    callback_data=f'{liga["id"]}|{liga["name"]}',
+                )
+            ]
         )
+
+    if not botones:
+        await update.message.reply_text(
+            "No se encontraron ligas."
+        )
+        return
+
+    await update.message.reply_text(
+        "🏆 Selecciona una liga:",
+        reply_markup=InlineKeyboardMarkup(
+            botones
+        ),
+    )
+
+
+
+async def mostrar_menu_liga(update, context):
+
+    nombre = context.user_data.get(
+        "liga_nombre",
+        "Liga seleccionada",
+    )
+
+    await update.message.reply_text(
+        f"""
+✅ Liga activa
+
+🏆 {nombre}
+
+Comandos disponibles:
+
+/informe
+/mercado
+/mercado24
+/liga
+/ayuda
+"""
+    )
+
 
 
 # ==============================================================
 # START
 # ==============================================================
 
-async def start(
-    update,
-    context,
-):
+async def start(update, context):
 
-    await update.message.reply_text(
-        """
-🤖 Bot Biwenger activo
-
-Comandos:
-
-/liga - seleccionar liga
-/informe - informe de saldos
-/movimientos - mercado completo
-/mercado24 - mercado últimas 24 horas
-/ayuda - ayuda
-"""
+    liga_id = context.user_data.get(
+        "liga"
     )
 
+    if liga_id:
+
+        await mostrar_menu_liga(
+            update,
+            context,
+        )
+
+    else:
+
+        await update.message.reply_text(
+            """
+🤖 ConsultasBiwenger
+
+Primero selecciona una liga.
+"""
+        )
+
+        await mostrar_selector_liga(
+            update
+        )
+
+
 
 # ==============================================================
-# LIGA
+# CAMBIAR LIGA
 # ==============================================================
 
-async def liga(
-    update,
-    context,
-):
+async def liga(update, context):
 
     try:
 
-        ligas = obtener_ligas()
-
-        botones = []
-
-        for l in ligas:
-
-            botones.append(
-                [
-                    InlineKeyboardButton(
-                        l["name"],
-                        callback_data=str(
-                            l["id"]
-                        ),
-                    )
-                ]
-            )
-
-        if not botones:
-
-            await update.message.reply_text(
-                "No se encontraron ligas."
-            )
-
-            return
-
-        await update.message.reply_text(
-            "Selecciona liga:",
-            reply_markup=InlineKeyboardMarkup(
-                botones
-            ),
+        await mostrar_selector_liga(
+            update
         )
 
     except Exception as e:
@@ -137,14 +165,12 @@ async def liga(
         )
 
 
+
 # ==============================================================
 # ELEGIR LIGA
 # ==============================================================
 
-async def elegir_liga(
-    update,
-    context,
-):
+async def elegir_liga(update, context):
 
     query = update.callback_query
 
@@ -152,38 +178,52 @@ async def elegir_liga(
 
     try:
 
-        liga_id = int(
-            query.data
-        )
+        datos = query.data.split("|")
+
+        liga_id = int(datos[0])
+
+        liga_nombre = datos[1]
 
     except Exception:
 
         await query.edit_message_text(
-            "❌ ID de liga inválido."
+            "❌ Liga inválida."
         )
 
         return
 
-    context.user_data[
-        "liga"
-    ] = liga_id
+
+    context.user_data["liga"] = liga_id
+
+    context.user_data["liga_nombre"] = liga_nombre
+
 
     await query.edit_message_text(
-        "✅ Liga seleccionada\n\n"
-        f"ID: {liga_id}\n\n"
-        "Ya puedes usar /informe, "
-        "/movimientos o /mercado24."
+        "✅ Liga seleccionada"
     )
 
 
+    await query.message.reply_text(
+        f"""
+🏆 {liga_nombre}
+
+Comandos disponibles:
+
+/informe
+/mercado
+/mercado24
+/liga
+/ayuda
+"""
+    )
+
+
+
 # ==============================================================
-# INFORME
+# COMPROBAR LIGA
 # ==============================================================
 
-async def informe(
-    update,
-    context,
-):
+async def comprobar_liga(update, context):
 
     liga_id = context.user_data.get(
         "liga"
@@ -192,33 +232,50 @@ async def informe(
     if not liga_id:
 
         await update.message.reply_text(
-            "Usa primero /liga"
+            "Primero selecciona una liga con /liga"
         )
 
+        return None
+
+    return liga_id
+
+# ==============================================================
+# INFORME
+# ==============================================================
+
+async def informe(update, context):
+
+    liga_id = await comprobar_liga(
+        update,
+        context,
+    )
+
+    if not liga_id:
         return
 
     try:
 
         await update.message.reply_text(
-            "📊 Calculando informe del mercado..."
+            "📊 Calculando informe..."
         )
 
         report = obtener_informe(
             liga_id
         )
 
+
         texto = (
             "📊 INFORME DEL MERCADO\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "👥 DETALLE POR MANAGER\n"
+            "👥 MANAGERS\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
         )
+
 
         if not report:
 
             texto += (
-                "No hay movimientos "
-                "registrados."
+                "No hay movimientos registrados."
             )
 
             await enviar_largo(
@@ -228,10 +285,6 @@ async def informe(
 
             return
 
-        # ------------------------------------------------------
-        # Ordenar managers por saldo actual
-        # De mayor a menor
-        # ------------------------------------------------------
 
         managers = sorted(
             report.items(),
@@ -242,6 +295,7 @@ async def informe(
                 ),
             reverse=True,
         )
+
 
         for manager, datos in managers:
 
@@ -270,29 +324,32 @@ async def informe(
                 20_000_000,
             )
 
-            emoji_saldo = (
+
+            emoji = (
                 "💰"
                 if saldo >= 0
                 else "🔴"
             )
 
+
             texto += (
                 f"👤 {manager}\n"
-                f"   🟢 Compras: "
+                f"🟢 Compras: "
                 f"{numero_compras} "
                 f"({compras:,}€)\n"
-                f"   🔴 Ventas: "
+                f"🔴 Ventas: "
                 f"{numero_ventas} "
                 f"({ventas:,}€)\n"
-                f"   {emoji_saldo} "
-                f"Saldo actual: "
+                f"{emoji} Saldo: "
                 f"{saldo:,}€\n\n"
             )
+
 
         await enviar_largo(
             update,
             texto,
         )
+
 
     except Exception as e:
 
@@ -305,26 +362,21 @@ async def informe(
         )
 
 
+
 # ==============================================================
 # MERCADO COMPLETO
 # ==============================================================
 
-async def movimientos(
-    update,
-    context,
-):
+async def mercado(update, context):
 
-    liga_id = context.user_data.get(
-        "liga"
+    liga_id = await comprobar_liga(
+        update,
+        context,
     )
 
     if not liga_id:
-
-        await update.message.reply_text(
-            "Usa primero /liga"
-        )
-
         return
+
 
     try:
 
@@ -332,62 +384,73 @@ async def movimientos(
             "🔄 Cargando mercado completo..."
         )
 
+
         texto = obtener_mercado_completo(
             liga_id
         )
+
 
         await enviar_largo(
             update,
             texto,
         )
 
+
     except Exception as e:
 
         logging.exception(
-            "ERROR MERCADO COMPLETO"
+            "ERROR MERCADO"
         )
 
         await update.message.reply_text(
-            f"Error obteniendo el mercado:\n{e}"
+            f"Error obteniendo mercado:\n{e}"
         )
 
 
+
+# Alias para compatibilidad con versiones anteriores
+
+async def movimientos(update, context):
+
+    await mercado(
+        update,
+        context,
+    )
+
+
+
 # ==============================================================
-# MERCADO ÚLTIMAS 24 HORAS
+# MERCADO 24 HORAS
 # ==============================================================
 
-async def mercado24(
-    update,
-    context,
-):
+async def mercado24(update, context):
 
-    liga_id = context.user_data.get(
-        "liga"
+    liga_id = await comprobar_liga(
+        update,
+        context,
     )
 
     if not liga_id:
-
-        await update.message.reply_text(
-            "Usa primero /liga"
-        )
-
         return
+
 
     try:
 
         await update.message.reply_text(
-            "⏱️ Cargando mercado de las "
-            "últimas 24 horas..."
+            "⏱️ Cargando últimas 24 horas..."
         )
+
 
         texto = obtener_mercado_24h(
             liga_id
         )
 
+
         await enviar_largo(
             update,
             texto,
         )
+
 
     except Exception as e:
 
@@ -396,57 +459,73 @@ async def mercado24(
         )
 
         await update.message.reply_text(
-            "Error obteniendo el mercado "
-            f"de las últimas 24 horas:\n{e}"
+            f"Error obteniendo mercado 24h:\n{e}"
         )
+
 
 
 # ==============================================================
 # AYUDA
 # ==============================================================
 
-async def ayuda(
-    update,
-    context,
-):
+async def ayuda(update, context):
 
-    await update.message.reply_text(
-        """
-📚 Comandos:
+    liga_id = context.user_data.get(
+        "liga"
+    )
 
-/liga
-Seleccionar liga Biwenger
+
+    if liga_id:
+
+        texto = """
+📚 Comandos disponibles:
 
 /informe
-Informe del mercado y saldo actual
-de cada manager.
+Informe de saldos de managers.
 
-/movimientos
-Mercado completo, agrupado por fechas.
+/mercado
+Mercado completo agrupado por fechas.
 
 /mercado24
-Movimientos realizados durante
-las últimas 24 horas.
+Movimientos últimas 24 horas.
+
+/liga
+Cambiar de liga.
+
+/ayuda
+Mostrar ayuda.
+"""
+
+    else:
+
+        texto = """
+📚 Comandos:
 
 /start
-Iniciar bot
+Iniciar bot y seleccionar liga.
+
+/liga
+Seleccionar liga.
 """
+
+
+    await update.message.reply_text(
+        texto
     )
+
 
 
 # ==============================================================
 # ERROR GLOBAL
 # ==============================================================
 
-async def error_handler(
-    update,
-    context,
-):
+async def error_handler(update, context):
 
     logging.error(
         "ERROR GLOBAL: %s",
         context.error,
     )
+
 
 
 # ==============================================================
@@ -464,9 +543,6 @@ def main():
         .build()
     )
 
-    # ----------------------------------------------------------
-    # START
-    # ----------------------------------------------------------
 
     app.add_handler(
         CommandHandler(
@@ -475,9 +551,6 @@ def main():
         )
     )
 
-    # ----------------------------------------------------------
-    # LIGA
-    # ----------------------------------------------------------
 
     app.add_handler(
         CommandHandler(
@@ -486,15 +559,13 @@ def main():
         )
     )
 
+
     app.add_handler(
         CallbackQueryHandler(
             elegir_liga,
         )
     )
 
-    # ----------------------------------------------------------
-    # INFORME
-    # ----------------------------------------------------------
 
     app.add_handler(
         CommandHandler(
@@ -503,9 +574,14 @@ def main():
         )
     )
 
-    # ----------------------------------------------------------
-    # MERCADO COMPLETO
-    # ----------------------------------------------------------
+
+    app.add_handler(
+        CommandHandler(
+            "mercado",
+            mercado,
+        )
+    )
+
 
     app.add_handler(
         CommandHandler(
@@ -514,9 +590,6 @@ def main():
         )
     )
 
-    # ----------------------------------------------------------
-    # MERCADO 24 HORAS
-    # ----------------------------------------------------------
 
     app.add_handler(
         CommandHandler(
@@ -525,9 +598,6 @@ def main():
         )
     )
 
-    # ----------------------------------------------------------
-    # AYUDA
-    # ----------------------------------------------------------
 
     app.add_handler(
         CommandHandler(
@@ -536,26 +606,22 @@ def main():
         )
     )
 
-    # ----------------------------------------------------------
-    # ERRORES
-    # ----------------------------------------------------------
 
     app.add_error_handler(
         error_handler
     )
 
+
     print(
         "Bot iniciado..."
     )
+
 
     app.run_polling(
         drop_pending_updates=True
     )
 
 
-# ==============================================================
-# EJECUCIÓN
-# ==============================================================
 
 if __name__ == "__main__":
 
