@@ -1,3 +1,4 @@
+```python
 from pprint import pprint
 
 from biwenger_client import BiwengerClient
@@ -97,236 +98,136 @@ def cargar_movimientos(
     liga_id
 ):
 
-    """
-    Descarga TODO el historial del tablón de la liga.
+    try:
 
-    Se solicitan únicamente movimientos de:
+        print(
+            "\n======================================================"
+        )
 
-        - market
-        - transfer
+        print(
+            "        DESCARGANDO HISTORIAL DEL MERCADO"
+        )
 
-    Se descargan en páginas de 100 elementos.
+        print(
+            "======================================================"
+        )
 
-    La paginación se realiza utilizando la fecha
-    más antigua recibida en cada página:
+        movimientos = client.board_history(
+            liga_id
+        )
 
-        página 1
-        ↓
-        fecha más antigua
-        ↓
-        página 2 con date = fecha - 1
-        ↓
-        fecha más antigua
-        ↓
-        ...
+        print(
+            "======================================================"
+        )
 
-    El proceso termina cuando Biwenger no devuelve
-    más movimientos.
-    """
+        print(
+            "        DESCARGA FINALIZADA"
+        )
 
-    movimientos = []
+        print(
+            "======================================================"
+        )
 
-    cursor = None
+        print(
+            f"TOTAL MOVIMIENTOS DESCARGADOS: {len(movimientos)}"
+        )
 
-    pagina = 0
+        print(
+            "======================================================\n"
+        )
+
+        imprimir_movimientos_raw(
+            movimientos
+        )
+
+        return formatear_movimientos(
+            movimientos
+        )
+
+    except Exception as e:
+
+        print(
+            "ERROR MOVIMIENTOS:",
+            e
+        )
+
+        return []
+
+
+def imprimir_movimientos_raw(
+    movimientos
+):
+
+    if not isinstance(
+        movimientos,
+        list
+    ):
+
+        print(
+            "ERROR: los movimientos no son una lista"
+        )
+
+        return
 
     print(
         "\n======================================================"
     )
 
     print(
-        "          DESCARGANDO HISTORIAL DEL MERCADO"
+        "          MOVIMIENTOS RAW DESCARGADOS"
     )
 
     print(
         "======================================================"
     )
 
-    while True:
-
-        pagina += 1
-
-        params = {
-            "type": "transfer,market",
-            "limit": 100
-        }
-
-        if cursor is not None:
-
-            params["date"] = cursor
+    for numero, movimiento in enumerate(
+        movimientos,
+        start=1
+    ):
 
         print(
-            f"\n---------- PÁGINA {pagina} ----------"
+            f"\n---------------- MOVIMIENTO {numero} ----------------"
         )
 
         print(
-            "PARAMETROS:",
-            params
+            "TYPE:",
+            movimiento.get(
+                "type"
+            )
         )
 
-        try:
-
-            respuesta = client.get(
-                f"/league/{liga_id}/board",
-                params=params
+        print(
+            "DATE:",
+            movimiento.get(
+                "date"
             )
+        )
 
-        except Exception as e:
-
-            print(
-                "\nERROR DESCARGANDO PÁGINA:",
-                pagina
-            )
-
-            print(
-                "ERROR:",
-                e
-            )
-
-            break
-
-        data = respuesta.get(
-            "data",
+        contenido = movimiento.get(
+            "content",
             []
         )
 
-        if not isinstance(
-            data,
-            list
-        ):
-
-            print(
-                "ERROR: data no es una lista."
-            )
-
-            print(
-                "TIPO:",
-                type(data)
-            )
-
-            break
-
         print(
-            "MOVIMIENTOS RECIBIDOS:",
-            len(data)
+            "CONTENT:"
         )
 
-        if not data:
-
-            print(
-                "\nNo hay más movimientos."
-            )
-
-            break
-
-        movimientos.extend(
-            data
+        pprint(
+            contenido
         )
-
-        fechas = []
-
-        for movimiento in data:
-
-            fecha = movimiento.get(
-                "date"
-            )
-
-            if fecha is not None:
-
-                fechas.append(
-                    fecha
-                )
-
-        if not fechas:
-
-            print(
-                "\nLos movimientos recibidos "
-                "no contienen campo 'date'."
-            )
-
-            print(
-                "No se puede continuar la paginación."
-            )
-
-            break
-
-        fecha_mas_antigua = min(
-            fechas
-        )
-
-        fecha_mas_reciente = max(
-            fechas
-        )
-
-        print(
-            "FECHA MÁS RECIENTE:",
-            fecha_mas_reciente
-        )
-
-        print(
-            "FECHA MÁS ANTIGUA:",
-            fecha_mas_antigua
-        )
-
-        nuevo_cursor = (
-            fecha_mas_antigua - 1
-        )
-
-        if cursor is not None:
-
-            if nuevo_cursor >= cursor:
-
-                print(
-                    "\nAVISO: el cursor no está avanzando "
-                    "hacia atrás."
-                )
-
-                print(
-                    "Cursor actual:",
-                    cursor
-                )
-
-                print(
-                    "Nuevo cursor:",
-                    nuevo_cursor
-                )
-
-                print(
-                    "Se detiene la paginación para evitar "
-                    "un bucle infinito."
-                )
-
-                break
-
-        cursor = nuevo_cursor
 
     print(
         "\n======================================================"
     )
 
     print(
-        "              DESCARGA FINALIZADA"
-    )
-
-    print(
-        "======================================================"
-    )
-
-    print(
-        "PÁGINAS DESCARGADAS:",
-        pagina
-    )
-
-    print(
-        "TOTAL MOVIMIENTOS:",
-        len(movimientos)
+        "        FIN MOVIMIENTOS RAW"
     )
 
     print(
         "======================================================\n"
     )
-
-    return movimientos
 
 
 def formatear_movimientos(
@@ -411,25 +312,19 @@ def formatear_movimientos(
                 if comprador:
 
                     resultado.append(
-                        f"🟢 {comprador} ficha a "
-                        f"{jugador} por "
-                        f"{cantidad:,}€"
+                        f"🟢 {comprador} ficha a {jugador} por {cantidad:,}€"
                     )
 
                 elif vendedor:
 
                     resultado.append(
-                        f"🔴 {vendedor} vende a "
-                        f"{jugador} por "
-                        f"{cantidad:,}€"
+                        f"🔴 {vendedor} vende a {jugador} por {cantidad:,}€"
                     )
 
                 else:
 
                     resultado.append(
-                        f"⚽ Movimiento de "
-                        f"{jugador} "
-                        f"({cantidad:,}€)"
+                        f"⚽ Movimiento de {jugador} ({cantidad:,}€)"
                     )
 
         elif tipo == "playerMovements":
@@ -478,3 +373,4 @@ def patrimonio(
         valor,
         dinero + valor
     )
+```
