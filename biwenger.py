@@ -1,551 +1,892 @@
-from pprint import pprint
-from datetime import datetime
+import requests
+import time
+from collections import defaultdict
 
-from biwenger_client import BiwengerClient
-from player_cache import get_player_name
-
-
-def obtener_ligas():
-
-    client = BiwengerClient()
-
-    client.login()
-
-    return client.leagues()
+from config import (
+    BIWENGER_USERNAME,
+    BIWENGER_PASSWORD,
+)
 
 
-def cargar_liga(
-    liga_id
-):
+BASE_URL = "https://biwenger.as.com/api/v2"
 
-    client = BiwengerClient()
+PLAYERS_URL = (
+    "https://cf.biwenger.com/api/v2/"
+    "competitions/la-liga/data"
+)
 
-    client.login()
 
-    liga = client.league(
-        liga_id
-    )
+class BiwengerClient:
 
-    print(
-        "\n================ LIGA ================="
-    )
+    def __init__(self):
 
-    pprint(liga)
+        # ==========================================================
+        # API PRIVADA
+        # ==========================================================
 
-    print(
-        "=======================================\n"
-    )
+        self.session = requests.Session()
 
-    data = liga.get(
-        "data",
-        {}
-    )
+        # ==========================================================
+        # API PÚBLICA DE JUGADORES
+        # ==========================================================
 
-    print(
-        "CLAVES DE DATA:",
-        list(data.keys())
-    )
+        self.public_session = requests.Session()
 
-    for key in data.keys():
+        self.public_session.headers.update(
+            {
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0",
+            }
+        )
 
-        valor = data[key]
+        # ==========================================================
+        # AUTENTICACIÓN / CONTEXTO
+        # ==========================================================
 
-        if isinstance(valor, list):
+        self.token = None
+        self.league_id = None
+        self.user_id = None
+        self.login_time = 0
 
-            print(
-                f"{key}: lista con {len(valor)} elementos"
+    # ==============================================================
+    # CONTEXTO
+    # ==============================================================
+
+    def set_context(
+        self,
+        league_id=None,
+        user_id=None,
+    ):
+
+        if league_id is not None:
+            self.league_id = league_id
+
+        if user_id is not None:
+            self.user_id = user_id
+
+    # ==============================================================
+    # LOGIN
+    # ==============================================================
+
+    def login(self):
+
+        if (
+            self.token
+            and time.time() - self.login_time < 3600
+        ):
+            return
+
+        response = self.session.post(
+            f"{BASE_URL}/auth/login",
+            json={
+                "email": BIWENGER_USERNAME,
+                "password": BIWENGER_PASSWORD,
+            },
+            timeout=15,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        self.token = data["token"]
+
+        self.login_time = time.time()
+
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/json",
+            }
+        )
+
+        return data
+
+    # ==============================================================
+    # GET API PRIVADA
+    # ==============================================================
+
+    def get(
+        self,
+        endpoint,
+        params=None,
+    ):
+
+        self.login()
+
+        headers = {}
+
+        if self.league_id is not None:
+            headers["X-League"] = str(self.league_id)
+
+        if self.user_id is not None:
+            headers["X-User"] = str(self.user_id)
+
+        response = self.session.get(
+            BASE_URL + endpoint,
+            headers=headers,
+            params=params,
+            timeout=15,
+        )
+
+        response.raise_for_status()
+
+        return response.json()
+
+    # ==============================================================
+    # CUENTA
+    # ==============================================================
+
+    def account(self):
+
+        return self.get("/account")
+
+    # ==============================================================
+    # LIGAS
+    # ==============================================================
+
+    def leagues(self):
+
+        data = self.account()
+
+        return data["data"]["leagues"]
+
+    # ==============================================================
+    # BUSCAR USUARIO DE UNA LIGA
+    # ==============================================================
+
+    def find_league_user(
+        self,
+        league_id,
+    ):
+
+        leagues = self.leagues()
+
+        for liga in leagues:
+
+            if liga["id"] == league_id:
+
+                return liga["user"]["id"]
+
+        return None
+
+    # ==============================================================
+    # INFORMACIÓN DE LIGA
+    # ==============================================================
+
+    def league(
+        self,
+        league_id,
+    ):
+
+        user_id = self.find_league_user(
+            league_id
+        )
+
+        if user_id is None:
+
+            raise ValueError(
+                f"No se encontró el usuario "
+                f"para la liga {league_id}"
             )
 
-        elif isinstance(valor, dict):
+        self.set_context(
+            league_id,
+            user_id,
+        )
 
-            print(
-                f"{key}: diccionario con {len(valor)} claves"
+        return self.get(
+            f"/league/{league_id}"
+        )
+
+    # ==============================================================
+    # BOARD ACTUAL
+    # ==============================================================
+
+    def board(
+        self,
+        league_id,
+    ):
+
+        user_id = self.find_league_user(
+            league_id
+        )
+
+        if user_id is None:
+
+            raise ValueError(
+                f"No se encontró el usuario "
+                f"para la liga {league_id}"
             )
 
-        else:
+        self.set_context(
+            league_id,
+            user_id,
+        )
 
-            print(
-                f"{key}: {type(valor)}"
+        return self.get(
+            f"/league/{league_id}/board"
+        )
+
+    # ==============================================================
+    # PLANTILLAS DE LOS USUARIOS
+    # ==============================================================
+
+    def league_players(
+        self,
+        league_id,
+    ):
+
+        user_id = self.find_league_user(
+            league_id
+        )
+
+        if user_id is None:
+
+            raise ValueError(
+                f"No se encontró el usuario "
+                f"para la liga {league_id}"
             )
 
-    usuarios = []
-
-    if "users" in data:
-
-        usuarios = data["users"]
-
-    elif "members" in data:
-
-        usuarios = data["members"]
-
-    elif "managers" in data:
-
-        usuarios = data["managers"]
-
-    movimientos = cargar_movimientos(
-        client,
-        liga_id
-    )
-
-    return (
-        usuarios,
-        movimientos
-    )
-
-
-def cargar_movimientos(
-    client,
-    liga_id
-):
-
-    try:
-
-        print(
-            "======================================================"
+        self.set_context(
+            league_id,
+            user_id,
         )
 
-        print(
-            "        DESCARGANDO HISTORIAL DEL MERCADO"
+        self.login()
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/json",
+            "X-League": str(self.league_id),
+            "X-User": str(self.user_id),
+        }
+
+        response = self.session.get(
+            f"{BASE_URL}/league/{league_id}",
+            headers=headers,
+            params={
+                "fields": "users(players)"
+            },
+            timeout=15,
         )
 
-        print(
-            "======================================================"
+        response.raise_for_status()
+
+        return response.json()
+
+    # ==============================================================
+    # JUGADORES PÚBLICOS
+    # ==============================================================
+
+    def players(self):
+
+        response = self.public_session.get(
+            PLAYERS_URL,
+            params={
+                "lang": "es",
+                "score": 2,
+            },
+            timeout=15,
         )
 
-        movimientos = client.board_history(
-            liga_id
+        response.raise_for_status()
+
+        return response.json()
+
+    # ==============================================================
+    # HISTORIAL COMPLETO DEL MERCADO
+    #
+    # IMPORTANTE:
+    #
+    # La API devuelve eventos.
+    #
+    # Un evento puede contener varias operaciones dentro de
+    # "content".
+    #
+    # Por eso NO debemos considerar cada evento como un movimiento
+    # individual.
+    #
+    # Ejemplo:
+    #
+    # evento 1
+    #   content -> 7 operaciones
+    #
+    # evento 2
+    #   content -> 1 operación
+    #
+    # etc.
+    #
+    # ==============================================================
+    def board_history(
+        self,
+        league_id,
+        date=None,
+        limit=100,
+    ):
+
+        user_id = self.find_league_user(
+            league_id
         )
 
-        print(
-            "        DESCARGA FINALIZADA"
-        )
+        if user_id is None:
 
-        print(
-            "======================================================"
-        )
-
-        print(
-            "TIPO RESPUESTA:",
-            type(movimientos)
-        )
-
-        if isinstance(movimientos, dict):
-
-            print(
-                "CLAVES RESPUESTA:",
-                list(movimientos.keys())
+            raise ValueError(
+                f"No se encontró el usuario "
+                f"para la liga {league_id}"
             )
 
-            data = movimientos.get(
+        self.set_context(
+            league_id,
+            user_id,
+        )
+
+        self.login()
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/json",
+            "X-League": str(self.league_id),
+            "X-User": str(self.user_id),
+        }
+
+        params = {
+            "type": "transfer,market",
+            "limit": limit,
+        }
+
+        if date is not None:
+            params["date"] = date
+
+        response = self.session.get(
+            f"{BASE_URL}/league/{league_id}/board",
+            headers=headers,
+            params=params,
+            timeout=15,
+        )
+
+        response.raise_for_status()
+
+        return response.json()
+
+    # ==============================================================
+    # DESCARGAR TODO EL HISTORIAL
+    #
+    # Va retrocediendo usando la fecha del último evento recibido.
+    #
+    # Esto permite recuperar eventos anteriores a los primeros
+    # que devuelve la primera petición.
+    # ==============================================================
+
+    def get_full_market_history(
+        self,
+        league_id,
+        limit=100,
+        max_pages=100,
+    ):
+
+        all_events = []
+
+        current_date = None
+
+        seen_dates = set()
+
+        for page in range(max_pages):
+
+            response = self.board_history(
+                league_id=league_id,
+                date=current_date,
+                limit=limit,
+            )
+
+            if not isinstance(response, dict):
+
+                break
+
+            data = response.get("data")
+
+            if not isinstance(data, list):
+
+                break
+
+            if not data:
+
+                break
+
+            new_events = []
+
+            for event in data:
+
+                event_date = event.get("date")
+
+                # Evitar duplicados
+                if event_date in seen_dates:
+                    continue
+
+                seen_dates.add(event_date)
+
+                new_events.append(event)
+
+            all_events.extend(new_events)
+
+            # ------------------------------------------------------
+            # Buscar la fecha más antigua recibida
+            # ------------------------------------------------------
+
+            dates = [
+                event.get("date")
+                for event in data
+                if isinstance(
+                    event.get("date"),
+                    (int, float),
+                )
+            ]
+
+            if not dates:
+                break
+
+            oldest_date = min(dates)
+
+            # ------------------------------------------------------
+            # Si ya no hemos conseguido eventos nuevos,
+            # no seguimos haciendo peticiones.
+            # ------------------------------------------------------
+
+            if not new_events:
+                break
+
+            # ------------------------------------------------------
+            # Retrocedemos hasta antes del evento más antiguo.
+            # ------------------------------------------------------
+
+            if current_date is not None:
+
+                if oldest_date >= current_date:
+                    break
+
+            current_date = oldest_date - 1
+
+            # ------------------------------------------------------
+            # Si la respuesta tiene menos elementos que el límite,
+            # puede que ya no haya más páginas.
+            #
+            # Aun así hacemos una última comprobación cuando sea
+            # necesario.
+            # ------------------------------------------------------
+
+            if len(data) < limit:
+                break
+
+        # ==========================================================
+        # ORDEN CRONOLÓGICO DESCENDENTE
+        # ==========================================================
+
+        all_events.sort(
+            key=lambda x: x.get("date", 0),
+            reverse=True,
+        )
+
+        return {
+            "status": 200,
+            "data": all_events,
+        }
+
+    # ==============================================================
+    # CONVERTIR CONTENT EN OPERACIONES INDIVIDUALES
+    # ==============================================================
+
+    def extract_operations(
+        self,
+        history,
+    ):
+
+        operations = []
+
+        if isinstance(history, dict):
+
+            events = history.get(
                 "data",
-                []
+                [],
             )
+
+        elif isinstance(history, list):
+
+            events = history
 
         else:
 
-            data = movimientos
+            return operations
 
-        if not isinstance(data, list):
+        if not isinstance(events, list):
+            return operations
 
-            print(
-                "ERROR: los movimientos no son una lista"
+        for event in events:
+
+            if not isinstance(event, dict):
+                continue
+
+            event_date = event.get("date")
+            event_type = event.get("type")
+            event_title = event.get("title", "")
+            event_fixed = event.get("fixed", False)
+
+            content = event.get(
+                "content",
+                [],
             )
 
-            return []
+            if not isinstance(content, list):
+                continue
 
-        print(
-            "TOTAL EVENTOS DESCARGADOS:",
-            len(data)
-        )
+            for item in content:
 
-        print(
-            "======================================================"
-        )
+                if not isinstance(item, dict):
+                    continue
 
-        resultado = formatear_movimientos(
-            data
-        )
+                operation = dict(item)
 
-        print(
-            "TOTAL OPERACIONES FORMATEADAS:",
-            len(resultado)
-        )
+                operation["_event_date"] = event_date
+                operation["_event_type"] = event_type
+                operation["_event_title"] = event_title
+                operation["_event_fixed"] = event_fixed
 
-        print(
-            "======================================================"
-        )
+                operations.append(
+                    operation
+                )
 
-        return resultado
+        return operations
 
-    except Exception as e:
+    # ==============================================================
+    # INFORME DEL MERCADO
+    #
+    # Devuelve:
+    #
+    # {
+    #   manager: {
+    #       compras,
+    #       ventas,
+    #       gasto,
+    #       ingresos,
+    #       balance,
+    #       ...
+    #   }
+    # }
+    #
+    # ==============================================================
 
-        print(
-            "ERROR MOVIMIENTOS:",
-            e
-        )
-
-        return []
-
-
-def formatear_fecha(
-    timestamp
-):
-
-    if not timestamp:
-
-        return "Fecha desconocida"
-
-    try:
-
-        return datetime.fromtimestamp(
-            timestamp
-        ).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-
-    except Exception:
-
-        return "Fecha desconocida"
-
-
-def formatear_movimientos(
-    movimientos
-):
-
-    resultado = []
-
-    if not isinstance(
-        movimientos,
-        list
+    def calculate_market_report(
+        self,
+        history,
     ):
 
-        return resultado
-
-    print(
-        "======================================================"
-    )
-
-    print(
-        "           DETALLE DE MOVIMIENTOS"
-    )
-
-    print(
-        "======================================================"
-    )
-
-    total_operaciones = 0
-
-    for indice, m in enumerate(
-        movimientos,
-        start=1
-    ):
-
-        tipo = m.get(
-            "type",
-            ""
+        operations = self.extract_operations(
+            history
         )
 
-        contenido = m.get(
-            "content",
-            []
+        report = defaultdict(
+            lambda: {
+                "compras": [],
+                "ventas": [],
+                "total_compras": 0,
+                "total_ventas": 0,
+                "numero_compras": 0,
+                "numero_ventas": 0,
+            }
         )
 
-        fecha = m.get(
-            "date"
-        )
+        # ==========================================================
+        # PROCESAR OPERACIONES
+        # ==========================================================
 
-        fecha_formateada = formatear_fecha(
-            fecha
-        )
+        for operation in operations:
 
-        print(
-            "------------------------------------------------------"
-        )
-
-        print(
-            f"MOVIMIENTO #{indice}"
-        )
-
-        print(
-            "------------------------------------------------------"
-        )
-
-        print(
-            "FECHA:",
-            fecha_formateada
-        )
-
-        print(
-            "TIMESTAMP:",
-            fecha
-        )
-
-        print(
-            "TIPO:",
-            tipo
-        )
-
-        print(
-            "TÍTULO:",
-            m.get(
-                "title",
-                ""
-            )
-        )
-
-        print(
-            "FIXED:",
-            m.get(
-                "fixed",
-                False
-            )
-        )
-
-        if not isinstance(
-            contenido,
-            list
-        ):
-
-            print(
-                "CONTENT NO ES LISTA"
-            )
-
-            continue
-
-        print(
-            "OPERACIONES EN CONTENT:",
-            len(contenido)
-        )
-
-        for indice_item, item in enumerate(
-            contenido,
-            start=1
-        ):
-
-            total_operaciones += 1
-
-            print(
-                f"  OPERACIÓN #{indice_item}"
-            )
-
-            print(
-                "  -----------------------------"
+            amount = operation.get(
+                "amount",
+                0,
             )
 
             if not isinstance(
-                item,
-                dict
+                amount,
+                (int, float),
             ):
+                amount = 0
 
-                print(
-                    "  OPERACIÓN NO ES DICCIONARIO"
-                )
-
-                continue
-
-            player_id = item.get(
-                "player",
-                "?"
+            player_id = operation.get(
+                "player"
             )
 
-            jugador = get_player_name(
-                player_id
-            )
-
-            cantidad = item.get(
-                "amount",
-                0
-            )
-
-            comprador = ""
-            comprador_id = None
-
-            vendedor = ""
-            vendedor_id = None
-
-            if item.get(
+            buyer = operation.get(
                 "to"
-            ):
+            )
 
-                comprador_id = item["to"].get(
-                    "id"
-                )
-
-                comprador = item["to"].get(
-                    "name",
-                    ""
-                )
-
-            if item.get(
+            seller = operation.get(
                 "from"
-            ):
+            )
 
-                vendedor_id = item["from"].get(
+            # ------------------------------------------------------
+            # COMPRA / FICHAJE
+            #
+            # En la API:
+            #
+            # to = usuario comprador
+            # from = None
+            #
+            # ------------------------------------------------------
+
+            if isinstance(buyer, dict):
+
+                buyer_name = buyer.get(
+                    "name",
+                    "Desconocido",
+                )
+
+                buyer_id = buyer.get(
                     "id"
                 )
 
-                vendedor = item["from"].get(
+                report[buyer_name][
+                    "compras"
+                ].append(
+                    {
+                        "player_id": player_id,
+                        "amount": amount,
+                        "date": operation.get(
+                            "_event_date"
+                        ),
+                        "user_id": buyer_id,
+                    }
+                )
+
+                report[buyer_name][
+                    "total_compras"
+                ] += amount
+
+                report[buyer_name][
+                    "numero_compras"
+                ] += 1
+
+            # ------------------------------------------------------
+            # VENTA
+            #
+            # En la API:
+            #
+            # from = usuario vendedor
+            # to = None
+            #
+            # ------------------------------------------------------
+
+            if isinstance(seller, dict):
+
+                seller_name = seller.get(
                     "name",
-                    ""
+                    "Desconocido",
                 )
 
-            print(
-                "  PLAYER ID:",
-                player_id
+                seller_id = seller.get(
+                    "id"
+                )
+
+                report[seller_name][
+                    "ventas"
+                ].append(
+                    {
+                        "player_id": player_id,
+                        "amount": amount,
+                        "date": operation.get(
+                            "_event_date"
+                        ),
+                        "user_id": seller_id,
+                    }
+                )
+
+                report[seller_name][
+                    "total_ventas"
+                ] += amount
+
+                report[seller_name][
+                    "numero_ventas"
+                ] += 1
+
+        # ==========================================================
+        # CALCULAR BALANCES
+        # ==========================================================
+
+        final_report = {}
+
+        for manager, data in report.items():
+
+            total_compras = data[
+                "total_compras"
+            ]
+
+            total_ventas = data[
+                "total_ventas"
+            ]
+
+            balance = (
+                total_ventas
+                - total_compras
             )
 
-            print(
-                "  JUGADOR:",
-                jugador
-            )
+            final_report[manager] = {
+                "compras": data["compras"],
+                "ventas": data["ventas"],
 
-            print(
-                "  IMPORTE:",
-                f"{cantidad:,} €"
-            )
+                "total_compras":
+                    total_compras,
 
-            print(
-                "  VENDEDOR / ORIGEN:",
-                vendedor if vendedor else "-"
-            )
+                "total_ventas":
+                    total_ventas,
 
-            if vendedor_id:
+                "numero_compras":
+                    data["numero_compras"],
 
-                print(
-                    "      ID:",
-                    vendedor_id
-                )
+                "numero_ventas":
+                    data["numero_ventas"],
 
-            print(
-                "  COMPRADOR / DESTINO:",
-                comprador if comprador else "-"
-            )
+                "balance":
+                    balance,
+            }
 
-            if comprador_id:
+        return final_report
 
-                print(
-                    "      ID:",
-                    comprador_id
-                )
+    # ==============================================================
+    # RESUMEN GENERAL DEL INFORME
+    # ==============================================================
 
-            bids = item.get(
-                "bids",
-                []
-            )
+    def market_report_summary(
+        self,
+        history,
+    ):
 
-            if bids:
+        report = self.calculate_market_report(
+            history
+        )
 
-                print(
-                    "  PUJAS:"
-                )
+        if not report:
 
-                for bid in bids:
+            return {
+                "managers": {},
+                "total_compras": 0,
+                "total_ventas": 0,
+                "balance_total": 0,
+                "mayor_gasto": None,
+                "mayor_ingreso": None,
+                "mejor_balance": None,
+                "peor_balance": None,
+            }
 
-                    usuario_bid = bid.get(
-                        "user",
-                        {}
-                    )
+        total_compras = sum(
+            manager["total_compras"]
+            for manager in report.values()
+        )
 
-                    nombre_bid = usuario_bid.get(
-                        "name",
-                        "Usuario desconocido"
-                    )
+        total_ventas = sum(
+            manager["total_ventas"]
+            for manager in report.values()
+        )
 
-                    id_bid = usuario_bid.get(
-                        "id"
-                    )
+        # ----------------------------------------------------------
+        # Mayor gasto
+        # ----------------------------------------------------------
 
-                    cantidad_bid = bid.get(
-                        "amount",
-                        0
-                    )
+        mayor_gasto = max(
+            report.items(),
+            key=lambda item:
+                item[1]["total_compras"],
+        )
 
-                    print(
-                        f"      {nombre_bid} "
-                        f"(ID {id_bid}) -> "
-                        f"{cantidad_bid:,} €"
-                    )
+        # ----------------------------------------------------------
+        # Mayor ingreso
+        # ----------------------------------------------------------
 
-            else:
+        mayor_ingreso = max(
+            report.items(),
+            key=lambda item:
+                item[1]["total_ventas"],
+        )
 
-                print(
-                    "  PUJAS: ninguna"
-                )
+        # ----------------------------------------------------------
+        # Mejor balance
+        # ----------------------------------------------------------
 
-            if comprador:
+        mejor_balance = max(
+            report.items(),
+            key=lambda item:
+                item[1]["balance"],
+        )
 
-                resultado.append(
-                    f"🟢 {fecha_formateada} | "
-                    f"{comprador} ficha a "
-                    f"{jugador} por "
-                    f"{cantidad:,}€"
-                )
+        # ----------------------------------------------------------
+        # Peor balance
+        # ----------------------------------------------------------
 
-            elif vendedor:
+        peor_balance = min(
+            report.items(),
+            key=lambda item:
+                item[1]["balance"],
+        )
 
-                resultado.append(
-                    f"🔴 {fecha_formateada} | "
-                    f"{vendedor} vende a "
-                    f"{jugador} por "
-                    f"{cantidad:,}€"
-                )
+        return {
+            "managers": report,
 
-            else:
+            "total_compras":
+                total_compras,
 
-                resultado.append(
-                    f"⚽ {fecha_formateada} | "
-                    f"Movimiento de "
-                    f"{jugador} "
-                    f"({cantidad:,}€)"
-                )
+            "total_ventas":
+                total_ventas,
 
-    print(
-        "======================================================"
-    )
+            "balance_total":
+                total_ventas - total_compras,
 
-    print(
-        "TOTAL OPERACIONES EN TODOS LOS EVENTOS:",
-        total_operaciones
-    )
+            "mayor_gasto": {
+                "manager":
+                    mayor_gasto[0],
 
-    print(
-        "TOTAL RESULTADOS GENERADOS:",
-        len(resultado)
-    )
+                "amount":
+                    mayor_gasto[1][
+                        "total_compras"
+                    ],
+            },
 
-    print(
-        "======================================================"
-    )
+            "mayor_ingreso": {
+                "manager":
+                    mayor_ingreso[0],
 
-    # IMPORTANTE:
-    # Antes se utilizaba:
-    #
-    # return resultado[:30]
-    #
-    # Eso limitaba artificialmente los movimientos
-    # mostrados a únicamente 30 operaciones.
-    #
-    # Ahora devolvemos TODOS los resultados.
+                "amount":
+                    mayor_ingreso[1][
+                        "total_ventas"
+                    ],
+            },
 
-    return resultado
+            "mejor_balance": {
+                "manager":
+                    mejor_balance[0],
 
+                "amount":
+                    mejor_balance[1][
+                        "balance"
+                    ],
+            },
 
-def patrimonio(
-    usuario
-):
+            "peor_balance": {
+                "manager":
+                    peor_balance[0],
 
-    dinero = usuario.get(
-        "balance",
-        0
-    )
+                "amount":
+                    peor_balance[1][
+                        "balance"
+                    ],
+            },
+        }
+```
 
-    valor = usuario.get(
-        "teamValue",
-        0
-    )
+Este fichero **no cambia la interpretación que ya hemos comprobado que funciona**. La diferencia importante es que ahora tenemos:
 
-    return (
-        dinero,
-        valor,
-        dinero + valor
-    )
+* `get_full_market_history()` → obtiene todo el historial.
+* `extract_operations()` → convierte los 19 eventos en las operaciones individuales contenidas en `content`.
+* `calculate_market_report()` → calcula compras, ventas y balance por manager.
+* `market_report_summary()` → obtiene los totales y rankings generales.
+
+**Ojo con una cosa:** en los datos que nos has enseñado, un evento `market` puede tener varias compras, y las ventas aparecen como eventos `transfer`. Por eso el cálculo se hace sobre cada elemento de `content`, no sobre el número de eventos.
+
+El siguiente paso sería conectar `market_report_summary()` con `/informe` en Telegram y comprobar las cifras contra la aplicación de Biwenger.
