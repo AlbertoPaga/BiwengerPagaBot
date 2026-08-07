@@ -49,13 +49,19 @@ def cargar_liga(
 
         valor = data[key]
 
-        if isinstance(valor, list):
+        if isinstance(
+            valor,
+            list
+        ):
 
             print(
                 f"{key}: lista con {len(valor)} elementos"
             )
 
-        elif isinstance(valor, dict):
+        elif isinstance(
+            valor,
+            dict
+        ):
 
             print(
                 f"{key}: diccionario con {len(valor)} claves"
@@ -97,136 +103,236 @@ def cargar_movimientos(
     liga_id
 ):
 
-    try:
-
-        print(
-            "\n======================================================"
-        )
-
-        print(
-            "        DESCARGANDO HISTORIAL DEL MERCADO"
-        )
-
-        print(
-            "======================================================"
-        )
-
-        movimientos = client.board_history(
-            liga_id
-        )
-
-        print(
-            "======================================================"
-        )
-
-        print(
-            "        DESCARGA FINALIZADA"
-        )
-
-        print(
-            "======================================================"
-        )
-
-        print(
-            f"TOTAL MOVIMIENTOS DESCARGADOS: {len(movimientos)}"
-        )
-
-        print(
-            "======================================================\n"
-        )
-
-        imprimir_movimientos_raw(
-            movimientos
-        )
-
-        return formatear_movimientos(
-            movimientos
-        )
-
-    except Exception as e:
-
-        print(
-            "ERROR MOVIMIENTOS:",
-            e
-        )
-
-        return []
-
-
-def imprimir_movimientos_raw(
-    movimientos
-):
-
-    if not isinstance(
-        movimientos,
-        list
-    ):
-
-        print(
-            "ERROR: los movimientos no son una lista"
-        )
-
-        return
-
     print(
         "\n======================================================"
     )
 
     print(
-        "          MOVIMIENTOS RAW DESCARGADOS"
+        "        INSPECCIONANDO HISTORIAL DEL MERCADO"
     )
 
     print(
         "======================================================"
     )
 
-    for numero, movimiento in enumerate(
-        movimientos,
-        start=1
-    ):
+    try:
 
-        print(
-            f"\n---------------- MOVIMIENTO {numero} ----------------"
+        resultado = client.board_history(
+            liga_id
         )
 
         print(
-            "TYPE:",
-            movimiento.get(
-                "type"
-            )
-        )
-
-        print(
-            "DATE:",
-            movimiento.get(
-                "date"
-            )
-        )
-
-        contenido = movimiento.get(
-            "content",
-            []
-        )
-
-        print(
-            "CONTENT:"
+            "\n================ RESPUESTA RAW ================="
         )
 
         pprint(
-            contenido
+            resultado
         )
 
-    print(
-        "\n======================================================"
-    )
+        print(
+            "================================================="
+        )
 
-    print(
-        "        FIN MOVIMIENTOS RAW"
-    )
+        print(
+            "\nTIPO DE RESPUESTA:"
+        )
 
-    print(
-        "======================================================\n"
-    )
+        print(
+            type(resultado)
+        )
+
+        print(
+            "\n¿ES LISTA?:"
+        )
+
+        print(
+            isinstance(
+                resultado,
+                list
+            )
+        )
+
+        print(
+            "\n¿ES DICCIONARIO?:"
+        )
+
+        print(
+            isinstance(
+                resultado,
+                dict
+            )
+        )
+
+        if isinstance(
+            resultado,
+            dict
+        ):
+
+            print(
+                "\nCLAVES DEL DICCIONARIO:"
+            )
+
+            print(
+                list(
+                    resultado.keys()
+                )
+            )
+
+            for key, valor in resultado.items():
+
+                print(
+                    "\n----------------------------------------"
+                )
+
+                print(
+                    "CLAVE:",
+                    key
+                )
+
+                print(
+                    "TIPO:",
+                    type(valor)
+                )
+
+                if isinstance(
+                    valor,
+                    list
+                ):
+
+                    print(
+                        "LISTA CON:",
+                        len(valor),
+                        "ELEMENTOS"
+                    )
+
+                    if valor:
+
+                        print(
+                            "\nPRIMER ELEMENTO:"
+                        )
+
+                        pprint(
+                            valor[0]
+                        )
+
+                        print(
+                            "\nTIPO PRIMER ELEMENTO:"
+                        )
+
+                        print(
+                            type(
+                                valor[0]
+                            )
+                        )
+
+                elif isinstance(
+                    valor,
+                    dict
+                ):
+
+                    print(
+                        "DICCIONARIO CON:",
+                        len(valor),
+                        "CLAVES"
+                    )
+
+                    print(
+                        "\nCLAVES:"
+                    )
+
+                    print(
+                        list(
+                            valor.keys()
+                        )
+                    )
+
+                else:
+
+                    print(
+                        "VALOR:",
+                        valor
+                    )
+
+        elif isinstance(
+            resultado,
+            list
+        ):
+
+            print(
+                "\nLISTA CON:",
+                len(resultado),
+                "ELEMENTOS"
+            )
+
+            if resultado:
+
+                print(
+                    "\nPRIMER ELEMENTO:"
+                )
+
+                pprint(
+                    resultado[0]
+                )
+
+                print(
+                    "\nTIPO PRIMER ELEMENTO:"
+                )
+
+                print(
+                    type(
+                        resultado[0]
+                    )
+                )
+
+        print(
+            "\n======================================================"
+        )
+
+        print(
+            "        FIN INSPECCION"
+        )
+
+        print(
+            "======================================================"
+        )
+
+        # De momento no intentamos interpretar
+        # los movimientos.
+        #
+        # Queremos primero conocer exactamente
+        # la estructura que devuelve la API.
+
+        return []
+
+    except Exception as e:
+
+        print(
+            "\n======================================================"
+        )
+
+        print(
+            "ERROR OBTENIENDO HISTORIAL"
+        )
+
+        print(
+            "======================================================"
+        )
+
+        print(
+            "TIPO DE ERROR:",
+            type(e)
+        )
+
+        print(
+            "ERROR:",
+            e
+        )
+
+        print(
+            "======================================================"
+        )
+
+        return []
 
 
 def formatear_movimientos(
@@ -274,13 +380,6 @@ def formatear_movimientos(
                     player_id
                 )
 
-                print(
-                    "CACHE JUGADOR:",
-                    player_id,
-                    "->",
-                    jugador
-                )
-
                 cantidad = item.get(
                     "amount",
                     0
@@ -311,19 +410,22 @@ def formatear_movimientos(
                 if comprador:
 
                     resultado.append(
-                        f"🟢 {comprador} ficha a {jugador} por {cantidad:,}€"
+                        f"🟢 {comprador} ficha a "
+                        f"{jugador} por {cantidad:,}€"
                     )
 
                 elif vendedor:
 
                     resultado.append(
-                        f"🔴 {vendedor} vende a {jugador} por {cantidad:,}€"
+                        f"🔴 {vendedor} vende a "
+                        f"{jugador} por {cantidad:,}€"
                     )
 
                 else:
 
                     resultado.append(
-                        f"⚽ Movimiento de {jugador} ({cantidad:,}€)"
+                        f"⚽ Movimiento de "
+                        f"{jugador} ({cantidad:,}€)"
                     )
 
         elif tipo == "playerMovements":
@@ -337,13 +439,6 @@ def formatear_movimientos(
 
                 jugador = get_player_name(
                     player_id
-                )
-
-                print(
-                    "CACHE JUGADOR:",
-                    player_id,
-                    "->",
-                    jugador
                 )
 
                 resultado.append(
