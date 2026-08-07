@@ -1,3 +1,4 @@
+```python
 import requests
 import time
 
@@ -52,11 +53,13 @@ class BiwengerClient:
         user_id=None
     ):
 
-        if league_id:
+        if league_id is not None:
+
             self.league_id = league_id
 
 
-        if user_id:
+        if user_id is not None:
+
             self.user_id = user_id
 
 
@@ -67,6 +70,7 @@ class BiwengerClient:
             self.token
             and time.time() - self.login_time < 3600
         ):
+
             return
 
 
@@ -109,8 +113,26 @@ class BiwengerClient:
 
     def get(
         self,
-        endpoint
+        endpoint,
+        params=None
     ):
+
+        """
+        Realiza una petición GET a la API privada
+        de Biwenger.
+
+        params permite enviar parámetros de consulta,
+        por ejemplo:
+
+            params={
+                "type": "transfer,market",
+                "limit": 100,
+                "date": 1234567890
+            }
+
+        Los headers X-League y X-User se añaden
+        automáticamente cuando existe contexto de liga.
+        """
 
 
         self.login()
@@ -119,14 +141,14 @@ class BiwengerClient:
         headers = {}
 
 
-        if self.league_id:
+        if self.league_id is not None:
 
             headers["X-League"] = str(
                 self.league_id
             )
 
 
-        if self.user_id:
+        if self.user_id is not None:
 
             headers["X-User"] = str(
                 self.user_id
@@ -136,6 +158,7 @@ class BiwengerClient:
         response = self.session.get(
             BASE_URL + endpoint,
             headers=headers,
+            params=params,
             timeout=15
         )
 
@@ -169,17 +192,14 @@ class BiwengerClient:
         league_id
     ):
 
-
         leagues = self.leagues()
 
 
         for liga in leagues:
 
-
             if liga["id"] == league_id:
 
                 return liga["user"]["id"]
-
 
 
         return None
@@ -191,10 +211,17 @@ class BiwengerClient:
         league_id
     ):
 
-
         user_id = self.find_league_user(
             league_id
         )
+
+
+        if user_id is None:
+
+            raise ValueError(
+                f"No se encontró el usuario "
+                f"para la liga {league_id}"
+            )
 
 
         self.set_context(
@@ -214,10 +241,17 @@ class BiwengerClient:
         league_id
     ):
 
-
         user_id = self.find_league_user(
             league_id
         )
+
+
+        if user_id is None:
+
+            raise ValueError(
+                f"No se encontró el usuario "
+                f"para la liga {league_id}"
+            )
 
 
         self.set_context(
@@ -232,11 +266,94 @@ class BiwengerClient:
 
 
 
+    def league_players(
+        self,
+        league_id
+    ):
+
+        """
+        Obtiene las plantillas actuales de todos
+        los usuarios de una liga.
+
+        La API devuelve:
+
+            users[
+                {
+                    players: [
+                        {"id": ...},
+                        ...
+                    ]
+                }
+            ]
+
+        Se utilizan los headers X-League y X-User
+        porque esta petición los requiere.
+        """
+
+
+        user_id = self.find_league_user(
+            league_id
+        )
+
+
+        if user_id is None:
+
+            raise ValueError(
+                f"No se encontró el usuario "
+                f"para la liga {league_id}"
+            )
+
+
+        self.set_context(
+            league_id,
+            user_id
+        )
+
+
+        self.login()
+
+
+        headers = {
+            "Authorization":
+                f"Bearer {self.token}",
+
+            "Accept":
+                "application/json",
+
+            "X-League":
+                str(self.league_id),
+
+            "X-User":
+                str(self.user_id)
+        }
+
+
+        response = self.session.get(
+            f"{BASE_URL}/league/{league_id}",
+            headers=headers,
+            params={
+                "fields":
+                    "users(players)"
+            },
+            timeout=15
+        )
+
+
+        response.raise_for_status()
+
+
+        return response.json()
+
+
+
     def players(self):
 
         """
-        Datos públicos de competición.
-        NO usar token aquí.
+        Obtiene los datos públicos de los jugadores
+        de LaLiga.
+
+        Esta petición NO utiliza la API privada
+        ni el token de autenticación.
         """
 
 
@@ -254,3 +371,4 @@ class BiwengerClient:
 
 
         return response.json()
+```
