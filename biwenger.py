@@ -1,4 +1,6 @@
+```python
 from pprint import pprint
+from datetime import datetime, timezone
 
 from biwenger_client import BiwengerClient
 from player_cache import get_player_name
@@ -25,6 +27,7 @@ def cargar_liga(
         liga_id
     )
 
+
     print(
         "\n================ LIGA ================="
     )
@@ -35,15 +38,18 @@ def cargar_liga(
         "=======================================\n"
     )
 
+
     data = liga.get(
         "data",
         {}
     )
 
+
     print(
         "CLAVES DE DATA:",
         list(data.keys())
     )
+
 
     for key in data.keys():
 
@@ -73,7 +79,9 @@ def cargar_liga(
                 f"{key}: {type(valor)}"
             )
 
+
     usuarios = []
+
 
     if "users" in data:
 
@@ -87,15 +95,44 @@ def cargar_liga(
 
         usuarios = data["managers"]
 
+
     movimientos = cargar_movimientos(
         client,
         liga_id
     )
 
+
     return (
         usuarios,
         movimientos
     )
+
+
+def timestamp_a_fecha(
+    timestamp
+):
+
+    if not timestamp:
+
+        return "Sin fecha"
+
+
+    try:
+
+        fecha = datetime.fromtimestamp(
+            int(timestamp),
+            tz=timezone.utc
+        )
+
+
+        return fecha.strftime(
+            "%Y-%m-%d %H:%M:%S UTC"
+        )
+
+
+    except Exception:
+
+        return str(timestamp)
 
 
 def cargar_movimientos(
@@ -108,231 +145,475 @@ def cargar_movimientos(
     )
 
     print(
-        "        INSPECCIONANDO HISTORIAL DEL MERCADO"
+        "        DESCARGANDO HISTORIAL DEL MERCADO"
     )
 
     print(
         "======================================================"
     )
 
+
     try:
 
-        resultado = client.board_history(
+        movimientos = client.board_history(
             liga_id
         )
 
-        print(
-            "\n================ RESPUESTA RAW ================="
-        )
 
-        pprint(
-            resultado
+        print(
+            "======================================================"
         )
 
         print(
-            "================================================="
+            "        DESCARGA FINALIZADA"
         )
 
         print(
-            "\nTIPO DE RESPUESTA:"
+            "======================================================"
         )
 
-        print(
-            type(resultado)
-        )
 
         print(
-            "\n¿ES LISTA?:"
+            f"TIPO RESPUESTA: {type(movimientos)}"
         )
 
-        print(
-            isinstance(
-                resultado,
-                list
-            )
-        )
-
-        print(
-            "\n¿ES DICCIONARIO?:"
-        )
-
-        print(
-            isinstance(
-                resultado,
-                dict
-            )
-        )
 
         if isinstance(
-            resultado,
+            movimientos,
             dict
         ):
 
             print(
-                "\nCLAVES DEL DICCIONARIO:"
+                "CLAVES RESPUESTA:",
+                list(movimientos.keys())
             )
 
-            print(
-                list(
-                    resultado.keys()
-                )
+
+            data = movimientos.get(
+                "data",
+                []
             )
 
-            for key, valor in resultado.items():
 
-                print(
-                    "\n----------------------------------------"
-                )
+        else:
 
-                print(
-                    "CLAVE:",
-                    key
-                )
+            data = movimientos
 
-                print(
-                    "TIPO:",
-                    type(valor)
-                )
 
-                if isinstance(
-                    valor,
-                    list
-                ):
-
-                    print(
-                        "LISTA CON:",
-                        len(valor),
-                        "ELEMENTOS"
-                    )
-
-                    if valor:
-
-                        print(
-                            "\nPRIMER ELEMENTO:"
-                        )
-
-                        pprint(
-                            valor[0]
-                        )
-
-                        print(
-                            "\nTIPO PRIMER ELEMENTO:"
-                        )
-
-                        print(
-                            type(
-                                valor[0]
-                            )
-                        )
-
-                elif isinstance(
-                    valor,
-                    dict
-                ):
-
-                    print(
-                        "DICCIONARIO CON:",
-                        len(valor),
-                        "CLAVES"
-                    )
-
-                    print(
-                        "\nCLAVES:"
-                    )
-
-                    print(
-                        list(
-                            valor.keys()
-                        )
-                    )
-
-                else:
-
-                    print(
-                        "VALOR:",
-                        valor
-                    )
-
-        elif isinstance(
-            resultado,
+        if not isinstance(
+            data,
             list
         ):
 
             print(
-                "\nLISTA CON:",
-                len(resultado),
-                "ELEMENTOS"
+                "ERROR: los movimientos no son una lista"
             )
 
-            if resultado:
 
-                print(
-                    "\nPRIMER ELEMENTO:"
-                )
+            print(
+                "RESPUESTA COMPLETA:"
+            )
 
-                pprint(
-                    resultado[0]
-                )
 
-                print(
-                    "\nTIPO PRIMER ELEMENTO:"
-                )
+            pprint(
+                movimientos
+            )
 
-                print(
-                    type(
-                        resultado[0]
-                    )
-                )
+
+            return []
+
 
         print(
-            "\n======================================================"
+            f"TOTAL MOVIMIENTOS DESCARGADOS: {len(data)}"
         )
 
-        print(
-            "        FIN INSPECCION"
-        )
 
         print(
             "======================================================"
         )
 
-        # De momento no intentamos interpretar
-        # los movimientos.
-        #
-        # Queremos primero conocer exactamente
-        # la estructura que devuelve la API.
 
-        return []
+        mostrar_movimientos_detallados(
+            data
+        )
+
+
+        return formatear_movimientos(
+            data
+        )
+
 
     except Exception as e:
 
         print(
-            "\n======================================================"
-        )
-
-        print(
-            "ERROR OBTENIENDO HISTORIAL"
-        )
-
-        print(
-            "======================================================"
-        )
-
-        print(
-            "TIPO DE ERROR:",
-            type(e)
-        )
-
-        print(
-            "ERROR:",
+            "ERROR MOVIMIENTOS:",
             e
         )
 
-        print(
-            "======================================================"
-        )
 
         return []
+
+
+def mostrar_movimientos_detallados(
+    movimientos
+):
+
+    print(
+        "\n======================================================"
+    )
+
+    print(
+        "           DETALLE DE MOVIMIENTOS"
+    )
+
+    print(
+        "======================================================"
+    )
+
+
+    for numero, movimiento in enumerate(
+        movimientos,
+        start=1
+    ):
+
+        tipo = movimiento.get(
+            "type",
+            "desconocido"
+        )
+
+
+        fecha_timestamp = movimiento.get(
+            "date"
+        )
+
+
+        fecha = timestamp_a_fecha(
+            fecha_timestamp
+        )
+
+
+        titulo = movimiento.get(
+            "title",
+            ""
+        )
+
+
+        fijo = movimiento.get(
+            "fixed"
+        )
+
+
+        print(
+            "\n------------------------------------------------------"
+        )
+
+        print(
+            f"MOVIMIENTO #{numero}"
+        )
+
+        print(
+            "------------------------------------------------------"
+        )
+
+
+        print(
+            f"FECHA: {fecha}"
+        )
+
+
+        print(
+            f"TIMESTAMP: {fecha_timestamp}"
+        )
+
+
+        print(
+            f"TIPO: {tipo}"
+        )
+
+
+        print(
+            f"TÍTULO: {titulo}"
+        )
+
+
+        print(
+            f"FIXED: {fijo}"
+        )
+
+
+        contenido = movimiento.get(
+            "content",
+            []
+        )
+
+
+        if not isinstance(
+            contenido,
+            list
+        ):
+
+            print(
+                "CONTENT NO ES LISTA:"
+            )
+
+            pprint(
+                contenido
+            )
+
+            continue
+
+
+        print(
+            f"OPERACIONES EN CONTENT: {len(contenido)}"
+        )
+
+
+        for indice, item in enumerate(
+            contenido,
+            start=1
+        ):
+
+            mostrar_operacion(
+                item,
+                indice
+            )
+
+
+        autor = movimiento.get(
+            "author"
+        )
+
+
+        if autor:
+
+            print(
+                "AUTOR:"
+            )
+
+            pprint(
+                autor
+            )
+
+        else:
+
+            print(
+                "AUTOR: None"
+            )
+
+
+    print(
+        "\n======================================================"
+    )
+
+    print(
+        "        FIN DETALLE DE MOVIMIENTOS"
+    )
+
+    print(
+        "======================================================"
+    )
+
+
+def mostrar_operacion(
+    item,
+    indice
+):
+
+    print(
+        f"\n  OPERACIÓN #{indice}"
+    )
+
+    print(
+        "  -----------------------------"
+    )
+
+
+    player_id = item.get(
+        "player"
+    )
+
+
+    if player_id:
+
+        jugador = get_player_name(
+            player_id
+        )
+
+    else:
+
+        jugador = "Jugador desconocido"
+
+
+    print(
+        f"  PLAYER ID: {player_id}"
+    )
+
+
+    print(
+        f"  JUGADOR: {jugador}"
+    )
+
+
+    cantidad = item.get(
+        "amount"
+    )
+
+
+    print(
+        f"  IMPORTE: {cantidad:,} €"
+        if isinstance(
+            cantidad,
+            (int, float)
+        )
+        else f"  IMPORTE: {cantidad}"
+    )
+
+
+    comprador = item.get(
+        "to"
+    )
+
+
+    vendedor = item.get(
+        "from"
+    )
+
+
+    if comprador:
+
+        print(
+            "  COMPRADOR / DESTINO:"
+        )
+
+
+        print(
+            f"      ID: {comprador.get('id')}"
+        )
+
+
+        print(
+            f"      NOMBRE: {comprador.get('name', 'Sin nombre')}"
+        )
+
+
+    else:
+
+        print(
+            "  COMPRADOR / DESTINO: -"
+        )
+
+
+    if vendedor:
+
+        print(
+            "  VENDEDOR / ORIGEN:"
+        )
+
+
+        print(
+            f"      ID: {vendedor.get('id')}"
+        )
+
+
+        print(
+            f"      NOMBRE: {vendedor.get('name', 'Sin nombre')}"
+        )
+
+
+    else:
+
+        print(
+            "  VENDEDOR / ORIGEN: -"
+        )
+
+
+    bids = item.get(
+        "bids",
+        []
+    )
+
+
+    if bids:
+
+        print(
+            "  PUJAS:"
+        )
+
+
+        for bid in bids:
+
+            if not isinstance(
+                bid,
+                dict
+            ):
+
+                pprint(
+                    bid
+                )
+
+                continue
+
+
+            bid_amount = bid.get(
+                "amount"
+            )
+
+
+            user = bid.get(
+                "user",
+                {}
+            )
+
+
+            if isinstance(
+                user,
+                dict
+            ):
+
+                user_id = user.get(
+                    "id"
+                )
+
+                user_name = user.get(
+                    "name",
+                    "Sin nombre"
+                )
+
+            else:
+
+                user_id = None
+
+                user_name = "Sin nombre"
+
+
+            if isinstance(
+                bid_amount,
+                (int, float)
+            ):
+
+                cantidad_bid = (
+                    f"{bid_amount:,} €"
+                )
+
+            else:
+
+                cantidad_bid = str(
+                    bid_amount
+                )
+
+
+            print(
+                f"      {user_name} "
+                f"(ID {user_id}) -> "
+                f"{cantidad_bid}"
+            )
+
+
+    else:
+
+        print(
+            "  PUJAS: ninguna"
+        )
 
 
 def formatear_movimientos(
@@ -341,6 +622,7 @@ def formatear_movimientos(
 
     resultado = []
 
+
     if not isinstance(
         movimientos,
         list
@@ -348,102 +630,106 @@ def formatear_movimientos(
 
         return resultado
 
-    print(
-        f"TOTAL MOVIMIENTOS: {len(movimientos)}"
-    )
 
-    for m in movimientos:
+    for movimiento in movimientos:
 
-        tipo = m.get(
+        tipo = movimiento.get(
             "type",
             ""
         )
 
-        contenido = m.get(
+
+        fecha = timestamp_a_fecha(
+            movimiento.get(
+                "date"
+            )
+        )
+
+
+        contenido = movimiento.get(
             "content",
             []
         )
 
-        if tipo in [
-            "market",
-            "transfer"
-        ]:
 
-            for item in contenido:
+        if not isinstance(
+            contenido,
+            list
+        ):
 
-                player_id = item.get(
-                    "player",
-                    "?"
+            continue
+
+
+        for item in contenido:
+
+            player_id = item.get(
+                "player",
+                "?"
+            )
+
+
+            jugador = get_player_name(
+                player_id
+            )
+
+
+            cantidad = item.get(
+                "amount",
+                0
+            )
+
+
+            comprador = item.get(
+                "to"
+            )
+
+
+            vendedor = item.get(
+                "from"
+            )
+
+
+            if comprador:
+
+                nombre_comprador = comprador.get(
+                    "name",
+                    "Sin nombre"
                 )
 
-                jugador = get_player_name(
-                    player_id
-                )
-
-                cantidad = item.get(
-                    "amount",
-                    0
-                )
-
-                comprador = ""
-
-                vendedor = ""
-
-                if item.get(
-                    "to"
-                ):
-
-                    comprador = item["to"].get(
-                        "name",
-                        ""
-                    )
-
-                if item.get(
-                    "from"
-                ):
-
-                    vendedor = item["from"].get(
-                        "name",
-                        ""
-                    )
-
-                if comprador:
-
-                    resultado.append(
-                        f"🟢 {comprador} ficha a "
-                        f"{jugador} por {cantidad:,}€"
-                    )
-
-                elif vendedor:
-
-                    resultado.append(
-                        f"🔴 {vendedor} vende a "
-                        f"{jugador} por {cantidad:,}€"
-                    )
-
-                else:
-
-                    resultado.append(
-                        f"⚽ Movimiento de "
-                        f"{jugador} ({cantidad:,}€)"
-                    )
-
-        elif tipo == "playerMovements":
-
-            for item in contenido:
-
-                player_id = item.get(
-                    "player",
-                    "?"
-                )
-
-                jugador = get_player_name(
-                    player_id
-                )
 
                 resultado.append(
-                    f"🔄 Cambio de {jugador}"
+                    f"🟢 {fecha} | "
+                    f"{nombre_comprador} ficha a "
+                    f"{jugador} por "
+                    f"{cantidad:,}€"
                 )
+
+
+            elif vendedor:
+
+                nombre_vendedor = vendedor.get(
+                    "name",
+                    "Sin nombre"
+                )
+
+
+                resultado.append(
+                    f"🔴 {fecha} | "
+                    f"{nombre_vendedor} vende a "
+                    f"{jugador} por "
+                    f"{cantidad:,}€"
+                )
+
+
+            else:
+
+                resultado.append(
+                    f"⚽ {fecha} | "
+                    f"{tipo} | "
+                    f"{jugador} | "
+                    f"{cantidad:,}€"
+                )
+
 
     return resultado[:30]
 
@@ -457,13 +743,16 @@ def patrimonio(
         0
     )
 
+
     valor = usuario.get(
         "teamValue",
         0
     )
+
 
     return (
         dinero,
         valor,
         dinero + valor
     )
+```
