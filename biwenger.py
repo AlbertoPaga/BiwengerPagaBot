@@ -878,15 +878,3 @@ class BiwengerClient:
                     ],
             },
         }
-```
-
-Este fichero **no cambia la interpretación que ya hemos comprobado que funciona**. La diferencia importante es que ahora tenemos:
-
-* `get_full_market_history()` → obtiene todo el historial.
-* `extract_operations()` → convierte los 19 eventos en las operaciones individuales contenidas en `content`.
-* `calculate_market_report()` → calcula compras, ventas y balance por manager.
-* `market_report_summary()` → obtiene los totales y rankings generales.
-
-**Ojo con una cosa:** en los datos que nos has enseñado, un evento `market` puede tener varias compras, y las ventas aparecen como eventos `transfer`. Por eso el cálculo se hace sobre cada elemento de `content`, no sobre el número de eventos.
-
-El siguiente paso sería conectar `market_report_summary()` con `/informe` en Telegram y comprobar las cifras contra la aplicación de Biwenger.
