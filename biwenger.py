@@ -1,4 +1,3 @@
-```python
 from pprint import pprint
 from datetime import datetime
 
@@ -550,4 +549,3 @@ def patrimonio(
         valor,
         dinero + valor
     )
-```
