@@ -2273,6 +2273,11 @@ def obtener_mercado_completo(
 
 # ============================================================
 # MERCADO DEL DÍA - DATOS
+#
+# IMPORTANTE:
+# Esta función sigue mostrando MOVIMIENTOS realizados hoy.
+#
+# NO es el mercado actual de jugadores en venta.
 # ============================================================
 
 def obtener_mercado_24h_datos(
@@ -2344,6 +2349,8 @@ def obtener_mercado_24h_datos(
 
 # ============================================================
 # MERCADO DEL DÍA - TEXTO COMPATIBILIDAD
+#
+# Muestra los MOVIMIENTOS realizados hoy.
 # ============================================================
 
 def obtener_mercado_24h(
@@ -2385,6 +2392,230 @@ def obtener_mercado_24h(
     return "\n".join(
         lineas
     )
+
+
+# ============================================================
+# MERCADO DE HOY - JUGADORES EN VENTA
+#
+# IMPORTANTE:
+# Esta función NO consulta el historial.
+#
+# Consulta directamente:
+#
+# GET /market
+#
+# y muestra los jugadores que están actualmente
+# disponibles en el mercado.
+#
+# No se modifica BiwengerClient.
+# Se utiliza directamente _CLIENT.get("/market").
+# ============================================================
+
+def obtener_mercado_hoy_datos(
+    liga_id,
+):
+
+    _CLIENT.prepare_context(
+        liga_id
+    )
+
+    response = _CLIENT.get(
+        "/market"
+    )
+
+    sales = (
+        response.get(
+            "sales",
+            [],
+        )
+        if isinstance(
+            response,
+            dict,
+        )
+        else []
+    )
+
+    ahora_timestamp = time.time()
+
+    jugadores = (
+        _extraer_mapa_jugadores()
+    )
+
+    mercado = []
+
+    for sale in sales:
+
+        if not isinstance(
+            sale,
+            dict,
+        ):
+            continue
+
+        # Ignorar ofertas marcadas como expiradas.
+        if sale.get(
+            "expired"
+        ) is True:
+            continue
+
+        until = sale.get(
+            "until"
+        )
+
+        # Sin fecha de finalización no podemos
+        # determinar si sigue activa.
+        if not isinstance(
+            until,
+            (int, float),
+        ):
+            continue
+
+        # La oferta ya ha terminado.
+        if until <= ahora_timestamp:
+            continue
+
+        player = sale.get(
+            "player"
+        )
+
+        if not isinstance(
+            player,
+            dict,
+        ):
+            continue
+
+        player_id = player.get(
+            "id"
+        )
+
+        if player_id is None:
+            continue
+
+        nombre, equipo = _datos_jugador(
+            jugadores,
+            player_id,
+        )
+
+        usuario = sale.get(
+            "user"
+        )
+
+        user_id = None
+
+        if isinstance(
+            usuario,
+            dict,
+        ):
+
+            user_id = usuario.get(
+                "id"
+            )
+
+        mercado.append({
+            "player_id": player_id,
+            "player_name": nombre,
+            "team": equipo,
+            "price": sale.get(
+                "price",
+                0,
+            ),
+            "date": sale.get(
+                "date"
+            ),
+            "until": until,
+            "user_id": user_id,
+        })
+
+    # Ordenamos por momento de finalización.
+    mercado.sort(
+        key=lambda x: x.get(
+            "until",
+            0,
+        )
+    )
+
+    return {
+        "fecha": datetime.now(
+            MADRID_TZ
+        ),
+        "jugadores": mercado,
+    }
+
+
+# ============================================================
+# MERCADO DE HOY - TEXTO COMPATIBILIDAD
+#
+# Muestra los JUGADORES ACTUALMENTE EN VENTA.
+# No muestra movimientos.
+# ============================================================
+
+def obtener_mercado_hoy(
+    liga_id,
+):
+
+    datos = (
+        obtener_mercado_hoy_datos(
+            liga_id
+        )
+    )
+
+    ahora = datos[
+        "fecha"
+    ]
+
+    jugadores = datos.get(
+        "jugadores",
+        [],
+    )
+
+    if not jugadores:
+
+        return (
+            "🛒 MERCADO — HOY\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "No hay jugadores actualmente "
+            "en venta."
+        )
+
+    lineas = [
+        "🛒 MERCADO — HOY",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+        f"📅 {_nombre_fecha(ahora.timestamp())}",
+        "",
+    ]
+
+    for jugador in jugadores:
+
+        nombre = jugador.get(
+            "player_name",
+            "Jugador desconocido",
+        )
+
+        equipo = jugador.get(
+            "team",
+            "?",
+        )
+
+        precio = _formatear_importe(
+            jugador.get(
+                "price",
+                0,
+            )
+        )
+
+        lineas.append(
+            f"⚽ {nombre} [{equipo}]"
+        )
+
+        lineas.append(
+            f"💰 {precio}"
+        )
+
+        lineas.append("")
+
+    return "\n".join(
+        lineas
+    ).rstrip()
 
 
 # ============================================================
