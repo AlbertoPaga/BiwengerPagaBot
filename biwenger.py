@@ -800,7 +800,11 @@ def _extraer_mapa_jugadores():
                 isinstance(player_id, int)
                 and isinstance(nombre, str)
             ):
-                mapa[player_id] = nombre.strip()
+
+                # Guardamos el objeto completo para poder
+                # obtener posteriormente equipo, posición,
+                # valor y otros datos del jugador.
+                mapa[player_id] = objeto
 
             for valor in objeto.values():
                 recorrer(valor)
@@ -813,6 +817,237 @@ def _extraer_mapa_jugadores():
     recorrer(respuesta)
 
     return mapa
+
+
+# ============================================================
+# OBTENER DATOS DEL EQUIPO
+# ============================================================
+
+def _extraer_equipo_jugador(
+    jugador,
+):
+
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+        return "?"
+
+    # --------------------------------------------------------
+    # Intentamos diferentes estructuras posibles.
+    # --------------------------------------------------------
+
+    equipo = jugador.get("team")
+
+    if isinstance(equipo, dict):
+
+        nombre = (
+            equipo.get("name")
+            or equipo.get("shortName")
+            or equipo.get("slug")
+            or equipo.get("code")
+        )
+
+        if nombre:
+            return str(nombre)
+
+    elif isinstance(equipo, str):
+
+        if equipo.strip():
+            return equipo.strip()
+
+    # --------------------------------------------------------
+    # Otros nombres habituales.
+    # --------------------------------------------------------
+
+    for key in (
+        "teamName",
+        "team_name",
+        "club",
+        "clubName",
+    ):
+
+        valor = jugador.get(key)
+
+        if isinstance(
+            valor,
+            str,
+        ) and valor.strip():
+
+            return valor.strip()
+
+        if isinstance(
+            valor,
+            dict,
+        ):
+
+            nombre = (
+                valor.get("name")
+                or valor.get("shortName")
+                or valor.get("code")
+            )
+
+            if nombre:
+                return str(nombre)
+
+    return "?"
+
+
+# ============================================================
+# ABREVIATURA DEL EQUIPO
+# ============================================================
+
+def _abreviar_equipo(
+    equipo,
+):
+
+    if not equipo:
+        return "?"
+
+    texto = str(
+        equipo
+    ).strip()
+
+    if not texto:
+        return "?"
+
+    normalizado = (
+        texto.lower()
+        .replace("-", " ")
+        .replace("_", " ")
+    )
+
+    abreviaturas = {
+
+        # LaLiga
+        "real madrid": "RMA",
+        "real madrid cf": "RMA",
+        "fc barcelona": "FCB",
+        "barcelona": "FCB",
+        "atletico madrid": "ATM",
+        "atlético madrid": "ATM",
+        "club atletico de madrid": "ATM",
+        "club atlético de madrid": "ATM",
+
+        "athletic club": "ATH",
+        "athletic bilbao": "ATH",
+        "real sociedad": "RSO",
+        "real betis": "BET",
+        "sevilla fc": "SEV",
+        "sevilla": "SEV",
+        "villarreal cf": "VIL",
+        "villarreal": "VIL",
+        "valencia cf": "VAL",
+        "valencia": "VAL",
+        "rcd espanyol": "ESP",
+        "espanyol": "ESP",
+        "rcd mallorca": "MLL",
+        "mallorca": "MLL",
+        "girona fc": "GIR",
+        "girona": "GIR",
+        "getafe cf": "GET",
+        "getafe": "GET",
+        "rc celta": "CEL",
+        "celta": "CEL",
+        "rcd": "RCD",
+        "osasuna": "OSA",
+        "ca osasuna": "OSA",
+        "deportivo alaves": "ALA",
+        "deportivo alavés": "ALA",
+        "alaves": "ALA",
+        "alavés": "ALA",
+        "ud las palmas": "LPA",
+        "las palmas": "LPA",
+        "rayo vallecano": "RAY",
+        "cd leganes": "LEG",
+        "leganes": "LEG",
+        "leganés": "LEG",
+        "real valladolid": "VLL",
+        "valladolid": "VLL",
+        "real oviedo": "OVI",
+        "oviedo": "OVI",
+        "levante ud": "LEV",
+        "levante": "LEV",
+        "elche cf": "ELC",
+        "elche": "ELC",
+        "granada cf": "GRA",
+        "granada": "GRA",
+        "cadiz cf": "CAD",
+        "cadiz": "CAD",
+        "cádiz": "CAD",
+        "almeria": "ALM",
+        "almería": "ALM",
+        "ud almeria": "ALM",
+    }
+
+    if normalizado in abreviaturas:
+        return abreviaturas[normalizado]
+
+    # --------------------------------------------------------
+    # Si la API ya proporciona un código corto, lo usamos.
+    # --------------------------------------------------------
+
+    if len(texto) <= 4:
+        return texto.upper()
+
+    # --------------------------------------------------------
+    # Fallback: primeras letras.
+    # --------------------------------------------------------
+
+    palabras = [
+        palabra
+        for palabra in texto.split()
+        if palabra
+    ]
+
+    if len(palabras) >= 2:
+
+        resultado = "".join(
+            palabra[0]
+            for palabra in palabras[:3]
+        )
+
+        return resultado.upper()
+
+    return texto[:3].upper()
+
+
+# ============================================================
+# OBTENER NOMBRE + EQUIPO
+# ============================================================
+
+def _datos_jugador(
+    jugadores,
+    player_id,
+):
+
+    jugador = jugadores.get(
+        player_id
+    )
+
+    if isinstance(
+        jugador,
+        dict,
+    ):
+
+        nombre = jugador.get(
+            "name",
+            f"Jugador {player_id}",
+        )
+
+        equipo = _extraer_equipo_jugador(
+            jugador
+        )
+
+        return (
+            str(nombre),
+            _abreviar_equipo(equipo),
+        )
+
+    return (
+        f"Jugador {player_id}",
+        "?",
+    )
 
 
 # ============================================================
@@ -1292,20 +1527,9 @@ def _nombre_fecha(
     )
 
 
-def _hora(
-    timestamp,
-):
-
-    fecha = _timestamp_datetime(
-        timestamp
-    )
-
-    return (
-        fecha.strftime("%H:%M")
-        if fecha
-        else ""
-    )
-
+# ============================================================
+# FORMATEAR IMPORTE
+# ============================================================
 
 def _formatear_importe(
     amount,
@@ -1318,41 +1542,31 @@ def _formatear_importe(
         return "0€"
 
 
+# ============================================================
+# FORMATEAR MOVIMIENTO
+#
+# IMPORTANTE:
+# Ya no mostramos la hora exacta.
+# ============================================================
+
 def _formatear_movimiento(
     operation,
     jugadores,
-    incluir_hora=False,
 ):
 
     player_id = operation.get(
         "player"
     )
 
-    jugador = jugadores.get(
+    jugador, equipo = _datos_jugador(
+        jugadores,
         player_id,
-        f"Jugador {player_id}",
     )
 
     importe = operation.get(
         "amount",
         0,
     )
-
-    hora = ""
-
-    if incluir_hora:
-
-        valor = _hora(
-            operation.get(
-                "_event_date"
-            )
-        )
-
-        if valor:
-
-            hora = (
-                f"🕐 {valor} | "
-            )
 
     comprador = operation.get(
         "to"
@@ -1368,9 +1582,10 @@ def _formatear_movimiento(
     ):
 
         return (
-            f"🟢 {hora}"
+            f"🟢 "
             f"{comprador.get('name', 'Desconocido')} "
-            f"ficha a {jugador} "
+            f"ficha a "
+            f"⚽ {jugador} [{equipo}] "
             f"por {_formatear_importe(importe)}"
         )
 
@@ -1380,9 +1595,10 @@ def _formatear_movimiento(
     ):
 
         return (
-            f"🔴 {hora}"
+            f"🔴 "
             f"{vendedor.get('name', 'Desconocido')} "
-            f"vende a {jugador} "
+            f"vende a "
+            f"⚽ {jugador} [{equipo}] "
             f"por {_formatear_importe(importe)}"
         )
 
@@ -1418,10 +1634,6 @@ def obtener_mercado_miembro(
     miembro_id,
 ):
 
-    # --------------------------------------------------------
-    # 1. Obtener miembros
-    # --------------------------------------------------------
-
     miembros = obtener_miembros_liga(
         liga_id
     )
@@ -1448,10 +1660,6 @@ def obtener_mercado_miembro(
         "Desconocido",
     )
 
-    # --------------------------------------------------------
-    # 2. Historial completo
-    # --------------------------------------------------------
-
     history = (
         _CLIENT.get_full_market_history(
             liga_id
@@ -1461,10 +1669,6 @@ def obtener_mercado_miembro(
     operaciones = _obtener_operaciones(
         history
     )
-
-    # --------------------------------------------------------
-    # 3. Filtrar operaciones del miembro
-    # --------------------------------------------------------
 
     operaciones_miembro = []
 
@@ -1510,10 +1714,6 @@ def obtener_mercado_miembro(
         _extraer_mapa_jugadores()
     )
 
-    # --------------------------------------------------------
-    # 4. Sin movimientos
-    # --------------------------------------------------------
-
     if not operaciones_miembro:
 
         return (
@@ -1521,10 +1721,6 @@ def obtener_mercado_miembro(
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "Sin movimientos."
         )
-
-    # --------------------------------------------------------
-    # 5. Agrupar por día natural de Madrid
-    # --------------------------------------------------------
 
     grupos = {}
     orden = []
@@ -1557,26 +1753,22 @@ def obtener_mercado_miembro(
                 ),
             }
 
-            orden.append(clave)
+            orden.append(
+                clave
+            )
 
         player_id = operacion.get(
             "player"
         )
 
-        jugador = jugadores.get(
+        jugador, equipo = _datos_jugador(
+            jugadores,
             player_id,
-            f"Jugador {player_id}",
         )
 
         importe = operacion.get(
             "amount",
             0,
-        )
-
-        hora = _hora(
-            operacion.get(
-                "_event_date"
-            )
         )
 
         comprador = operacion.get(
@@ -1587,10 +1779,6 @@ def obtener_mercado_miembro(
             "from"
         )
 
-        # ----------------------------------------------------
-        # COMPRA
-        # ----------------------------------------------------
-
         if (
             isinstance(comprador, dict)
             and
@@ -1600,15 +1788,11 @@ def obtener_mercado_miembro(
 
             grupos[clave]["compras"].append(
                 (
-                    f"🟢 {hora} | "
-                    f"⚽ {jugador} | "
+                    f"🟢 "
+                    f"⚽ {jugador} [{equipo}] | "
                     f"💰 {_formatear_importe(importe)}"
                 )
             )
-
-        # ----------------------------------------------------
-        # VENTA
-        # ----------------------------------------------------
 
         elif (
             isinstance(vendedor, dict)
@@ -1619,15 +1803,11 @@ def obtener_mercado_miembro(
 
             grupos[clave]["ventas"].append(
                 (
-                    f"🔴 {hora} | "
-                    f"⚽ {jugador} | "
+                    f"🔴 "
+                    f"⚽ {jugador} [{equipo}] | "
                     f"💰 {_formatear_importe(importe)}"
                 )
             )
-
-    # --------------------------------------------------------
-    # 6. Construir salida
-    # --------------------------------------------------------
 
     lineas = [
         f"🧑‍💼 MERCADO — {nombre_miembro}",
@@ -1652,28 +1832,41 @@ def obtener_mercado_miembro(
                 )
             )
 
-        lineas.append(titulo)
+        lineas.append(
+            titulo
+        )
+
         lineas.append("")
 
         if datos_dia["compras"]:
 
-            lineas.append("🟢 COMPRAS")
+            lineas.append(
+                "🟢 COMPRAS"
+            )
 
             for movimiento in datos_dia["compras"]:
-                lineas.append(movimiento)
+                lineas.append(
+                    movimiento
+                )
 
             lineas.append("")
 
         if datos_dia["ventas"]:
 
-            lineas.append("🔴 VENTAS")
+            lineas.append(
+                "🔴 VENTAS"
+            )
 
             for movimiento in datos_dia["ventas"]:
-                lineas.append(movimiento)
+                lineas.append(
+                    movimiento
+                )
 
             lineas.append("")
 
-    return "\n".join(lineas).rstrip()
+    return "\n".join(
+        lineas
+    ).rstrip()
 
 
 # ============================================================
@@ -1718,7 +1911,9 @@ def obtener_mercado_completo(
         if clave not in grupos:
 
             grupos[clave] = []
-            orden.append(clave)
+            orden.append(
+                clave
+            )
 
         texto = _formatear_movimiento(
             operacion,
@@ -1726,6 +1921,7 @@ def obtener_mercado_completo(
         )
 
         if texto:
+
             grupos[clave].append(
                 texto
             )
@@ -1793,17 +1989,18 @@ def obtener_mercado_completo(
     return (
         "🔄 MERCADO COMPLETO\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
-        + "\n\n".join(bloques)
+        + "\n\n".join(
+            bloques
+        )
     )
 
 
 # ============================================================
-# MERCADO 24H
+# MERCADO DEL DÍA
 #
-# El nombre del comando se mantiene por compatibilidad:
-# /mercado24
+# /mercado24 se mantiene como comando.
 #
-# Pero muestra el día natural actual:
+# Muestra:
 # 00:00 -> momento actual
 #
 # según Europe/Madrid.
@@ -1834,11 +2031,6 @@ def obtener_mercado_24h(
     jugadores = (
         _extraer_mapa_jugadores()
     )
-
-    # --------------------------------------------------------
-    # Seguridad adicional:
-    # filtramos por fecha natural de Madrid.
-    # --------------------------------------------------------
 
     operaciones_hoy = []
 
@@ -1881,7 +2073,6 @@ def obtener_mercado_24h(
         texto = _formatear_movimiento(
             operacion,
             jugadores,
-            incluir_hora=True,
         )
 
         if texto:
