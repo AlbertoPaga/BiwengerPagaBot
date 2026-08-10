@@ -768,4 +768,502 @@ class BiwengerClient:
 # CLIENTE GLOBAL
 # ============================================================
 
-_CLIENT = Bi
+_CLIENT = BiwengerClient()
+
+
+# ============================================================
+# LIGAS
+# ============================================================
+
+def obtener_ligas():
+    return _CLIENT.leagues()
+
+
+# ============================================================
+# DIAGNÓSTICO DE UNA LIGA
+# ============================================================
+
+def diagnostico_liga(liga_id):
+    """
+    Devuelve información segura para comprobar
+    qué contexto se está utilizando.
+    """
+
+    contexto = _CLIENT.prepare_context(
+        liga_id
+    )
+
+    respuesta = _CLIENT.get(
+        f"/league/{_CLIENT.league_id}/board"
+    )
+
+    data = (
+        respuesta.get("data", [])
+        if isinstance(respuesta, dict)
+        else []
+    )
+
+    return {
+        "league_id": contexto[
+            "league_id"
+        ],
+        "user_id": contexto[
+            "user_id"
+        ],
+        "eventos_board": (
+            len(data)
+            if isinstance(data, list)
+            else None
+        ),
+        "board_keys": (
+            list(respuesta.keys())
+            if isinstance(respuesta, dict)
+            else []
+        ),
+    }
+
+
+# ============================================================
+# MAPA DE JUGADORES
+# ============================================================
+
+def _extraer_mapa_jugadores():
+
+    try:
+        respuesta = _CLIENT.players()
+
+    except Exception as exc:
+        logger.warning(
+            "No se pudo obtener el listado "
+            "público de jugadores: %s",
+            exc,
+        )
+        return {}
+
+    mapa = {}
+
+    def recorrer(objeto):
+
+        if isinstance(
+            objeto,
+            dict,
+        ):
+            player_id = objeto.get(
+                "id"
+            )
+
+            nombre = objeto.get(
+                "name"
+            )
+
+            if (
+                isinstance(
+                    player_id,
+                    int,
+                )
+                and isinstance(
+                    nombre,
+                    str,
+                )
+            ):
+                mapa[player_id] = (
+                    nombre.strip()
+                )
+
+            for valor in objeto.values():
+                recorrer(valor)
+
+        elif isinstance(
+            objeto,
+            list,
+        ):
+            for valor in objeto:
+                recorrer(valor)
+
+    recorrer(respuesta)
+
+    return mapa
+
+
+# ============================================================
+# FECHAS
+# ============================================================
+
+def _timestamp_datetime(timestamp):
+
+    try:
+        return datetime.fromtimestamp(
+            float(timestamp),
+            tz=timezone.utc,
+        ).astimezone(
+            MADRID_TZ
+        )
+
+    except Exception:
+        return None
+
+
+def _nombre_fecha(timestamp):
+
+    fecha = _timestamp_datetime(
+        timestamp
+    )
+
+    if fecha is None:
+        return "FECHA DESCONOCIDA"
+
+    meses = [
+        "ENERO",
+        "FEBRERO",
+        "MARZO",
+        "ABRIL",
+        "MAYO",
+        "JUNIO",
+        "JULIO",
+        "AGOSTO",
+        "SEPTIEMBRE",
+        "OCTUBRE",
+        "NOVIEMBRE",
+        "DICIEMBRE",
+    ]
+
+    return (
+        f"{fecha.day} "
+        f"{meses[fecha.month - 1]} "
+        f"{fecha.year}"
+    )
+
+
+def _hora(timestamp):
+
+    fecha = _timestamp_datetime(
+        timestamp
+    )
+
+    return (
+        fecha.strftime("%H:%M")
+        if fecha
+        else ""
+    )
+
+
+# ============================================================
+# FORMATOS
+# ============================================================
+
+def _formatear_importe(amount):
+
+    try:
+        return f"{int(amount):,}€"
+
+    except Exception:
+        return "0€"
+
+
+def _formatear_movimiento(
+    operation,
+    jugadores,
+    incluir_hora=False,
+):
+    player_id = operation.get(
+        "player"
+    )
+
+    jugador = jugadores.get(
+        player_id,
+        f"Jugador {player_id}",
+    )
+
+    importe = operation.get(
+        "amount",
+        0,
+    )
+
+    hora = ""
+
+    if incluir_hora:
+
+        valor = _hora(
+            operation.get(
+                "_event_date"
+            )
+        )
+
+        if valor:
+            hora = (
+                f"🕐 {valor} | "
+            )
+
+    comprador = operation.get(
+        "to"
+    )
+
+    vendedor = operation.get(
+        "from"
+    )
+
+    if isinstance(
+        comprador,
+        dict,
+    ):
+        return (
+            f"🟢 {hora}"
+            f"{comprador.get('name', 'Desconocido')} "
+            f"ficha a {jugador} "
+            f"por {_formatear_importe(importe)}"
+        )
+
+    if isinstance(
+        vendedor,
+        dict,
+    ):
+        return (
+            f"🔴 {hora}"
+            f"{vendedor.get('name', 'Desconocido')} "
+            f"vende a {jugador} "
+            f"por {_formatear_importe(importe)}"
+        )
+
+    return None
+
+
+# ============================================================
+# OPERACIONES
+# ============================================================
+
+def _obtener_operaciones(history):
+
+    operaciones = (
+        _CLIENT.extract_operations(
+            history
+        )
+    )
+
+    return sorted(
+        operaciones,
+        key=lambda x: x.get(
+            "_event_date",
+            0,
+        ),
+        reverse=True,
+    )
+
+
+# ============================================================
+# MERCADO COMPLETO
+# ============================================================
+
+def obtener_mercado_completo(
+    liga_id,
+):
+    history = (
+        _CLIENT.get_full_market_history(
+            liga_id
+        )
+    )
+
+    operaciones = _obtener_operaciones(
+        history
+    )
+
+    jugadores = (
+        _extraer_mapa_jugadores()
+    )
+
+    grupos = {}
+    orden = []
+
+    for operacion in operaciones:
+
+        fecha = _timestamp_datetime(
+            operacion.get(
+                "_event_date"
+            )
+        )
+
+        clave = (
+            fecha.strftime("%Y-%m-%d")
+            if fecha
+            else "desconocida"
+        )
+
+        if clave not in grupos:
+            grupos[clave] = []
+            orden.append(clave)
+
+        texto = _formatear_movimiento(
+            operacion,
+            jugadores,
+        )
+
+        if texto:
+            grupos[clave].append(
+                texto
+            )
+
+    bloques = []
+
+    for clave in orden:
+
+        if clave == "desconocida":
+            titulo = (
+                "📅 FECHA DESCONOCIDA"
+            )
+
+        else:
+
+            timestamp = next(
+                (
+                    op.get(
+                        "_event_date"
+                    )
+                    for op in operaciones
+                    if (
+                        _timestamp_datetime(
+                            op.get(
+                                "_event_date"
+                            )
+                        )
+                        and
+                        _timestamp_datetime(
+                            op.get(
+                                "_event_date"
+                            )
+                        ).strftime(
+                            "%Y-%m-%d"
+                        )
+                        == clave
+                    )
+                ),
+                None,
+            )
+
+            titulo = (
+                "📅 "
+                + _nombre_fecha(
+                    timestamp
+                )
+            )
+
+        bloques.append(
+            "\n".join([
+                titulo,
+                "",
+                *grupos[clave],
+            ])
+        )
+
+    if not bloques:
+        return (
+            "🔄 MERCADO COMPLETO\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Sin movimientos."
+        )
+
+    return (
+        "🔄 MERCADO COMPLETO\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        + "\n\n".join(bloques)
+    )
+
+
+# ============================================================
+# MERCADO — ÚLTIMAS 24 HORAS
+# ============================================================
+
+def obtener_mercado_24h(
+    liga_id,
+):
+    history = (
+        _CLIENT.get_market_history_last_24h(
+            liga_id
+        )
+    )
+
+    operaciones = _obtener_operaciones(
+        history
+    )
+
+    jugadores = (
+        _extraer_mapa_jugadores()
+    )
+
+    if not operaciones:
+        return (
+            "⏱️ MERCADO — ÚLTIMAS 24 HORAS\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Sin movimientos."
+        )
+
+    lineas = [
+        "⏱️ MERCADO — ÚLTIMAS 24 HORAS",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+    ]
+
+    for operacion in operaciones:
+
+        texto = _formatear_movimiento(
+            operacion,
+            jugadores,
+            incluir_hora=True,
+        )
+
+        if texto:
+            lineas.append(texto)
+
+    return "\n".join(lineas)
+
+
+# ============================================================
+# INFORME
+# ============================================================
+
+def obtener_informe(
+    liga_id,
+):
+    history = (
+        _CLIENT.get_full_market_history(
+            liga_id
+        )
+    )
+
+    report = (
+        _CLIENT.calculate_market_report(
+            history
+        )
+    )
+
+    return (
+        _CLIENT.build_final_report(
+            report
+        )
+    )
+
+
+def obtener_informe_detallado(
+    liga_id,
+):
+    return obtener_informe(
+        liga_id
+    )
+
+
+# ============================================================
+# ALIAS PARA EL BOT
+# ============================================================
+
+def obtener_movimientos(
+    liga_id,
+):
+    return obtener_mercado_completo(
+        liga_id
+    )
+
+
+def obtener_movimientos_24h(
+    liga_id,
+):
+    return obtener_mercado_24h(
+        liga_id
+    )
