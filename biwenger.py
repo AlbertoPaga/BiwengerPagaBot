@@ -30,12 +30,188 @@ logger = logging.getLogger("biwenger")
 
 
 # ============================================================
+# TABLA DE EQUIVALENCIA DE EQUIPOS
+#
+# La clave es SIEMPRE el ID que devuelve Biwenger:
+#
+# jugador["team"]["id"]
+#
+# El valor es la abreviatura que queremos mostrar en Telegram.
+#
+# Ejemplo:
+#
+# "team": {
+#     "id": 13,
+#     "name": "Real Sociedad"
+# }
+#
+# => RSO
+#
+# ============================================================
+
+EQUIPOS_ABREVIATURAS = {
+
+    # --------------------------------------------------------
+    # IDs confirmados a partir de la API que estamos usando
+    # --------------------------------------------------------
+
+    13: "RSO",   # Real Sociedad
+    87: "BET",   # Betis
+
+    # --------------------------------------------------------
+    # Añadir aquí el resto de IDs que devuelva vuestra API.
+    #
+    # Ejemplo:
+    #
+    #  XX: "RMA",
+    #  XX: "FCB",
+    #  XX: "ATM",
+    #
+    # No estamos inventando IDs. Los iremos completando
+    # directamente a partir de los datos que devuelve Biwenger.
+    # --------------------------------------------------------
+}
+
+
+# ============================================================
+# TABLA DE RESPALDO POR NOMBRE
+#
+# Esta tabla NO es la fuente principal.
+#
+# Solo sirve para que, mientras completamos la tabla de IDs,
+# el bot pueda seguir mostrando una abreviatura si conoce
+# el nombre del equipo.
+#
+# ============================================================
+
+EQUIPOS_ABREVIATURAS_NOMBRE = {
+
+    "real madrid": "RMA",
+    "real madrid cf": "RMA",
+
+    "fc barcelona": "FCB",
+    "barcelona": "FCB",
+
+    "atletico madrid": "ATM",
+    "atlético madrid": "ATM",
+    "club atletico de madrid": "ATM",
+    "club atlético de madrid": "ATM",
+
+    "athletic club": "ATH",
+    "athletic bilbao": "ATH",
+
+    "real sociedad": "RSO",
+
+    "real betis": "BET",
+    "betis": "BET",
+
+    "sevilla fc": "SEV",
+    "sevilla": "SEV",
+
+    "villarreal cf": "VIL",
+    "villarreal": "VIL",
+
+    "valencia cf": "VAL",
+    "valencia": "VAL",
+
+    "rcd espanyol": "ESP",
+    "espanyol": "ESP",
+
+    "rcd mallorca": "MLL",
+    "mallorca": "MLL",
+
+    "girona fc": "GIR",
+    "girona": "GIR",
+
+    "getafe cf": "GET",
+    "getafe": "GET",
+
+    "rc celta": "CEL",
+    "celta": "CEL",
+
+    "ca osasuna": "OSA",
+    "osasuna": "OSA",
+
+    "deportivo alaves": "ALA",
+    "deportivo alavés": "ALA",
+    "alaves": "ALA",
+    "alavés": "ALA",
+
+    "ud las palmas": "LPA",
+    "las palmas": "LPA",
+
+    "rayo vallecano": "RAY",
+
+    "cd leganes": "LEG",
+    "leganes": "LEG",
+    "leganés": "LEG",
+
+    "real valladolid": "VLL",
+    "valladolid": "VLL",
+
+    "real oviedo": "OVI",
+    "oviedo": "OVI",
+
+    "levante ud": "LEV",
+    "levante": "LEV",
+
+    "elche cf": "ELC",
+    "elche": "ELC",
+
+    "granada cf": "GRA",
+    "granada": "GRA",
+
+    "cadiz cf": "CAD",
+    "cadiz": "CAD",
+    "cádiz": "CAD",
+
+    "ud almeria": "ALM",
+    "almeria": "ALM",
+    "almería": "ALM",
+}
+
+
+# ============================================================
+# NORMALIZAR TEXTO
+# ============================================================
+
+def _normalizar_texto(texto):
+
+    if texto is None:
+        return ""
+
+    texto = str(texto).strip().lower()
+
+    reemplazos = {
+        "á": "a",
+        "é": "e",
+        "í": "i",
+        "ó": "o",
+        "ú": "u",
+        "ü": "u",
+        "-": " ",
+        "_": " ",
+    }
+
+    for origen, destino in reemplazos.items():
+        texto = texto.replace(
+            origen,
+            destino,
+        )
+
+    return " ".join(
+        texto.split()
+    )
+
+
+# ============================================================
 # CLIENTE BIWENGER
 # ============================================================
 
 class BiwengerClient:
 
     def __init__(self):
+
         self.session = requests.Session()
         self.public_session = requests.Session()
 
@@ -58,6 +234,7 @@ class BiwengerClient:
         league_id=None,
         user_id=None,
     ):
+
         self.league_id = (
             int(league_id)
             if league_id is not None
@@ -71,6 +248,7 @@ class BiwengerClient:
         )
 
     def clear_context(self):
+
         self.league_id = None
         self.user_id = None
 
@@ -127,11 +305,13 @@ class BiwengerClient:
         if use_context:
 
             if self.league_id is not None:
+
                 headers["X-League"] = str(
                     self.league_id
                 )
 
             if self.user_id is not None:
+
                 headers["X-User"] = str(
                     self.user_id
                 )
@@ -152,6 +332,7 @@ class BiwengerClient:
     # --------------------------------------------------------
 
     def account(self):
+
         return self.get(
             "/account",
             use_context=False,
@@ -203,6 +384,7 @@ class BiwengerClient:
                 isinstance(usuario, (int, str))
                 and str(usuario).isdigit()
             ):
+
                 return int(usuario)
 
             for key in (
@@ -233,6 +415,7 @@ class BiwengerClient:
         )
 
         if user_id is None:
+
             raise ValueError(
                 f"No se encontró usuario para liga {league_id}"
             )
@@ -396,13 +579,18 @@ class BiwengerClient:
 
                 all_events.append(event)
 
-                event_date = event.get("date")
+                event_date = event.get(
+                    "date"
+                )
 
                 if isinstance(
                     event_date,
                     (int, float),
                 ):
-                    fechas.append(event_date)
+
+                    fechas.append(
+                        event_date
+                    )
 
             if not fechas:
                 break
@@ -413,6 +601,7 @@ class BiwengerClient:
                 current_date is not None
                 and antigua >= current_date
             ):
+
                 break
 
             current_date = antigua - 1
@@ -421,7 +610,10 @@ class BiwengerClient:
                 break
 
         all_events.sort(
-            key=lambda x: x.get("date", 0),
+            key=lambda x: x.get(
+                "date",
+                0,
+            ),
             reverse=True,
         )
 
@@ -491,7 +683,9 @@ class BiwengerClient:
                 if not isinstance(event, dict):
                     continue
 
-                event_date = event.get("date")
+                event_date = event.get(
+                    "date"
+                )
 
                 if not isinstance(
                     event_date,
@@ -510,10 +704,15 @@ class BiwengerClient:
 
                 seen.add(key)
 
-                fechas.append(event_date)
+                fechas.append(
+                    event_date
+                )
 
                 if event_date >= desde:
-                    all_events.append(event)
+
+                    all_events.append(
+                        event
+                    )
 
             if not fechas:
                 break
@@ -527,6 +726,7 @@ class BiwengerClient:
                 current_date is not None
                 and antigua >= current_date
             ):
+
                 break
 
             current_date = antigua - 1
@@ -535,7 +735,10 @@ class BiwengerClient:
                 break
 
         all_events.sort(
-            key=lambda x: x.get("date", 0),
+            key=lambda x: x.get(
+                "date",
+                0,
+            ),
             reverse=True,
         )
 
@@ -652,16 +855,25 @@ class BiwengerClient:
                 amount,
                 (int, float),
             ):
+
                 amount = 0
 
-            buyer = operation.get("to")
-            seller = operation.get("from")
+            buyer = operation.get(
+                "to"
+            )
+
+            seller = operation.get(
+                "from"
+            )
 
             player_id = operation.get(
                 "player"
             )
 
-            if isinstance(buyer, dict):
+            if isinstance(
+                buyer,
+                dict,
+            ):
 
                 nombre = buyer.get(
                     "name",
@@ -686,7 +898,10 @@ class BiwengerClient:
                     "numero_compras"
                 ] += 1
 
-            if isinstance(seller, dict):
+            if isinstance(
+                seller,
+                dict,
+            ):
 
                 nombre = seller.get(
                     "name",
@@ -726,6 +941,7 @@ _CLIENT = BiwengerClient()
 # ============================================================
 
 def obtener_ligas():
+
     return _CLIENT.leagues()
 
 
@@ -791,36 +1007,75 @@ def _extraer_mapa_jugadores():
 
     def recorrer(objeto):
 
-        if isinstance(objeto, dict):
+        if isinstance(
+            objeto,
+            dict,
+        ):
 
-            player_id = objeto.get("id")
-            nombre = objeto.get("name")
+            player_id = objeto.get(
+                "id"
+            )
+
+            nombre = objeto.get(
+                "name"
+            )
 
             if (
-                isinstance(player_id, int)
-                and isinstance(nombre, str)
+                isinstance(
+                    player_id,
+                    int,
+                )
+                and isinstance(
+                    nombre,
+                    str,
+                )
             ):
 
-                # Guardamos el objeto completo para poder
-                # obtener posteriormente equipo, posición,
-                # valor y otros datos del jugador.
+                # Guardamos el objeto completo.
+                #
+                # Esto es importante porque dentro del
+                # objeto del jugador tenemos también:
+                #
+                # player["team"]["id"]
+                #
+                # y de ahí obtenemos la abreviatura.
+
                 mapa[player_id] = objeto
 
             for valor in objeto.values():
+
                 recorrer(valor)
 
-        elif isinstance(objeto, list):
+        elif isinstance(
+            objeto,
+            list,
+        ):
 
             for valor in objeto:
+
                 recorrer(valor)
 
     recorrer(respuesta)
+
+    logger.info(
+        "Mapa de jugadores cargado: %s jugadores",
+        len(mapa),
+    )
 
     return mapa
 
 
 # ============================================================
-# OBTENER DATOS DEL EQUIPO
+# OBTENER DATOS DEL EQUIPO DEL JUGADOR
+#
+# Devuelve:
+#
+#     (team_id, nombre_equipo)
+#
+# Ejemplo:
+#
+#     (13, "Real Sociedad")
+#
 # ============================================================
 
 def _extraer_equipo_jugador(
@@ -831,15 +1086,24 @@ def _extraer_equipo_jugador(
         jugador,
         dict,
     ):
-        return "?"
 
-    # --------------------------------------------------------
-    # Intentamos diferentes estructuras posibles.
-    # --------------------------------------------------------
+        return (
+            None,
+            None,
+        )
 
-    equipo = jugador.get("team")
+    equipo = jugador.get(
+        "team"
+    )
 
-    if isinstance(equipo, dict):
+    if isinstance(
+        equipo,
+        dict,
+    ):
+
+        equipo_id = equipo.get(
+            "id"
+        )
 
         nombre = (
             equipo.get("name")
@@ -848,16 +1112,15 @@ def _extraer_equipo_jugador(
             or equipo.get("code")
         )
 
-        if nombre:
-            return str(nombre)
-
-    elif isinstance(equipo, str):
-
-        if equipo.strip():
-            return equipo.strip()
+        return (
+            equipo_id,
+            str(nombre)
+            if nombre
+            else None,
+        )
 
     # --------------------------------------------------------
-    # Otros nombres habituales.
+    # Compatibilidad con posibles estructuras antiguas.
     # --------------------------------------------------------
 
     for key in (
@@ -867,19 +1130,18 @@ def _extraer_equipo_jugador(
         "clubName",
     ):
 
-        valor = jugador.get(key)
-
-        if isinstance(
-            valor,
-            str,
-        ) and valor.strip():
-
-            return valor.strip()
+        valor = jugador.get(
+            key
+        )
 
         if isinstance(
             valor,
             dict,
         ):
+
+            equipo_id = valor.get(
+                "id"
+            )
 
             nombre = (
                 valor.get("name")
@@ -887,129 +1149,116 @@ def _extraer_equipo_jugador(
                 or valor.get("code")
             )
 
-            if nombre:
-                return str(nombre)
+            return (
+                equipo_id,
+                str(nombre)
+                if nombre
+                else None,
+            )
 
-    return "?"
+        if isinstance(
+            valor,
+            str,
+        ) and valor.strip():
 
+            return (
+                None,
+                valor.strip(),
+            )
 
-# ============================================================
-# ABREVIATURA DEL EQUIPO
-# ============================================================
-
-def _abreviar_equipo(
-    equipo,
-):
-
-    if not equipo:
-        return "?"
-
-    texto = str(
-        equipo
-    ).strip()
-
-    if not texto:
-        return "?"
-
-    normalizado = (
-        texto.lower()
-        .replace("-", " ")
-        .replace("_", " ")
+    return (
+        None,
+        None,
     )
 
-    abreviaturas = {
 
-        # LaLiga
-        "real madrid": "RMA",
-        "real madrid cf": "RMA",
-        "fc barcelona": "FCB",
-        "barcelona": "FCB",
-        "atletico madrid": "ATM",
-        "atlético madrid": "ATM",
-        "club atletico de madrid": "ATM",
-        "club atlético de madrid": "ATM",
+# ============================================================
+# ABREVIATURA POR ID DE EQUIPO
+# ============================================================
 
-        "athletic club": "ATH",
-        "athletic bilbao": "ATH",
-        "real sociedad": "RSO",
-        "real betis": "BET",
-        "sevilla fc": "SEV",
-        "sevilla": "SEV",
-        "villarreal cf": "VIL",
-        "villarreal": "VIL",
-        "valencia cf": "VAL",
-        "valencia": "VAL",
-        "rcd espanyol": "ESP",
-        "espanyol": "ESP",
-        "rcd mallorca": "MLL",
-        "mallorca": "MLL",
-        "girona fc": "GIR",
-        "girona": "GIR",
-        "getafe cf": "GET",
-        "getafe": "GET",
-        "rc celta": "CEL",
-        "celta": "CEL",
-        "rcd": "RCD",
-        "osasuna": "OSA",
-        "ca osasuna": "OSA",
-        "deportivo alaves": "ALA",
-        "deportivo alavés": "ALA",
-        "alaves": "ALA",
-        "alavés": "ALA",
-        "ud las palmas": "LPA",
-        "las palmas": "LPA",
-        "rayo vallecano": "RAY",
-        "cd leganes": "LEG",
-        "leganes": "LEG",
-        "leganés": "LEG",
-        "real valladolid": "VLL",
-        "valladolid": "VLL",
-        "real oviedo": "OVI",
-        "oviedo": "OVI",
-        "levante ud": "LEV",
-        "levante": "LEV",
-        "elche cf": "ELC",
-        "elche": "ELC",
-        "granada cf": "GRA",
-        "granada": "GRA",
-        "cadiz cf": "CAD",
-        "cadiz": "CAD",
-        "cádiz": "CAD",
-        "almeria": "ALM",
-        "almería": "ALM",
-        "ud almeria": "ALM",
-    }
-
-    if normalizado in abreviaturas:
-        return abreviaturas[normalizado]
+def _abreviar_equipo_id(
+    equipo_id,
+    nombre_equipo=None,
+):
 
     # --------------------------------------------------------
-    # Si la API ya proporciona un código corto, lo usamos.
+    # 1. MÉTODO PRINCIPAL
+    #
+    # Buscamos directamente por ID.
     # --------------------------------------------------------
 
-    if len(texto) <= 4:
-        return texto.upper()
+    if equipo_id is not None:
+
+        try:
+
+            equipo_id_int = int(
+                equipo_id
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            equipo_id_int = None
+
+        if (
+            equipo_id_int is not None
+            and equipo_id_int
+            in EQUIPOS_ABREVIATURAS
+        ):
+
+            return EQUIPOS_ABREVIATURAS[
+                equipo_id_int
+            ]
 
     # --------------------------------------------------------
-    # Fallback: primeras letras.
+    # 2. FALLBACK POR NOMBRE
+    #
+    # Esto evita que aparezca [?] mientras todavía
+    # no hemos completado algún ID en la tabla.
     # --------------------------------------------------------
 
-    palabras = [
-        palabra
-        for palabra in texto.split()
-        if palabra
-    ]
+    if nombre_equipo:
 
-    if len(palabras) >= 2:
-
-        resultado = "".join(
-            palabra[0]
-            for palabra in palabras[:3]
+        normalizado = _normalizar_texto(
+            nombre_equipo
         )
 
-        return resultado.upper()
+        abreviatura = (
+            EQUIPOS_ABREVIATURAS_NOMBRE.get(
+                normalizado
+            )
+        )
 
-    return texto[:3].upper()
+        if abreviatura:
+
+            # ------------------------------------------------
+            # Registramos en logs el ID que falta.
+            # ------------------------------------------------
+
+            logger.warning(
+                "Equipo con ID no registrado: "
+                "id=%s nombre=%s -> %s",
+                equipo_id,
+                nombre_equipo,
+                abreviatura,
+            )
+
+            return abreviatura
+
+    # --------------------------------------------------------
+    # 3. Si no sabemos absolutamente nada.
+    # --------------------------------------------------------
+
+    logger.warning(
+        "No se pudo determinar abreviatura del equipo: "
+        "id=%s nombre=%s",
+        equipo_id,
+        nombre_equipo,
+    )
+
+    return "?"
 
 
 # ============================================================
@@ -1035,13 +1284,20 @@ def _datos_jugador(
             f"Jugador {player_id}",
         )
 
-        equipo = _extraer_equipo_jugador(
-            jugador
+        equipo_id, equipo_nombre = (
+            _extraer_equipo_jugador(
+                jugador
+            )
+        )
+
+        equipo = _abreviar_equipo_id(
+            equipo_id,
+            equipo_nombre,
         )
 
         return (
             str(nombre),
-            _abreviar_equipo(equipo),
+            equipo,
         )
 
     return (
@@ -1054,22 +1310,30 @@ def _datos_jugador(
 # UTILIDADES NUMÉRICAS
 # ============================================================
 
-def _numero(valor):
+def _numero(
+    valor,
+):
 
     if isinstance(
         valor,
         (int, float),
     ):
+
         return float(valor)
 
-    if isinstance(valor, str):
+    if isinstance(
+        valor,
+        str,
+    ):
 
         texto = valor.strip()
 
         try:
+
             return float(texto)
 
         except Exception:
+
             return None
 
     return None
@@ -1118,6 +1382,7 @@ def _extraer_standings(
         league_response,
         dict,
     ):
+
         return []
 
     data = league_response.get(
@@ -1129,6 +1394,7 @@ def _extraer_standings(
         data,
         dict,
     ):
+
         return []
 
     standings = data.get(
@@ -1140,6 +1406,7 @@ def _extraer_standings(
         standings,
         list,
     ):
+
         return []
 
     return standings
@@ -1153,6 +1420,7 @@ def _datos_standing(
         miembro,
         dict,
     ):
+
         return {
             "id": None,
             "nombre": "Desconocido",
@@ -1172,6 +1440,7 @@ def _datos_standing(
         )
         or not nombre.strip()
     ):
+
         nombre = "Desconocido"
 
     team_size = miembro.get(
@@ -1185,6 +1454,7 @@ def _datos_standing(
     )
 
     try:
+
         team_size = int(
             team_size
         )
@@ -1193,9 +1463,11 @@ def _datos_standing(
         TypeError,
         ValueError,
     ):
+
         team_size = 0
 
     try:
+
         team_value = int(
             team_value
         )
@@ -1204,10 +1476,13 @@ def _datos_standing(
         TypeError,
         ValueError,
     ):
+
         team_value = 0
 
     return {
-        "id": miembro.get("id"),
+        "id": miembro.get(
+            "id"
+        ),
         "nombre": nombre.strip(),
         "numero_jugadores": team_size,
         "valor_equipo": team_value,
@@ -1503,6 +1778,7 @@ def _nombre_fecha(
     )
 
     if fecha is None:
+
         return "FECHA DESCONOCIDA"
 
     meses = [
@@ -1536,9 +1812,11 @@ def _formatear_importe(
 ):
 
     try:
+
         return f"{int(amount):,}€"
 
     except Exception:
+
         return "0€"
 
 
@@ -1546,7 +1824,17 @@ def _formatear_importe(
 # FORMATEAR MOVIMIENTO
 #
 # IMPORTANTE:
-# Ya no mostramos la hora exacta.
+#
+# Ya NO mostramos la hora exacta.
+#
+# El equipo se obtiene mediante:
+#
+#     jugador["team"]["id"]
+#
+# y se transforma mediante:
+#
+#     EQUIPOS_ABREVIATURAS
+#
 # ============================================================
 
 def _formatear_movimiento(
@@ -1689,9 +1977,11 @@ def obtener_mercado_miembro(
             dict,
         ):
 
-            if str(comprador.get("id")) == str(
-                miembro_id
+            if (
+                str(comprador.get("id"))
+                == str(miembro_id)
             ):
+
                 pertenece = True
 
         if isinstance(
@@ -1699,9 +1989,11 @@ def obtener_mercado_miembro(
             dict,
         ):
 
-            if str(vendedor.get("id")) == str(
-                miembro_id
+            if (
+                str(vendedor.get("id"))
+                == str(miembro_id)
             ):
+
                 pertenece = True
 
         if pertenece:
@@ -1780,7 +2072,10 @@ def obtener_mercado_miembro(
         )
 
         if (
-            isinstance(comprador, dict)
+            isinstance(
+                comprador,
+                dict,
+            )
             and
             str(comprador.get("id"))
             == str(miembro_id)
@@ -1795,7 +2090,10 @@ def obtener_mercado_miembro(
             )
 
         elif (
-            isinstance(vendedor, dict)
+            isinstance(
+                vendedor,
+                dict,
+            )
             and
             str(vendedor.get("id"))
             == str(miembro_id)
@@ -1821,7 +2119,9 @@ def obtener_mercado_miembro(
 
         if clave == "desconocida":
 
-            titulo = "📅 FECHA DESCONOCIDA"
+            titulo = (
+                "📅 FECHA DESCONOCIDA"
+            )
 
         else:
 
@@ -1844,7 +2144,10 @@ def obtener_mercado_miembro(
                 "🟢 COMPRAS"
             )
 
-            for movimiento in datos_dia["compras"]:
+            for movimiento in datos_dia[
+                "compras"
+            ]:
+
                 lineas.append(
                     movimiento
                 )
@@ -1857,7 +2160,10 @@ def obtener_mercado_miembro(
                 "🔴 VENTAS"
             )
 
-            for movimiento in datos_dia["ventas"]:
+            for movimiento in datos_dia[
+                "ventas"
+            ]:
+
                 lineas.append(
                     movimiento
                 )
@@ -2000,10 +2306,13 @@ def obtener_mercado_completo(
 #
 # /mercado24 se mantiene como comando.
 #
-# Muestra:
+# Aunque el nombre histórico sea "24h", actualmente muestra
+# los movimientos del día natural:
+#
 # 00:00 -> momento actual
 #
 # según Europe/Madrid.
+#
 # ============================================================
 
 def obtener_mercado_24h(
@@ -2044,8 +2353,10 @@ def obtener_mercado_24h(
 
         if (
             fecha is not None
-            and fecha.strftime("%Y-%m-%d")
-            == fecha_hoy
+            and
+            fecha.strftime(
+                "%Y-%m-%d"
+            ) == fecha_hoy
         ):
 
             operaciones_hoy.append(
