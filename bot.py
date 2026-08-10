@@ -34,7 +34,10 @@ MAX_TELEGRAM = 4000
 # UTILIDADES
 # ==============================================================
 
-async def enviar_largo(update, texto):
+async def enviar_largo(
+    update,
+    texto,
+):
 
     if not texto:
         texto = "Sin datos"
@@ -49,30 +52,51 @@ async def enviar_largo(update, texto):
     ]
 
     for parte in partes:
-        await update.message.reply_text(parte)
+
+        await update.message.reply_text(
+            parte
+        )
 
 
-
-async def mostrar_selector_liga(update):
+async def mostrar_selector_liga(
+    update,
+):
 
     ligas = obtener_ligas()
 
     botones = []
 
     for liga in ligas:
+
+        liga_id = liga.get(
+            "id"
+        )
+
+        liga_nombre = liga.get(
+            "name",
+            f"Liga {liga_id}",
+        )
+
+        if liga_id is None:
+            continue
+
         botones.append(
             [
                 InlineKeyboardButton(
-                    liga["name"],
-                    callback_data=f'{liga["id"]}|{liga["name"]}',
+                    liga_nombre,
+                    callback_data=(
+                        f"liga:{liga_id}"
+                    ),
                 )
             ]
         )
 
     if not botones:
+
         await update.message.reply_text(
             "No se encontraron ligas."
         )
+
         return
 
     await update.message.reply_text(
@@ -83,8 +107,10 @@ async def mostrar_selector_liga(update):
     )
 
 
-
-async def mostrar_menu_liga(update, context):
+async def mostrar_menu_liga(
+    update,
+    context,
+):
 
     nombre = context.user_data.get(
         "liga_nombre",
@@ -108,18 +134,20 @@ Comandos disponibles:
     )
 
 
-
 # ==============================================================
 # START
 # ==============================================================
 
-async def start(update, context):
+async def start(
+    update,
+    context,
+):
 
     liga_id = context.user_data.get(
         "liga"
     )
 
-    if liga_id:
+    if liga_id is not None:
 
         await mostrar_menu_liga(
             update,
@@ -141,12 +169,14 @@ Primero selecciona una liga.
         )
 
 
-
 # ==============================================================
 # CAMBIAR LIGA
 # ==============================================================
 
-async def liga(update, context):
+async def liga(
+    update,
+    context,
+):
 
     try:
 
@@ -165,12 +195,14 @@ async def liga(update, context):
         )
 
 
-
 # ==============================================================
 # ELEGIR LIGA
 # ==============================================================
 
-async def elegir_liga(update, context):
+async def elegir_liga(
+    update,
+    context,
+):
 
     query = update.callback_query
 
@@ -178,11 +210,28 @@ async def elegir_liga(update, context):
 
     try:
 
-        datos = query.data.split("|")
+        datos = query.data
 
-        liga_id = int(datos[0])
+        if not datos.startswith(
+            "liga:"
+        ):
 
-        liga_nombre = datos[1]
+            raise ValueError(
+                "Callback inválido."
+            )
+
+        liga_id = datos.split(
+            ":",
+            1
+        )[1]
+
+        # Lo guardamos como string.
+        # biwenger.py compara IDs de forma robusta
+        # independientemente de que la API use int/string.
+
+        liga_id = str(
+            liga_id
+        )
 
     except Exception:
 
@@ -192,16 +241,77 @@ async def elegir_liga(update, context):
 
         return
 
+    # ==========================================================
+    # RESOLVER EL NOMBRE REAL DE LA LIGA
+    # ==========================================================
+
+    try:
+
+        ligas = obtener_ligas()
+
+        liga_encontrada = None
+
+        for liga_data in ligas:
+
+            if str(
+                liga_data.get("id")
+            ) == liga_id:
+
+                liga_encontrada = (
+                    liga_data
+                )
+
+                break
+
+        if liga_encontrada is None:
+
+            await query.edit_message_text(
+                "❌ No se encontró esa liga."
+            )
+
+            return
+
+        liga_nombre = liga_encontrada.get(
+            "name",
+            f"Liga {liga_id}",
+        )
+
+    except Exception as e:
+
+        logging.exception(
+            "ERROR RESOLVIENDO LIGA"
+        )
+
+        await query.edit_message_text(
+            f"❌ Error obteniendo la liga:\n{e}"
+        )
+
+        return
+
+    # ==========================================================
+    # GUARDAR LIGA DEL USUARIO
+    # ==========================================================
 
     context.user_data["liga"] = liga_id
 
-    context.user_data["liga_nombre"] = liga_nombre
+    context.user_data["liga_nombre"] = (
+        liga_nombre
+    )
 
+    # ==========================================================
+    # LIMPIAR CUALQUIER DATO ANTIGUO
+    # ==============================================================
+
+    # No guardamos user_id aquí.
+    # biwenger.py lo resolverá siempre a partir del league_id.
+    context.user_data.pop(
+        "user_id",
+        None,
+    )
 
     await query.edit_message_text(
         "✅ Liga seleccionada"
     )
-
 
     await query.message.reply_text(
         f"""
@@ -218,18 +328,20 @@ Comandos disponibles:
     )
 
 
-
 # ==============================================================
 # COMPROBAR LIGA
 # ==============================================================
 
-async def comprobar_liga(update, context):
+async def comprobar_liga(
+    update,
+    context,
+):
 
     liga_id = context.user_data.get(
         "liga"
     )
 
-    if not liga_id:
+    if liga_id is None:
 
         await update.message.reply_text(
             "Primero selecciona una liga con /liga"
@@ -239,18 +351,22 @@ async def comprobar_liga(update, context):
 
     return liga_id
 
+
 # ==============================================================
 # INFORME
 # ==============================================================
 
-async def informe(update, context):
+async def informe(
+    update,
+    context,
+):
 
     liga_id = await comprobar_liga(
         update,
         context,
     )
 
-    if not liga_id:
+    if liga_id is None:
         return
 
     try:
@@ -263,12 +379,13 @@ async def informe(update, context):
             liga_id
         )
 
+        if report is None:
+            report = {}
 
         texto = (
             "📊 INFORME DE MANAGERS\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
         )
-
 
         if not report:
 
@@ -283,7 +400,6 @@ async def informe(update, context):
 
             return
 
-
         managers = sorted(
             report.items(),
             key=lambda item:
@@ -293,7 +409,6 @@ async def informe(update, context):
                 ),
             reverse=True,
         )
-
 
         for manager, datos in managers:
 
@@ -319,16 +434,14 @@ async def informe(update, context):
 
             saldo = datos.get(
                 "saldo_actual",
-                20_000_000,
+    		20_000_000,
             )
-
 
             emoji = (
                 "💰"
                 if saldo >= 0
                 else "🔴"
             )
-
 
             texto += (
                 f"👤 {manager}\n"
@@ -342,12 +455,10 @@ async def informe(update, context):
                 f"{saldo:,}€\n\n"
             )
 
-
         await enviar_largo(
             update,
             texto,
         )
-
 
     except Exception as e:
 
@@ -360,21 +471,22 @@ async def informe(update, context):
         )
 
 
-
 # ==============================================================
 # MERCADO COMPLETO
 # ==============================================================
 
-async def mercado(update, context):
+async def mercado(
+    update,
+    context,
+):
 
     liga_id = await comprobar_liga(
         update,
         context,
     )
 
-    if not liga_id:
+    if liga_id is None:
         return
-
 
     try:
 
@@ -382,17 +494,14 @@ async def mercado(update, context):
             "🔄 Cargando mercado completo..."
         )
 
-
         texto = obtener_mercado_completo(
             liga_id
         )
-
 
         await enviar_largo(
             update,
             texto,
         )
-
 
     except Exception as e:
 
@@ -405,10 +514,14 @@ async def mercado(update, context):
         )
 
 
+# ==============================================================
+# ALIAS COMPATIBILIDAD
+# ==============================================================
 
-# Alias para compatibilidad con versiones anteriores
-
-async def movimientos(update, context):
+async def movimientos(
+    update,
+    context,
+):
 
     await mercado(
         update,
@@ -416,21 +529,22 @@ async def movimientos(update, context):
     )
 
 
-
 # ==============================================================
 # MERCADO 24 HORAS
 # ==============================================================
 
-async def mercado24(update, context):
+async def mercado24(
+    update,
+    context,
+):
 
     liga_id = await comprobar_liga(
         update,
         context,
     )
 
-    if not liga_id:
+    if liga_id is None:
         return
-
 
     try:
 
@@ -438,17 +552,14 @@ async def mercado24(update, context):
             "⏱️ Cargando últimas 24 horas..."
         )
 
-
         texto = obtener_mercado_24h(
             liga_id
         )
-
 
         await enviar_largo(
             update,
             texto,
         )
-
 
     except Exception as e:
 
@@ -461,19 +572,20 @@ async def mercado24(update, context):
         )
 
 
-
 # ==============================================================
 # AYUDA
 # ==============================================================
 
-async def ayuda(update, context):
+async def ayuda(
+    update,
+    context,
+):
 
     liga_id = context.user_data.get(
         "liga"
     )
 
-
-    if liga_id:
+    if liga_id is not None:
 
         texto = """
 📚 Comandos disponibles:
@@ -506,24 +618,24 @@ Iniciar bot y seleccionar liga.
 Seleccionar liga.
 """
 
-
     await update.message.reply_text(
         texto
     )
-
 
 
 # ==============================================================
 # ERROR GLOBAL
 # ==============================================================
 
-async def error_handler(update, context):
+async def error_handler(
+    update,
+    context,
+):
 
     logging.error(
         "ERROR GLOBAL: %s",
         context.error,
     )
-
 
 
 # ==============================================================
@@ -541,14 +653,12 @@ def main():
         .build()
     )
 
-
     app.add_handler(
         CommandHandler(
             "start",
             start,
         )
     )
-
 
     app.add_handler(
         CommandHandler(
@@ -557,13 +667,12 @@ def main():
         )
     )
 
-
     app.add_handler(
         CallbackQueryHandler(
             elegir_liga,
+            pattern=r"^liga:",
         )
     )
-
 
     app.add_handler(
         CommandHandler(
@@ -572,14 +681,12 @@ def main():
         )
     )
 
-
     app.add_handler(
         CommandHandler(
             "mercado",
             mercado,
         )
     )
-
 
     app.add_handler(
         CommandHandler(
@@ -588,14 +695,12 @@ def main():
         )
     )
 
-
     app.add_handler(
         CommandHandler(
             "mercado24",
             mercado24,
         )
     )
-
 
     app.add_handler(
         CommandHandler(
@@ -604,21 +709,17 @@ def main():
         )
     )
 
-
     app.add_error_handler(
         error_handler
     )
-
 
     print(
         "Bot iniciado..."
     )
 
-
     app.run_polling(
         drop_pending_updates=True
     )
-
 
 
 if __name__ == "__main__":

@@ -18,17 +18,16 @@ PLAYERS_URL = (
     "competitions/la-liga/data"
 )
 
-
 SALDO_INICIAL = 20_000_000
 
-MADRID_TZ = ZoneInfo(
-    "Europe/Madrid"
-)
+MADRID_TZ = ZoneInfo("Europe/Madrid")
 
 
+# ==============================================================
+# CLIENTE BIWENGER
+# ==============================================================
 
 class BiwengerClient:
-
 
     def __init__(self):
 
@@ -44,11 +43,16 @@ class BiwengerClient:
         )
 
         self.token = None
-        self.league_id = None
-        self.user_id = None
         self.login_time = 0
 
+        # Se mantienen por compatibilidad.
+        # Las peticiones importantes ya no dependen de este
+        # contexto global.
+        self.league_id = None
+        self.user_id = None
 
+        # Cache local de contextos de liga.
+        self._league_contexts = {}
 
     # ==========================================================
     # CONTEXTO
@@ -66,14 +70,10 @@ class BiwengerClient:
         if user_id is not None:
             self.user_id = user_id
 
-
-
     def clear_context(self):
 
         self.league_id = None
         self.user_id = None
-
-
 
     # ==========================================================
     # LOGIN
@@ -87,7 +87,6 @@ class BiwengerClient:
         ):
             return
 
-
         response = self.session.post(
             f"{BASE_URL}/auth/login",
             json={
@@ -97,32 +96,28 @@ class BiwengerClient:
             timeout=15,
         )
 
-
         response.raise_for_status()
-
 
         data = response.json()
 
+        token = data.get("token")
 
-        self.token = data["token"]
+        if not token:
+            raise RuntimeError(
+                "Biwenger no devolvió ningún token de autenticación."
+            )
 
+        self.token = token
         self.login_time = time.time()
-
 
         self.session.headers.update(
             {
-                "Authorization":
-                    f"Bearer {self.token}",
-
-                "Accept":
-                    "application/json",
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/json",
             }
         )
 
-
         return data
-
-
 
     # ==========================================================
     # GET API PRIVADA
@@ -132,30 +127,38 @@ class BiwengerClient:
         self,
         endpoint,
         params=None,
+        league_id=None,
+        user_id=None,
         use_context=True,
     ):
 
         self.login()
 
-
         headers = {}
-
 
         if use_context:
 
-            if self.league_id is not None:
+            # IMPORTANTE:
+            # Se prioriza el contexto recibido explícitamente.
+            # Solo se utiliza el contexto global como compatibilidad.
 
-                headers["X-League"] = str(
-                    self.league_id
-                )
+            contexto_league = (
+                league_id
+                if league_id is not None
+                else self.league_id
+            )
 
+            contexto_user = (
+                user_id
+                if user_id is not None
+                else self.user_id
+            )
 
-            if self.user_id is not None:
+            if contexto_league is not None:
+                headers["X-League"] = str(contexto_league)
 
-                headers["X-User"] = str(
-                    self.user_id
-                )
-
+            if contexto_user is not None:
+                headers["X-User"] = str(contexto_user)
 
         response = self.session.get(
             BASE_URL + endpoint,
@@ -164,13 +167,9 @@ class BiwengerClient:
             timeout=15,
         )
 
-
         response.raise_for_status()
 
-
         return response.json()
-
-
 
     # ==========================================================
     # CUENTA
@@ -183,8 +182,6 @@ class BiwengerClient:
             use_context=False,
         )
 
-
-
     # ==========================================================
     # LIGAS
     # ==========================================================
@@ -193,15 +190,107 @@ class BiwengerClient:
 
         data = self.account()
 
-        return data.get(
+        if not isinstance(data, dict):
+            return []
+
+        data_content = data.get(
             "data",
             {}
-        ).get(
+        )
+
+        if not isinstance(data_content, dict):
+            return []
+
+        ligas = data_content.get(
             "leagues",
             []
         )
 
+        if not isinstance(ligas, list):
+            return []
 
+        return ligas
+
+    # ==========================================================
+    # RESOLVER CONTEXTO DE LIGA
+    # ==========================================================
+
+    def get_league_context(
+        self,
+        league_id,
+    ):
+
+        if league_id is None:
+            raise ValueError(
+                "El league_id no puede ser None."
+            )
+
+        # Primero comprobamos cache.
+        cache_key = str(league_id)
+
+        if cache_key in self._league_contexts:
+
+            contexto = self._league_contexts[
+                cache_key
+            ]
+
+            return (
+                contexto["league_id"],
+                contexto["user_id"],
+            )
+
+        ligas = self.leagues()
+
+        for liga in ligas:
+
+            if not isinstance(
+                liga,
+                dict,
+            ):
+                continue
+
+            liga_id = liga.get("id")
+
+            # Comparación como string para evitar problemas
+            # int/string entre Telegram y la API.
+            if str(liga_id) != str(league_id):
+                continue
+
+            usuario = liga.get("user")
+
+            user_id = None
+
+            if isinstance(
+                usuario,
+                dict,
+            ):
+                user_id = usuario.get("id")
+
+            if user_id is None:
+
+                raise ValueError(
+                    f"La liga {league_id} existe, "
+                    f"pero Biwenger no devolvió el usuario asociado."
+                )
+
+            contexto = {
+                "league_id": liga_id,
+                "user_id": user_id,
+            }
+
+            self._league_contexts[
+                cache_key
+            ] = contexto
+
+            return (
+                liga_id,
+                user_id,
+            )
+
+        raise ValueError(
+            f"No se encontró la liga {league_id} "
+            f"en la cuenta de Biwenger."
+        )
 
     # ==========================================================
     # BUSCAR USUARIO LIGA
@@ -212,27 +301,17 @@ class BiwengerClient:
         league_id,
     ):
 
-        for liga in self.leagues():
+        try:
 
-            if liga.get("id") == league_id:
+            _, user_id = self.get_league_context(
+                league_id
+            )
 
-                usuario = liga.get(
-                    "user"
-                )
+            return user_id
 
-                if isinstance(
-                    usuario,
-                    dict,
-                ):
+        except Exception:
 
-                    return usuario.get(
-                        "id"
-                    )
-
-
-        return None
-
-
+            return None
 
     # ==========================================================
     # INFORMACIÓN DE LIGA
@@ -243,29 +322,22 @@ class BiwengerClient:
         league_id,
     ):
 
-        user_id = self.find_league_user(
-            league_id
+        resolved_league_id, user_id = (
+            self.get_league_context(
+                league_id
+            )
         )
 
-
-        if user_id is None:
-
-            raise ValueError(
-                f"No se encontró usuario para liga {league_id}"
-            )
-
-
         self.set_context(
-            league_id,
+            resolved_league_id,
             user_id,
         )
 
-
         return self.get(
-            f"/league/{league_id}"
+            f"/league/{resolved_league_id}",
+            league_id=resolved_league_id,
+            user_id=user_id,
         )
-
-
 
     # ==========================================================
     # BOARD ACTUAL
@@ -276,29 +348,22 @@ class BiwengerClient:
         league_id,
     ):
 
-        user_id = self.find_league_user(
-            league_id
+        resolved_league_id, user_id = (
+            self.get_league_context(
+                league_id
+            )
         )
 
-
-        if user_id is None:
-
-            raise ValueError(
-                f"No se encontró usuario para liga {league_id}"
-            )
-
-
         self.set_context(
-            league_id,
+            resolved_league_id,
             user_id,
         )
 
-
         return self.get(
-            f"/league/{league_id}/board"
+            f"/league/{resolved_league_id}/board",
+            league_id=resolved_league_id,
+            user_id=user_id,
         )
-
-
 
     # ==========================================================
     # PLANTILLAS USUARIOS
@@ -309,32 +374,25 @@ class BiwengerClient:
         league_id,
     ):
 
-        user_id = self.find_league_user(
-            league_id
+        resolved_league_id, user_id = (
+            self.get_league_context(
+                league_id
+            )
         )
 
-
-        if user_id is None:
-
-            raise ValueError(
-                f"No se encontró usuario para liga {league_id}"
-            )
-
-
         self.set_context(
-            league_id,
+            resolved_league_id,
             user_id,
         )
 
-
         return self.get(
-            f"/league/{league_id}",
+            f"/league/{resolved_league_id}",
             params={
                 "fields": "users(players)"
             },
+            league_id=resolved_league_id,
+            user_id=user_id,
         )
-
-
 
     # ==========================================================
     # JUGADORES PÚBLICOS
@@ -351,13 +409,9 @@ class BiwengerClient:
             timeout=15,
         )
 
-
         response.raise_for_status()
 
-
         return response.json()
-
-
 
     # ==========================================================
     # HISTORIAL MERCADO
@@ -370,45 +424,34 @@ class BiwengerClient:
         limit=100,
     ):
 
-        user_id = self.find_league_user(
-            league_id
-        )
-
-
-        if user_id is None:
-
-            raise ValueError(
-                f"No se encontró usuario para liga {league_id}"
+        resolved_league_id, user_id = (
+            self.get_league_context(
+                league_id
             )
-
-
-        self.set_context(
-            league_id,
-            user_id,
         )
-
 
         params = {
             "type": "transfer,market",
             "limit": limit,
         }
 
-
         if date is not None:
-
             params["date"] = date
 
+        # IMPORTANTE:
+        # Esta petición recibe SIEMPRE explícitamente la liga
+        # solicitada. No depende de la última liga seleccionada.
 
         return self.get(
-            f"/league/{league_id}/board",
+            f"/league/{resolved_league_id}/board",
             params=params,
+            league_id=resolved_league_id,
+            user_id=user_id,
         )
-
-
 
     # ==========================================================
     # DESCARGAR HISTORIAL COMPLETO
-    # ==========================================================
+    # ==============================================================
 
     def get_full_market_history(
         self,
@@ -423,89 +466,100 @@ class BiwengerClient:
 
         seen = set()
 
-
         for _ in range(max_pages):
 
             response = self.board_history(
-                league_id,
-                current_date,
-                limit,
+                league_id=league_id,
+                date=current_date,
+                limit=limit,
             )
 
+            if not isinstance(
+                response,
+                dict,
+            ):
+                break
 
             data = response.get(
                 "data",
                 []
             )
 
-
-            if not data:
-
+            if not isinstance(
+                data,
+                list,
+            ):
                 break
 
+            if not data:
+                break
 
             fechas = []
 
-
             for event in data:
 
-                key = (
-                    event.get("date"),
-                    event.get("type"),
-                    event.get("title"),
-                )
-
-
-                if key in seen:
-
+                if not isinstance(
+                    event,
+                    dict,
+                ):
                     continue
 
+                event_date = event.get(
+                    "date"
+                )
+
+                event_type = event.get(
+                    "type"
+                )
+
+                event_title = event.get(
+                    "title"
+                )
+
+                key = (
+                    event_date,
+                    event_type,
+                    event_title,
+                )
+
+                if key in seen:
+                    continue
 
                 seen.add(key)
 
-                all_events.append(
-                    event
-                )
-
+                all_events.append(event)
 
                 if isinstance(
-                    event.get("date"),
+                    event_date,
                     (int, float),
                 ):
-
                     fechas.append(
-                        event["date"]
+                        event_date
                     )
 
-
             if not fechas:
-
                 break
 
+            antigua = min(fechas)
 
-            antigua = min(
-                fechas
-            )
-
-
-            if current_date is not None and antigua >= current_date:
-
+            if (
+                current_date is not None
+                and antigua >= current_date
+            ):
                 break
-
 
             current_date = antigua - 1
 
-
             if len(data) < limit:
-
                 break
 
-
         all_events.sort(
-            key=lambda x: x.get("date", 0),
+            key=lambda x: x.get(
+                "date",
+                0
+            ),
             reverse=True,
         )
-
 
         return {
             "status": 200,
@@ -529,51 +583,59 @@ class BiwengerClient:
             24 * 60 * 60
         )
 
-
         all_events = []
 
         current_date = None
 
         seen = set()
 
-
         for _ in range(max_pages):
 
             response = self.board_history(
-                league_id,
-                current_date,
-                limit,
+                league_id=league_id,
+                date=current_date,
+                limit=limit,
             )
 
+            if not isinstance(
+                response,
+                dict,
+            ):
+                break
 
             data = response.get(
                 "data",
                 []
             )
 
-
-            if not data:
-
+            if not isinstance(
+                data,
+                list,
+            ):
                 break
 
+            if not data:
+                break
 
             fechas = []
 
-
             for event in data:
+
+                if not isinstance(
+                    event,
+                    dict,
+                ):
+                    continue
 
                 event_date = event.get(
                     "date"
                 )
 
-
                 if not isinstance(
                     event_date,
                     (int, float),
                 ):
-
                     continue
-
 
                 key = (
                     event_date,
@@ -581,21 +643,14 @@ class BiwengerClient:
                     event.get("title"),
                 )
 
-
                 if key in seen:
-
                     continue
 
-
-                seen.add(
-                    key
-                )
-
+                seen.add(key)
 
                 fechas.append(
                     event_date
                 )
-
 
                 if event_date >= desde:
 
@@ -603,54 +658,37 @@ class BiwengerClient:
                         event
                     )
 
-
             if not fechas:
-
                 break
 
-
-            antigua = min(
-                fechas
-            )
-
+            antigua = min(fechas)
 
             if antigua < desde:
-
                 break
 
-
-            if current_date is not None:
-
-                if antigua >= current_date:
-
-                    break
-
+            if (
+                current_date is not None
+                and antigua >= current_date
+            ):
+                break
 
             current_date = antigua - 1
 
-
             if len(data) < limit:
-
                 break
 
-
-
         all_events.sort(
-            key=lambda x:
-                x.get(
-                    "date",
-                    0
-                ),
+            key=lambda x: x.get(
+                "date",
+                0
+            ),
             reverse=True,
         )
-
 
         return {
             "status": 200,
             "data": all_events,
         }
-
-
 
     # ==========================================================
     # EXTRAER OPERACIONES
@@ -662,7 +700,6 @@ class BiwengerClient:
     ):
 
         operations = []
-
 
         if isinstance(
             history,
@@ -685,7 +722,12 @@ class BiwengerClient:
 
             return operations
 
+        if not isinstance(
+            events,
+            list,
+        ):
 
+            return operations
 
         for event in events:
 
@@ -693,24 +735,18 @@ class BiwengerClient:
                 event,
                 dict,
             ):
-
                 continue
-
 
             content = event.get(
                 "content",
                 []
             )
 
-
             if not isinstance(
                 content,
                 list,
             ):
-
                 continue
-
-
 
             for item in content:
 
@@ -718,14 +754,9 @@ class BiwengerClient:
                     item,
                     dict,
                 ):
-
                     continue
 
-
-                operation = dict(
-                    item
-                )
-
+                operation = dict(item)
 
                 operation.update(
                     {
@@ -744,18 +775,20 @@ class BiwengerClient:
                                 "title",
                                 "",
                             ),
+
+                        "_event_fixed":
+                            event.get(
+                                "fixed",
+                                False,
+                            ),
                     }
                 )
-
 
                 operations.append(
                     operation
                 )
 
-
         return operations
-
-
 
     # ==========================================================
     # INFORME MERCADO
@@ -770,39 +803,29 @@ class BiwengerClient:
             history
         )
 
-
         report = defaultdict(
-            lambda:
-            {
+            lambda: {
                 "compras": [],
                 "ventas": [],
-
                 "total_compras": 0,
                 "total_ventas": 0,
-
                 "numero_compras": 0,
                 "numero_ventas": 0,
             }
         )
 
-
         for operation in operations:
-
 
             amount = operation.get(
                 "amount",
                 0,
             )
 
-
             if not isinstance(
                 amount,
                 (int, float),
             ):
-
                 amount = 0
-
-
 
             buyer = operation.get(
                 "to"
@@ -816,8 +839,6 @@ class BiwengerClient:
                 "player"
             )
 
-
-
             if isinstance(
                 buyer,
                 dict,
@@ -827,7 +848,6 @@ class BiwengerClient:
                     "name",
                     "Desconocido",
                 )
-
 
                 report[nombre][
                     "compras"
@@ -843,20 +863,21 @@ class BiwengerClient:
                             operation.get(
                                 "_event_date"
                             ),
+
+                        "user_id":
+                            buyer.get(
+                                "id"
+                            ),
                     }
                 )
-
 
                 report[nombre][
                     "total_compras"
                 ] += amount
 
-
                 report[nombre][
                     "numero_compras"
                 ] += 1
-
-
 
             if isinstance(
                 seller,
@@ -867,7 +888,6 @@ class BiwengerClient:
                     "name",
                     "Desconocido",
                 )
-
 
                 report[nombre][
                     "ventas"
@@ -883,24 +903,23 @@ class BiwengerClient:
                             operation.get(
                                 "_event_date"
                             ),
+
+                        "user_id":
+                            seller.get(
+                                "id"
+                            ),
                     }
                 )
-
 
                 report[nombre][
                     "total_ventas"
                 ] += amount
 
-
                 report[nombre][
                     "numero_ventas"
                 ] += 1
 
-
-
         return report
-
-
 
     # ==========================================================
     # SALDO FINAL
@@ -911,22 +930,28 @@ class BiwengerClient:
         report,
     ):
 
+        if report is None:
+            report = {}
+
         resultado = {}
 
-
         for manager, datos in report.items():
+
+            if not isinstance(
+                datos,
+                dict,
+            ):
+                continue
 
             compras = datos.get(
                 "total_compras",
                 0,
             )
 
-
             ventas = datos.get(
                 "total_ventas",
                 0,
             )
-
 
             saldo = (
                 SALDO_INICIAL
@@ -934,9 +959,7 @@ class BiwengerClient:
                 - compras
             )
 
-
             resultado[manager] = {
-
                 "compras":
                     datos.get(
                         "compras",
@@ -971,15 +994,14 @@ class BiwengerClient:
                     saldo,
             }
 
-
         return resultado
+
 
 # ==============================================================
 # CLIENTE GLOBAL
 # ==============================================================
 
 _CLIENT = BiwengerClient()
-
 
 
 # ==============================================================
@@ -989,7 +1011,6 @@ _CLIENT = BiwengerClient()
 def obtener_ligas():
 
     return _CLIENT.leagues()
-
 
 
 # ==============================================================
@@ -1006,13 +1027,9 @@ def _extraer_mapa_jugadores():
 
         return {}
 
-
     mapa = {}
 
-
-    def recorrer(
-        objeto,
-    ):
+    def recorrer(objeto):
 
         if isinstance(
             objeto,
@@ -1027,25 +1044,24 @@ def _extraer_mapa_jugadores():
                 "name"
             )
 
-
-            if isinstance(
-                player_id,
-                int,
-            ) and isinstance(
-                nombre,
-                str,
+            if (
+                isinstance(
+                    player_id,
+                    int,
+                )
+                and isinstance(
+                    nombre,
+                    str,
+                )
             ):
 
-                mapa[player_id] = nombre.strip()
-
-
+                mapa[player_id] = (
+                    nombre.strip()
+                )
 
             for valor in objeto.values():
 
-                recorrer(
-                    valor
-                )
-
+                recorrer(valor)
 
         elif isinstance(
             objeto,
@@ -1054,18 +1070,11 @@ def _extraer_mapa_jugadores():
 
             for valor in objeto:
 
-                recorrer(
-                    valor
-                )
+                recorrer(valor)
 
-
-    recorrer(
-        respuesta
-    )
-
+    recorrer(respuesta)
 
     return mapa
-
 
 
 # ==============================================================
@@ -1090,7 +1099,6 @@ def _timestamp_datetime(
         return None
 
 
-
 def _nombre_fecha(
     timestamp,
 ):
@@ -1099,12 +1107,8 @@ def _nombre_fecha(
         timestamp
     )
 
-
     if fecha is None:
-
         return "FECHA DESCONOCIDA"
-
-
 
     meses = [
         "ENERO",
@@ -1121,13 +1125,11 @@ def _nombre_fecha(
         "DICIEMBRE",
     ]
 
-
     return (
         f"{fecha.day} "
         f"{meses[fecha.month - 1]} "
         f"{fecha.year}"
     )
-
 
 
 def _hora(
@@ -1138,16 +1140,12 @@ def _hora(
         timestamp
     )
 
-
     if fecha is None:
-
         return ""
-
 
     return fecha.strftime(
         "%H:%M"
     )
-
 
 
 # ==============================================================
@@ -1167,7 +1165,6 @@ def _formatear_importe(
         return "0€"
 
 
-
 # ==============================================================
 # FORMATEAR MOVIMIENTO
 # ==============================================================
@@ -1182,18 +1179,15 @@ def _formatear_movimiento(
         "player"
     )
 
-
     jugador = jugadores.get(
         player_id,
         f"Jugador {player_id}",
     )
 
-
     importe = operation.get(
         "amount",
         0,
     )
-
 
     hora = ""
 
@@ -1205,25 +1199,19 @@ def _formatear_movimiento(
             )
         )
 
-
         if valor:
 
             hora = (
                 f"🕐 {valor} | "
             )
 
-
-
     comprador = operation.get(
         "to"
     )
 
-
     vendedor = operation.get(
         "from"
     )
-
-
 
     if isinstance(
         comprador,
@@ -1232,12 +1220,10 @@ def _formatear_movimiento(
 
         return (
             f"🟢 {hora}"
-            f"{comprador.get('name','Desconocido')} "
+            f"{comprador.get('name', 'Desconocido')} "
             f"ficha a {jugador} "
             f"por {_formatear_importe(importe)}"
         )
-
-
 
     if isinstance(
         vendedor,
@@ -1246,14 +1232,12 @@ def _formatear_movimiento(
 
         return (
             f"🔴 {hora}"
-            f"{vendedor.get('name','Desconocido')} "
+            f"{vendedor.get('name', 'Desconocido')} "
             f"vende a {jugador} "
             f"por {_formatear_importe(importe)}"
         )
 
-
     return None
-
 
 
 # ==============================================================
@@ -1268,17 +1252,14 @@ def _obtener_operaciones(
         history
     )
 
-
     return sorted(
         operaciones,
-        key=lambda x:
-            x.get(
-                "_event_date",
-                0,
-            ),
+        key=lambda x: x.get(
+            "_event_date",
+            0,
+        ),
         reverse=True,
     )
-
 
 
 # ==============================================================
@@ -1293,20 +1274,14 @@ def obtener_mercado_completo(
         liga_id
     )
 
-
     operaciones = _obtener_operaciones(
         history
     )
 
-
     jugadores = _extraer_mapa_jugadores()
 
-
     grupos = {}
-
-
     orden = []
-
 
     for operacion in operaciones:
 
@@ -1316,7 +1291,6 @@ def obtener_mercado_completo(
             )
         )
 
-
         clave = (
             fecha.strftime(
                 "%Y-%m-%d"
@@ -1324,7 +1298,6 @@ def obtener_mercado_completo(
             if fecha
             else "desconocida"
         )
-
 
         if clave not in grupos:
 
@@ -1334,12 +1307,10 @@ def obtener_mercado_completo(
                 clave
             )
 
-
         texto = _formatear_movimiento(
             operacion,
             jugadores,
         )
-
 
         if texto:
 
@@ -1347,9 +1318,7 @@ def obtener_mercado_completo(
                 texto
             )
 
-
     bloques = []
-
 
     for clave in orden:
 
@@ -1363,7 +1332,6 @@ def obtener_mercado_completo(
 
             timestamp = None
 
-
             for op in operaciones:
 
                 fecha = _timestamp_datetime(
@@ -1372,10 +1340,12 @@ def obtener_mercado_completo(
                     )
                 )
 
-
-                if fecha and fecha.strftime(
-                    "%Y-%m-%d"
-                ) == clave:
+                if (
+                    fecha
+                    and fecha.strftime(
+                        "%Y-%m-%d"
+                    ) == clave
+                ):
 
                     timestamp = op.get(
                         "_event_date"
@@ -1383,14 +1353,12 @@ def obtener_mercado_completo(
 
                     break
 
-
             titulo = (
                 "📅 "
                 + _nombre_fecha(
                     timestamp
                 )
             )
-
 
         bloques.append(
             "\n".join(
@@ -1402,14 +1370,13 @@ def obtener_mercado_completo(
             )
         )
 
-
     if not bloques:
 
         return (
-            "🔄 MERCADO COMPLETO\n\n"
+            "🔄 MERCADO COMPLETO\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
             "Sin movimientos."
         )
-
 
     return (
         "🔄 MERCADO COMPLETO\n"
@@ -1418,6 +1385,7 @@ def obtener_mercado_completo(
             bloques
         )
     )
+
 
 # ==============================================================
 # MERCADO ÚLTIMAS 24 HORAS
@@ -1431,15 +1399,11 @@ def obtener_mercado_24h(
         liga_id
     )
 
-
     operaciones = _obtener_operaciones(
         history
     )
 
-
     jugadores = _extraer_mapa_jugadores()
-
-
 
     if not operaciones:
 
@@ -1449,18 +1413,11 @@ def obtener_mercado_24h(
             "Sin movimientos."
         )
 
-
-
     lineas = [
-
         "⏱️ MERCADO — ÚLTIMAS 24 HORAS",
-
         "━━━━━━━━━━━━━━━━━━━━",
-
         "",
     ]
-
-
 
     for operacion in operaciones:
 
@@ -1470,19 +1427,15 @@ def obtener_mercado_24h(
             incluir_hora=True,
         )
 
-
         if texto:
 
             lineas.append(
                 texto
             )
 
-
-
     return "\n".join(
         lineas
     )
-
 
 
 # ==============================================================
@@ -1497,16 +1450,13 @@ def obtener_informe(
         liga_id
     )
 
-
     report = _CLIENT.calculate_market_report(
         history
     )
 
-
     return _CLIENT.build_final_report(
         report
     )
-
 
 
 # ==============================================================
@@ -1522,7 +1472,6 @@ def obtener_informe_detallado(
     )
 
 
-
 # ==============================================================
 # COMPATIBILIDAD VERSIONES ANTIGUAS
 # ==============================================================
@@ -1536,7 +1485,6 @@ def obtener_movimientos(
     )
 
 
-
 def obtener_movimientos_24h(
     liga_id,
 ):
@@ -1546,7 +1494,6 @@ def obtener_movimientos_24h(
     )
 
 
-
 # ==============================================================
-# FIN DEL ARCHIVO
+# FIN
 # ==============================================================
