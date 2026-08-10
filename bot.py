@@ -43,8 +43,10 @@ MAX_TELEGRAM = 4000
 # ============================================================
 
 def formatear_dinero(valor):
+
     try:
         return f"{int(valor):,}€"
+
     except Exception:
         return "0€"
 
@@ -52,6 +54,7 @@ def formatear_dinero(valor):
 def formatear_fecha_boton(timestamp):
     """
     Convierte el timestamp de Biwenger a:
+
     dd/MM/yy
     """
 
@@ -59,17 +62,19 @@ def formatear_fecha_boton(timestamp):
         return "??/??/??"
 
     try:
+
         from datetime import datetime
 
-        # Los timestamps que utiliza Biwenger
-        # están expresados en segundos.
         fecha = datetime.fromtimestamp(
             float(timestamp)
         )
 
-        return fecha.strftime("%d/%m/%y")
+        return fecha.strftime(
+            "%d/%m/%y"
+        )
 
     except Exception:
+
         return "??/??/??"
 
 
@@ -82,7 +87,9 @@ async def editar_mensaje(
     texto,
     reply_markup=None,
 ):
+
     try:
+
         await query.edit_message_text(
             texto,
             reply_markup=reply_markup,
@@ -104,6 +111,7 @@ async def enviar_largo(
     update,
     texto,
 ):
+
     if not texto:
         texto = "Sin datos"
 
@@ -139,16 +147,21 @@ def boton_jugador(
     player_id,
     player_name,
 ):
+
     if player_id is None:
         return None
 
     try:
-        player_id = int(player_id)
+
+        player_id = int(
+            player_id
+        )
 
     except (
         TypeError,
         ValueError,
     ):
+
         return None
 
     return InlineKeyboardButton(
@@ -164,6 +177,7 @@ def boton_jugador(
 async def mostrar_selector_liga(
     update,
 ):
+
     ligas = obtener_ligas()
 
     botones = []
@@ -176,7 +190,9 @@ async def mostrar_selector_liga(
         ):
             continue
 
-        liga_id = liga.get("id")
+        liga_id = liga.get(
+            "id"
+        )
 
         nombre = liga.get(
             "name",
@@ -189,7 +205,9 @@ async def mostrar_selector_liga(
         botones.append([
             InlineKeyboardButton(
                 str(nombre),
-                callback_data=f"liga:{liga_id}",
+                callback_data=(
+                    f"liga:{liga_id}"
+                ),
             )
         ])
 
@@ -217,6 +235,7 @@ async def mostrar_menu_liga(
     update,
     context,
 ):
+
     nombre = context.user_data.get(
         "liga_nombre",
         "Liga seleccionada",
@@ -242,6 +261,7 @@ async def start(
     update,
     context,
 ):
+
     liga_id = context.user_data.get(
         "liga"
     )
@@ -273,6 +293,7 @@ async def liga(
     update,
     context,
 ):
+
     try:
 
         await mostrar_selector_liga(
@@ -298,6 +319,7 @@ async def elegir_liga(
     update,
     context,
 ):
+
     query = update.callback_query
 
     await query.answer()
@@ -307,6 +329,7 @@ async def elegir_liga(
         if not query.data.startswith(
             "liga:"
         ):
+
             raise ValueError(
                 "Callback de liga inválido"
             )
@@ -340,6 +363,7 @@ async def elegir_liga(
         )
 
         if liga_encontrada is None:
+
             raise ValueError(
                 "La liga seleccionada ya no está disponible."
             )
@@ -362,9 +386,13 @@ async def elegir_liga(
 
         return
 
-    context.user_data["liga"] = liga_id
+    context.user_data[
+        "liga"
+    ] = liga_id
 
-    context.user_data["liga_nombre"] = liga_nombre
+    context.user_data[
+        "liga_nombre"
+    ] = liga_nombre
 
     await editar_mensaje(
         query,
@@ -409,6 +437,7 @@ async def comprobar_liga(
     update,
     context,
 ):
+
     liga_id = context.user_data.get(
         "liga"
     )
@@ -423,7 +452,9 @@ async def comprobar_liga(
 
         return None
 
-    return int(liga_id)
+    return int(
+        liga_id
+    )
 
 
 # ============================================================
@@ -434,6 +465,7 @@ async def informe(
     update,
     context,
 ):
+
     liga_id = await comprobar_liga(
         update,
         context,
@@ -547,40 +579,6 @@ async def informe(
 
 
 # ============================================================
-# CONSTRUIR TECLADO DE MOVIMIENTOS
-# ============================================================
-
-def construir_botones_movimientos(
-    movimientos,
-):
-    botones = []
-
-    for movimiento in movimientos:
-
-        player_id = movimiento.get(
-            "player_id"
-        )
-
-        player_name = movimiento.get(
-            "player_name",
-            "Jugador",
-        )
-
-        boton = boton_jugador(
-            player_id,
-            player_name,
-        )
-
-        if boton is not None:
-
-            botones.append([
-                boton
-            ])
-
-    return botones
-
-
-# ============================================================
 # ENVIAR MOVIMIENTOS
 # ============================================================
 
@@ -589,6 +587,7 @@ async def enviar_movimientos(
     titulo,
     movimientos,
 ):
+
     if not movimientos:
 
         texto = (
@@ -730,6 +729,7 @@ async def mercado(
     update,
     context,
 ):
+
     liga_id = await comprobar_liga(
         update,
         context,
@@ -824,6 +824,7 @@ async def movimientos(
     update,
     context,
 ):
+
     await mercado(
         update,
         context,
@@ -838,6 +839,7 @@ async def mercado24(
     update,
     context,
 ):
+
     liga_id = await comprobar_liga(
         update,
         context,
@@ -856,7 +858,9 @@ async def mercado24(
             liga_id
         )
 
-        ahora = datos["fecha"]
+        ahora = datos[
+            "fecha"
+        ]
 
         movimientos_datos = datos[
             "movimientos"
@@ -964,6 +968,7 @@ def construir_mensaje_dia_miembro(
     timestamps,
     indice,
 ):
+
     if not orden:
 
         return (
@@ -1050,25 +1055,23 @@ def construir_botones_dias(
     movimientos,
 ):
     """
-    IMPORTANTE:
+    Orden de los botones:
 
-    Los botones NO calculan fechas restando o sumando
+    1. Jugadores
+    2. Fecha anterior / Fecha siguiente
+    3. Cambiar miembro
+
+    Las fechas se obtienen directamente de
+    los índices de 'orden'.
+
+    NO se calcula ninguna fecha sumando/restando
     días al calendario.
-
-    Utilizan directamente la fecha del índice anterior
-    y posterior dentro de 'orden'.
-
-    Esto evita errores como:
-
-    08/08 -> 06/08
-    07/08 -> 05/07
-
     """
 
     botones = []
 
     # --------------------------------------------------------
-    # 1. BOTONES DE JUGADORES
+    # 1. JUGADORES
     # --------------------------------------------------------
 
     for movimiento in movimientos:
@@ -1090,7 +1093,7 @@ def construir_botones_dias(
             ])
 
     # --------------------------------------------------------
-    # 2. BOTONES DE FECHA
+    # 2. NAVEGACIÓN POR FECHAS
     # --------------------------------------------------------
 
     fila_fechas = []
@@ -1194,6 +1197,7 @@ async def mostrar_dia_miembro(
     indice,
     datos=None,
 ):
+
     try:
 
         if datos is None:
@@ -1256,13 +1260,19 @@ async def mostrar_dia_miembro(
 
             return
 
+        # ----------------------------------------------------
+        # ASEGURAR ÍNDICE VÁLIDO
+        # ----------------------------------------------------
+
         if indice < 0:
             indice = 0
 
         if indice >= len(orden):
             indice = len(orden) - 1
 
-        clave = orden[indice]
+        clave = orden[
+            indice
+        ]
 
         movimientos = grupos.get(
             clave,
@@ -1322,6 +1332,7 @@ async def mercadomiembro(
     update,
     context,
 ):
+
     liga_id = await comprobar_liga(
         update,
         context,
@@ -1407,53 +1418,67 @@ async def mostrar_selector_miembros(
     query,
     liga_id,
 ):
-    miembros = obtener_miembros_liga(
-        liga_id
-    )
 
-    botones = []
+    try:
 
-    for miembro in miembros:
-
-        miembro_id = miembro.get(
-            "id"
+        miembros = obtener_miembros_liga(
+            liga_id
         )
 
-        nombre = miembro.get(
-            "nombre",
-            "Desconocido",
-        )
+        botones = []
 
-        if miembro_id is None:
-            continue
+        for miembro in miembros:
 
-        botones.append([
-            InlineKeyboardButton(
-                str(nombre),
-                callback_data=(
-                    f"miembro:"
-                    f"{liga_id}:"
-                    f"{miembro_id}"
-                ),
+            miembro_id = miembro.get(
+                "id"
             )
-        ])
 
-    if not botones:
+            nombre = miembro.get(
+                "nombre",
+                "Desconocido",
+            )
+
+            if miembro_id is None:
+                continue
+
+            botones.append([
+                InlineKeyboardButton(
+                    str(nombre),
+                    callback_data=(
+                        f"miembro:"
+                        f"{liga_id}:"
+                        f"{miembro_id}"
+                    ),
+                )
+            ])
+
+        if not botones:
+
+            await editar_mensaje(
+                query,
+                "❌ No se encontraron miembros.",
+            )
+
+            return
 
         await editar_mensaje(
             query,
-            "❌ No se encontraron miembros.",
+            "🧑‍💼 Selecciona un miembro:",
+            InlineKeyboardMarkup(
+                botones
+            ),
         )
 
-        return
+    except Exception:
 
-    await editar_mensaje(
-        query,
-        "🧑‍💼 Selecciona un miembro:",
-        InlineKeyboardMarkup(
-            botones
-        ),
-    )
+        logger.exception(
+            "ERROR MOSTRAR SELECTOR MIEMBROS"
+        )
+
+        await editar_mensaje(
+            query,
+            "❌ No se pudieron cargar los miembros.",
+        )
 
 
 # ============================================================
@@ -1464,6 +1489,7 @@ async def elegir_miembro(
     update,
     context,
 ):
+
     query = update.callback_query
 
     await query.answer()
@@ -1549,6 +1575,7 @@ async def cambiar_dia_miembro(
     update,
     context,
 ):
+
     query = update.callback_query
 
     await query.answer()
@@ -1625,6 +1652,7 @@ async def volver_miembros(
     update,
     context,
 ):
+
     query = update.callback_query
 
     await query.answer()
@@ -1683,9 +1711,8 @@ async def ficha_jugador(
     update,
     context,
 ):
-    query = update.callback_query
 
-    await query.answer()
+    query = update.callback_query
 
     try:
 
@@ -1746,6 +1773,12 @@ async def ficha_jugador(
             f"⭐ Puntos: {puntos}\n"
         )
 
+        # IMPORTANTE:
+        # NO hacemos query.answer() antes.
+        #
+        # Esta es la ÚNICA respuesta al callback
+        # y por eso Telegram mostrará correctamente
+        # el popup.
         await query.answer(
             texto,
             show_alert=True,
@@ -1778,6 +1811,7 @@ async def ayuda(
     update,
     context,
 ):
+
     liga_id = context.user_data.get(
         "liga"
     )
@@ -1826,6 +1860,7 @@ async def menu_callback(
     update,
     context,
 ):
+
     query = update.callback_query
 
     await query.answer()
@@ -1857,10 +1892,8 @@ async def menu_callback(
 
         elif accion == "mercadomiembro":
 
-            # AQUÍ ESTÁ LA CORRECCIÓN:
-            # El botón abre directamente el selector
-            # de miembros. Ya no obliga a escribir
-            # /mercadomiembro.
+            # El botón abre directamente
+            # el selector de miembros.
 
             liga_id = context.user_data.get(
                 "liga"
@@ -1894,6 +1927,7 @@ async def error_handler(
     update,
     context,
 ):
+
     logger.error(
         "ERROR GLOBAL: %s",
         context.error,
