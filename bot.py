@@ -43,7 +43,6 @@ MAX_TELEGRAM = 4000
 # ============================================================
 
 def formatear_dinero(valor):
-
     try:
         return f"{int(valor):,}€"
 
@@ -54,7 +53,6 @@ def formatear_dinero(valor):
 def formatear_fecha_boton(timestamp):
     """
     Convierte el timestamp de Biwenger a:
-
     dd/MM/yy
     """
 
@@ -62,7 +60,6 @@ def formatear_fecha_boton(timestamp):
         return "??/??/??"
 
     try:
-
         from datetime import datetime
 
         fecha = datetime.fromtimestamp(
@@ -74,7 +71,6 @@ def formatear_fecha_boton(timestamp):
         )
 
     except Exception:
-
         return "??/??/??"
 
 
@@ -228,6 +224,44 @@ async def mostrar_selector_liga(
 
 
 # ============================================================
+# TECLADO PRINCIPAL DE LA LIGA
+# ============================================================
+
+def construir_menu_liga():
+    """
+    Menú principal que aparece después de seleccionar
+    una liga.
+    """
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "📊 Informe",
+                callback_data="menu:informe",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔄 Mercado",
+                callback_data="menu:mercado",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⏱️ Mercado de hoy",
+                callback_data="menu:mercado24",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🧑‍💼 Mercado por miembro",
+                callback_data="menu:mercadomiembro",
+            )
+        ],
+    ])
+
+
+# ============================================================
 # MENÚ DE LIGA
 # ============================================================
 
@@ -243,13 +277,8 @@ async def mostrar_menu_liga(
 
     await update.message.reply_text(
         f"🏆 {nombre}\n\n"
-        "Comandos disponibles:\n\n"
-        "/informe\n"
-        "/mercado\n"
-        "/mercado24\n"
-        "/mercadomiembro\n"
-        "/liga\n"
-        "/ayuda"
+        "Selecciona una opción:",
+        reply_markup=construir_menu_liga(),
     )
 
 
@@ -394,38 +423,17 @@ async def elegir_liga(
         "liga_nombre"
     ] = liga_nombre
 
+    # ========================================================
+    # AQUÍ SE MANTIENEN LOS BOTONES INICIALES
+    # ========================================================
+
     await editar_mensaje(
         query,
         (
             f"🏆 {liga_nombre}\n\n"
             "Selecciona una opción:"
         ),
-        InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(
-                    "📊 Informe",
-                    callback_data="menu:informe",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🔄 Mercado",
-                    callback_data="menu:mercado",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "⏱️ Mercado de hoy",
-                    callback_data="menu:mercado24",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🧑‍💼 Mercado por miembro",
-                    callback_data="menu:mercadomiembro",
-                )
-            ],
-        ]),
+        construir_menu_liga(),
     )
 
 
@@ -1773,12 +1781,7 @@ async def ficha_jugador(
             f"⭐ Puntos: {puntos}\n"
         )
 
-        # IMPORTANTE:
-        # NO hacemos query.answer() antes.
-        #
-        # Esta es la ÚNICA respuesta al callback
-        # y por eso Telegram mostrará correctamente
-        # el popup.
+        # ÚNICA respuesta al callback.
         await query.answer(
             texto,
             show_alert=True,
@@ -1799,7 +1802,6 @@ async def ficha_jugador(
             )
 
         except Exception:
-
             pass
 
 
@@ -1875,25 +1877,22 @@ async def menu_callback(
         if accion == "informe":
 
             await query.message.reply_text(
-                "Usa /informe para consultar el informe."
+                "📊 Usa /informe para consultar el informe."
             )
 
         elif accion == "mercado":
 
             await query.message.reply_text(
-                "Usa /mercado para consultar el mercado."
+                "🔄 Usa /mercado para consultar el mercado."
             )
 
         elif accion == "mercado24":
 
             await query.message.reply_text(
-                "Usa /mercado24 para consultar el mercado de hoy."
+                "⏱️ Usa /mercado24 para consultar el mercado de hoy."
             )
 
         elif accion == "mercadomiembro":
-
-            # El botón abre directamente
-            # el selector de miembros.
 
             liga_id = context.user_data.get(
                 "liga"
