@@ -30,6 +30,7 @@ logger = logging.getLogger("biwenger")
 class BiwengerClient:
 
     def __init__(self):
+
         self.session = requests.Session()
         self.public_session = requests.Session()
 
@@ -47,7 +48,12 @@ class BiwengerClient:
     # CONTEXTO
     # --------------------------------------------------------
 
-    def set_context(self, league_id=None, user_id=None):
+    def set_context(
+        self,
+        league_id=None,
+        user_id=None,
+    ):
+
         self.league_id = (
             int(league_id)
             if league_id is not None
@@ -61,6 +67,7 @@ class BiwengerClient:
         )
 
     def clear_context(self):
+
         self.league_id = None
         self.user_id = None
 
@@ -142,6 +149,7 @@ class BiwengerClient:
     # --------------------------------------------------------
 
     def account(self):
+
         return self.get(
             "/account",
             use_context=False,
@@ -165,7 +173,10 @@ class BiwengerClient:
 
         return leagues
 
-    def find_league_user(self, league_id):
+    def find_league_user(
+        self,
+        league_id,
+    ):
 
         target = str(league_id)
 
@@ -206,7 +217,10 @@ class BiwengerClient:
 
         return None
 
-    def prepare_context(self, league_id):
+    def prepare_context(
+        self,
+        league_id,
+    ):
 
         self.clear_context()
 
@@ -235,23 +249,27 @@ class BiwengerClient:
     # LIGA
     # --------------------------------------------------------
 
-    def league(self, league_id):
+    def league(
+        self,
+        league_id,
+    ):
 
         """
         Llamada inicial de la liga.
 
         Esta respuesta contiene:
 
+            data.standings[].id
             data.standings[].name
             data.standings[].teamSize
             data.standings[].teamValue
-            data.standings[].id
 
-        Por tanto NO hacemos otra llamada para obtener
-        jugadores o valor del equipo.
+        Se reutiliza para obtener los miembros.
         """
 
-        self.prepare_context(league_id)
+        self.prepare_context(
+            league_id
+        )
 
         return self.get(
             "/league",
@@ -268,24 +286,27 @@ class BiwengerClient:
     # DATOS DE MIEMBROS
     # --------------------------------------------------------
 
-    def league_members(self, league_id):
+    def league_members(
+        self,
+        league_id,
+    ):
 
-        """
-        Mantiene la función por compatibilidad.
-
-        La información utilizada por el informe procede de
-        standings de la llamada inicial /league.
-        """
-
-        return self.league(league_id)
+        return self.league(
+            league_id
+        )
 
     # --------------------------------------------------------
     # BOARD
     # --------------------------------------------------------
 
-    def board(self, league_id):
+    def board(
+        self,
+        league_id,
+    ):
 
-        self.prepare_context(league_id)
+        self.prepare_context(
+            league_id
+        )
 
         return self.get(
             f"/league/{self.league_id}/board"
@@ -321,7 +342,9 @@ class BiwengerClient:
         limit=100,
     ):
 
-        self.prepare_context(league_id)
+        self.prepare_context(
+            league_id
+        )
 
         params = {
             "type": "transfer,market",
@@ -519,20 +542,26 @@ class BiwengerClient:
     # OPERACIONES
     # --------------------------------------------------------
 
-    def extract_operations(self, history):
+    def extract_operations(
+        self,
+        history,
+    ):
 
         operations = []
 
         if isinstance(history, dict):
+
             events = history.get(
                 "data",
                 [],
             )
 
         elif isinstance(history, list):
+
             events = history
 
         else:
+
             return operations
 
         for event in events:
@@ -670,53 +699,10 @@ class BiwengerClient:
 
         return report
 
-    def build_final_report(
-        self,
-        report,
-    ):
 
-        resultado = {}
-
-        for manager, datos in report.items():
-
-            compras = datos.get(
-                "total_compras",
-                0,
-            )
-
-            ventas = datos.get(
-                "total_ventas",
-                0,
-            )
-
-            resultado[manager] = {
-                "compras": datos.get(
-                    "compras",
-                    [],
-                ),
-                "ventas": datos.get(
-                    "ventas",
-                    [],
-                ),
-                "total_compras": compras,
-                "total_ventas": ventas,
-                "numero_compras": datos.get(
-                    "numero_compras",
-                    0,
-                ),
-                "numero_ventas": datos.get(
-                    "numero_ventas",
-                    0,
-                ),
-                "saldo_actual": (
-                    SALDO_INICIAL
-                    + ventas
-                    - compras
-                ),
-            }
-
-        return resultado
-
+# ============================================================
+# CLIENTE GLOBAL
+# ============================================================
 
 _CLIENT = BiwengerClient()
 
@@ -726,10 +712,17 @@ _CLIENT = BiwengerClient()
 # ============================================================
 
 def obtener_ligas():
+
     return _CLIENT.leagues()
 
 
-def diagnostico_liga(liga_id):
+# ============================================================
+# DIAGNÓSTICO
+# ============================================================
+
+def diagnostico_liga(
+    liga_id,
+):
 
     contexto = _CLIENT.prepare_context(
         liga_id
@@ -872,22 +865,6 @@ def _extraer_standings(
     league_response,
 ):
 
-    """
-    Extrae los participantes de la llamada inicial
-    /league.
-
-    Biwenger devuelve:
-
-        data.standings = [
-            {
-                "id": ...,
-                "name": ...,
-                "teamSize": ...,
-                "teamValue": ...
-            }
-        ]
-    """
-
     if not isinstance(
         league_response,
         dict,
@@ -985,19 +962,53 @@ def _datos_standing(
 
 
 # ============================================================
+# OBTENER MIEMBROS DE LA LIGA
+# ============================================================
+
+def obtener_miembros_liga(
+    liga_id,
+):
+
+    league_response = _CLIENT.league(
+        liga_id
+    )
+
+    standings = _extraer_standings(
+        league_response
+    )
+
+    miembros = []
+
+    for miembro in standings:
+
+        datos = _datos_standing(
+            miembro
+        )
+
+        if datos["id"] is None:
+            continue
+
+        miembros.append({
+            "id": datos["id"],
+            "nombre": datos["nombre"],
+            "numero_jugadores": (
+                datos["numero_jugadores"]
+            ),
+            "valor_equipo": (
+                datos["valor_equipo"]
+            ),
+        })
+
+    return miembros
+
+
+# ============================================================
 # INFORME COMPLETO
 # ============================================================
 
 def obtener_informe(
     liga_id,
 ):
-
-    # --------------------------------------------------------
-    # 1. LLAMADA INICIAL DE LA LIGA
-    #
-    # Esta misma respuesta contiene standings.
-    # NO hacemos otra llamada para jugadores/teamValue.
-    # --------------------------------------------------------
 
     try:
 
@@ -1014,17 +1025,9 @@ def obtener_informe(
 
         raise exc
 
-    # --------------------------------------------------------
-    # 2. PARTICIPANTES + TEAM SIZE + TEAM VALUE
-    # --------------------------------------------------------
-
     standings = _extraer_standings(
         league_response
     )
-
-    # --------------------------------------------------------
-    # 3. OBTENER MOVIMIENTOS
-    # --------------------------------------------------------
 
     try:
 
@@ -1049,10 +1052,6 @@ def obtener_informe(
         )
 
         market_report = {}
-
-    # --------------------------------------------------------
-    # 4. CONSTRUIR INFORME
-    # --------------------------------------------------------
 
     resultado = {}
 
@@ -1109,21 +1108,11 @@ def obtener_informe(
             )
         )
 
-        # ----------------------------------------------------
-        # SALDO ACTUAL
-        #
-        # 20.000.000 + ventas - compras
-        # ----------------------------------------------------
-
         saldo_actual = (
             SALDO_INICIAL
             + ventas
             - compras
         )
-
-        # ----------------------------------------------------
-        # PUJA MÁXIMA
-        # ----------------------------------------------------
 
         puja_maxima = (
             _calcular_puja_maxima(
@@ -1163,17 +1152,14 @@ def obtener_informe(
                 numero_ventas
             ),
 
-            # DIRECTAMENTE DE standings
             "numero_jugadores": (
                 numero_jugadores
             ),
 
-            # DIRECTAMENTE DE standings
             "valor_equipo": (
                 valor_equipo
             ),
 
-            # CALCULADO
             "saldo_actual": (
                 saldo_actual
             ),
@@ -1182,13 +1168,6 @@ def obtener_informe(
                 puja_maxima
             ),
         }
-
-    # --------------------------------------------------------
-    # 5. COMPATIBILIDAD
-    #
-    # Si por alguna razón hay un manager en el historial
-    # que no aparece en standings, lo añadimos.
-    # --------------------------------------------------------
 
     for nombre, datos in market_report.items():
 
@@ -1431,6 +1410,210 @@ def _obtener_operaciones(
     )
 
 
+# ============================================================
+# MERCADO POR MIEMBRO
+# ============================================================
+
+def obtener_mercado_miembro(
+    liga_id,
+    miembro_id,
+):
+
+    # --------------------------------------------------------
+    # 1. Obtenemos los miembros desde la llamada inicial.
+    # --------------------------------------------------------
+
+    miembros = obtener_miembros_liga(
+        liga_id
+    )
+
+    miembro = next(
+        (
+            item
+            for item in miembros
+            if str(item.get("id"))
+            == str(miembro_id)
+        ),
+        None,
+    )
+
+    if miembro is None:
+
+        return (
+            "❌ No se encontró el miembro "
+            "seleccionado."
+        )
+
+    nombre_miembro = miembro.get(
+        "nombre",
+        "Desconocido",
+    )
+
+    # --------------------------------------------------------
+    # 2. Historial completo.
+    # --------------------------------------------------------
+
+    history = (
+        _CLIENT.get_full_market_history(
+            liga_id
+        )
+    )
+
+    operaciones = _obtener_operaciones(
+        history
+    )
+
+    # --------------------------------------------------------
+    # 3. Filtramos operaciones del miembro.
+    #
+    # Un miembro puede aparecer como:
+    #
+    #   to   -> compra
+    #   from -> venta
+    #
+    # --------------------------------------------------------
+
+    operaciones_miembro = []
+
+    for operacion in operaciones:
+
+        comprador = operacion.get(
+            "to"
+        )
+
+        vendedor = operacion.get(
+            "from"
+        )
+
+        pertenece = False
+
+        if isinstance(
+            comprador,
+            dict,
+        ):
+
+            if str(comprador.get("id")) == str(
+                miembro_id
+            ):
+                pertenece = True
+
+        if isinstance(
+            vendedor,
+            dict,
+        ):
+
+            if str(vendedor.get("id")) == str(
+                miembro_id
+            ):
+                pertenece = True
+
+        if pertenece:
+
+            operaciones_miembro.append(
+                operacion
+            )
+
+    jugadores = (
+        _extraer_mapa_jugadores()
+    )
+
+    # --------------------------------------------------------
+    # 4. Sin movimientos.
+    # --------------------------------------------------------
+
+    if not operaciones_miembro:
+
+        return (
+            f"🧑‍💼 MERCADO — {nombre_miembro}\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Sin movimientos."
+        )
+
+    # --------------------------------------------------------
+    # 5. Construimos el resultado.
+    # --------------------------------------------------------
+
+    lineas = [
+        f"🧑‍💼 MERCADO — {nombre_miembro}",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+    ]
+
+    for operacion in operaciones_miembro:
+
+        player_id = operacion.get(
+            "player"
+        )
+
+        jugador = jugadores.get(
+            player_id,
+            f"Jugador {player_id}",
+        )
+
+        importe = operacion.get(
+            "amount",
+            0,
+        )
+
+        fecha = _nombre_fecha(
+            operacion.get(
+                "_event_date"
+            )
+        )
+
+        hora = _hora(
+            operacion.get(
+                "_event_date"
+            )
+        )
+
+        comprador = operacion.get(
+            "to"
+        )
+
+        vendedor = operacion.get(
+            "from"
+        )
+
+        if (
+            isinstance(comprador, dict)
+            and
+            str(comprador.get("id"))
+            == str(miembro_id)
+        ):
+
+            lineas.append(
+                f"🟢 COMPRA\n"
+                f"📅 {fecha} · 🕐 {hora}\n"
+                f"⚽ {jugador}\n"
+                f"💰 {_formatear_importe(importe)}\n"
+            )
+
+            continue
+
+        if (
+            isinstance(vendedor, dict)
+            and
+            str(vendedor.get("id"))
+            == str(miembro_id)
+        ):
+
+            lineas.append(
+                f"🔴 VENTA\n"
+                f"📅 {fecha} · 🕐 {hora}\n"
+                f"⚽ {jugador}\n"
+                f"💰 {_formatear_importe(importe)}\n"
+            )
+
+    return "\n".join(
+        lineas
+    )
+
+
+# ============================================================
+# MERCADO COMPLETO
+# ============================================================
+
 def obtener_mercado_completo(
     liga_id,
 ):
@@ -1548,6 +1731,10 @@ def obtener_mercado_completo(
     )
 
 
+# ============================================================
+# MERCADO 24H
+# ============================================================
+
 def obtener_mercado_24h(
     liga_id,
 ):
@@ -1598,6 +1785,10 @@ def obtener_mercado_24h(
         lineas
     )
 
+
+# ============================================================
+# ALIAS MOVIMIENTOS
+# ============================================================
 
 def obtener_movimientos(
     liga_id,

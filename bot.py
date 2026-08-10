@@ -15,6 +15,8 @@ from biwenger import (
     obtener_informe,
     obtener_mercado_completo,
     obtener_mercado_24h,
+    obtener_miembros_liga,
+    obtener_mercado_miembro,
 )
 
 
@@ -109,6 +111,7 @@ async def mostrar_menu_liga(update, context):
         f"/informe\n"
         f"/mercado\n"
         f"/mercado24\n"
+        f"/mercadomiembro\n"
         f"/liga\n"
         f"/ayuda"
     )
@@ -189,10 +192,6 @@ async def elegir_liga(update, context):
             )[1]
         )
 
-        # ----------------------------------------------------
-        # Buscamos el nombre de la liga.
-        # ----------------------------------------------------
-
         ligas = obtener_ligas()
 
         liga_encontrada = next(
@@ -224,7 +223,7 @@ async def elegir_liga(update, context):
             f"Liga {liga_id}",
         )
 
-    except Exception as e:
+    except Exception:
 
         logger.exception(
             "ERROR ELEGIR LIGA"
@@ -236,18 +235,8 @@ async def elegir_liga(update, context):
 
         return
 
-    # --------------------------------------------------------
-    # Guardamos la liga para ESTE usuario de Telegram.
-    #
-    # El ID se guarda internamente, pero nunca se muestra.
-    # --------------------------------------------------------
-
     context.user_data["liga"] = liga_id
     context.user_data["liga_nombre"] = liga_nombre
-
-    # --------------------------------------------------------
-    # Confirmación limpia.
-    # --------------------------------------------------------
 
     await query.edit_message_text(
         f"✅ Liga seleccionada\n\n"
@@ -260,6 +249,7 @@ async def elegir_liga(update, context):
         f"/informe\n"
         f"/mercado\n"
         f"/mercado24\n"
+        f"/mercadomiembro\n"
         f"/liga\n"
         f"/ayuda"
     )
@@ -329,10 +319,6 @@ async def informe(update, context):
             "━━━━━━━━━━━━━━━━━━━━\n\n"
         )
 
-        # ----------------------------------------------------
-        # Si no hay miembros.
-        # ----------------------------------------------------
-
         if not report:
 
             texto += (
@@ -347,10 +333,6 @@ async def informe(update, context):
 
             return
 
-        # ----------------------------------------------------
-        # Ordenamos por saldo.
-        # ----------------------------------------------------
-
         managers = sorted(
             report.items(),
             key=lambda item: item[1].get(
@@ -359,10 +341,6 @@ async def informe(update, context):
             ),
             reverse=True,
         )
-
-        # ----------------------------------------------------
-        # Construimos cada manager.
-        # ----------------------------------------------------
 
         for manager, datos in managers:
 
@@ -514,6 +492,152 @@ async def mercado24(update, context):
 
 
 # ============================================================
+# MERCADO POR MIEMBRO
+# ============================================================
+
+async def mercadomiembro(update, context):
+
+    liga_id = await comprobar_liga(
+        update,
+        context,
+    )
+
+    if not liga_id:
+        return
+
+    try:
+
+        miembros = obtener_miembros_liga(
+            liga_id
+        )
+
+        if not miembros:
+
+            await update.message.reply_text(
+                "❌ No se encontraron miembros "
+                "en esta liga."
+            )
+
+            return
+
+        botones = []
+
+        for miembro in miembros:
+
+            miembro_id = miembro.get("id")
+            nombre = miembro.get(
+                "nombre",
+                "Desconocido",
+            )
+
+            if miembro_id is None:
+                continue
+
+            botones.append([
+                InlineKeyboardButton(
+                    str(nombre),
+                    callback_data=(
+                        f"miembro:{liga_id}:{miembro_id}"
+                    ),
+                )
+            ])
+
+        if not botones:
+
+            await update.message.reply_text(
+                "❌ No se pudieron cargar "
+                "los miembros."
+            )
+
+            return
+
+        await update.message.reply_text(
+            "🧑‍💼 Selecciona un miembro:",
+            reply_markup=InlineKeyboardMarkup(
+                botones
+            ),
+            )
+
+    except Exception as e:
+
+        logger.exception(
+            "ERROR MERCADO POR MIEMBRO"
+        )
+
+        await update.message.reply_text(
+            f"Error obteniendo miembros:\n{e}"
+        )
+
+
+# ============================================================
+# ELEGIR MIEMBRO
+# ============================================================
+
+async def elegir_miembro(update, context):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    try:
+
+        partes = query.data.split(":")
+
+        if len(partes) != 3:
+            raise ValueError(
+                "Callback de miembro inválido"
+            )
+
+        liga_id = int(partes[1])
+        miembro_id = int(partes[2])
+
+        if context.user_data.get("liga") != liga_id:
+            raise ValueError(
+                "La liga seleccionada ya no coincide."
+            )
+
+        await query.edit_message_text(
+            "🔄 Cargando movimientos..."
+        )
+
+        texto = obtener_mercado_miembro(
+            liga_id,
+            miembro_id,
+        )
+
+        await query.message.reply_text(
+            texto[:MAX_TELEGRAM]
+        )
+
+        if len(texto) > MAX_TELEGRAM:
+
+            partes_texto = [
+                texto[i:i + MAX_TELEGRAM]
+                for i in range(
+                    MAX_TELEGRAM,
+                    len(texto),
+                    MAX_TELEGRAM,
+                )
+            ]
+
+            for parte in partes_texto:
+                await query.message.reply_text(
+                    parte
+                )
+
+    except Exception as e:
+
+        logger.exception(
+            "ERROR ELEGIR MIEMBRO"
+        )
+
+        await query.edit_message_text(
+            "❌ No se pudieron obtener "
+            "los movimientos del miembro."
+        )
+
+
+# ============================================================
 # AYUDA
 # ============================================================
 
@@ -537,6 +661,9 @@ async def ayuda(update, context):
             "/mercado24\n"
             "Movimientos de las últimas "
             "24 horas.\n\n"
+            "/mercadomiembro\n"
+            "Movimientos de mercado "
+            "de un miembro concreto.\n\n"
             "/liga\n"
             "Cambiar de liga.\n\n"
             "/ayuda\n"
@@ -609,6 +736,13 @@ def main():
     )
 
     app.add_handler(
+        CallbackQueryHandler(
+            elegir_miembro,
+            pattern=r"^miembro:",
+        )
+    )
+
+    app.add_handler(
         CommandHandler(
             "informe",
             informe,
@@ -633,6 +767,13 @@ def main():
         CommandHandler(
             "mercado24",
             mercado24,
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "mercadomiembro",
+            mercadomiembro,
         )
     )
 
