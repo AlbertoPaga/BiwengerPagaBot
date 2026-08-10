@@ -20,6 +20,11 @@ PLAYERS_URL = (
     "competitions/la-liga/data"
 )
 
+PLAYER_DETAIL_URL = (
+    "https://cf.biwenger.com/api/v2/"
+    "players/la-liga/{slug}"
+)
+
 SALDO_INICIAL = 20_000_000
 
 MADRID_TZ = ZoneInfo("Europe/Madrid")
@@ -32,29 +37,47 @@ logger = logging.getLogger("biwenger")
 # ============================================================
 # TABLA DE EQUIVALENCIA DE EQUIPOS
 #
-# La clave es el ID del equipo que devuelve Biwenger.
-#
 # IMPORTANTE:
-# No añadimos IDs que no hayamos confirmado.
 #
-# A medida que veamos nuevos IDs en los logs/respuestas
-# los iremos incorporando aquí.
+# La clave es el ID REAL DEL EQUIPO.
+#
+# NO debemos utilizar IDs de competiciones.
+#
+# Ejemplo:
+#
+# teamID = 91
+# => Alavés
+# => ALA
+#
 # ============================================================
 
 EQUIPOS_ABREVIATURAS = {
+    13: "RSO",
+    87: "BET",
 
-    # IDs confirmados
-    13: "RSO",   # Real Sociedad
-    87: "BET",   # Betis
+    # IDs confirmados por los datos que nos está devolviendo
+    # actualmente la API.
 
+    91: "ALA",
+    93: "OSA",
+    10: "LEV",
+    19: "VIL",
+    18: "VAL",
+    70: "RAY",
+    17: "SEV",
+    8: "GET",
+    7: "ESP",
+    75: "ELC",
+    65: "MAL",
+    812: "RAC",
+
+    # Si aparecen nuevos IDs de Primera División,
+    # se pueden añadir aquí una vez confirmados.
 }
 
 
 # ============================================================
 # TABLA DE RESPALDO POR NOMBRE
-#
-# Se utiliza cuando tenemos el nombre del equipo pero todavía
-# no tenemos su ID en EQUIPOS_ABREVIATURAS.
 # ============================================================
 
 EQUIPOS_ABREVIATURAS_NOMBRE = {
@@ -90,7 +113,6 @@ EQUIPOS_ABREVIATURAS_NOMBRE = {
 
     "rcd espanyol": "ESP",
     "espanyol": "ESP",
-    "rcd espanyol de barcelona": "ESP",
 
     "rcd mallorca": "MLL",
     "mallorca": "MLL",
@@ -102,7 +124,6 @@ EQUIPOS_ABREVIATURAS_NOMBRE = {
     "getafe": "GET",
 
     "rc celta": "CEL",
-    "rc celta de vigo": "CEL",
     "celta": "CEL",
 
     "ca osasuna": "OSA",
@@ -119,7 +140,6 @@ EQUIPOS_ABREVIATURAS_NOMBRE = {
     "rayo vallecano": "RAY",
 
     "cd leganes": "LEG",
-    "cd leganés": "LEG",
     "leganes": "LEG",
     "leganés": "LEG",
 
@@ -139,15 +159,18 @@ EQUIPOS_ABREVIATURAS_NOMBRE = {
     "granada": "GRA",
 
     "cadiz cf": "CAD",
-    "cádiz cf": "CAD",
     "cadiz": "CAD",
     "cádiz": "CAD",
 
     "ud almeria": "ALM",
-    "ud almería": "ALM",
     "almeria": "ALM",
     "almería": "ALM",
 
+    "malaga": "MAL",
+    "málaga": "MAL",
+
+    "racing": "RAC",
+    "racing santander": "RAC",
 }
 
 
@@ -174,7 +197,6 @@ def _normalizar_texto(texto):
     }
 
     for origen, destino in reemplazos.items():
-
         texto = texto.replace(
             origen,
             destino,
@@ -205,6 +227,10 @@ class BiwengerClient:
         self.league_id = None
         self.user_id = None
         self.login_time = 0
+
+        # Cachés para no hacer peticiones repetidas.
+        self._player_detail_cache = {}
+        self._team_cache = {}
 
     # --------------------------------------------------------
     # CONTEXTO
@@ -286,13 +312,11 @@ class BiwengerClient:
         if use_context:
 
             if self.league_id is not None:
-
                 headers["X-League"] = str(
                     self.league_id
                 )
 
             if self.user_id is not None:
-
                 headers["X-User"] = str(
                     self.user_id
                 )
@@ -485,6 +509,119 @@ class BiwengerClient:
         return response.json()
 
     # --------------------------------------------------------
+    # JUGADOR INDIVIDUAL
+    #
+    # Se utiliza como respaldo para jugadores del endpoint
+    # masivo que no tengan teamID.
+    # --------------------------------------------------------
+
+    def player_detail(
+        self,
+        player,
+    ):
+
+        if isinstance(player, int):
+            player_id = player
+            slug = None
+
+        elif isinstance(player, dict):
+
+            player_id = player.get("id")
+            slug = player.get("slug")
+
+        else:
+            return None
+
+        if player_id is not None:
+
+            try:
+                player_id_int = int(player_id)
+            except (
+                TypeError,
+                ValueError,
+            ):
+                player_id_int = None
+
+        else:
+            player_id_int = None
+
+        if player_id_int is not None:
+
+            if player_id_int in self._player_detail_cache:
+                return self._player_detail_cache[
+                    player_id_int
+                ]
+
+        if not slug:
+
+            if isinstance(player, dict):
+                slug = player.get("slug")
+
+        if not slug:
+
+            return None
+
+        url = PLAYER_DETAIL_URL.format(
+            slug=slug
+        )
+
+        try:
+
+            response = self.public_session.get(
+                url,
+                params={
+                    "lang": "es",
+                    "fields": (
+                        "*,team,fitness,"
+                        "reports(points,home,events,"
+                        "status(status,statusInfo),"
+                        "match(*,round,home,away),star),"
+                        "prices,competition,seasons,news,threads"
+                    ),
+                },
+                timeout=15,
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+        except Exception as exc:
+
+            logger.debug(
+                "No se pudo obtener detalle del jugador "
+                "id=%s slug=%s: %s",
+                player_id,
+                slug,
+                exc,
+            )
+
+            return None
+
+        jugador = data
+
+        if (
+            isinstance(data, dict)
+            and isinstance(
+                data.get("data"),
+                dict,
+            )
+        ):
+
+            jugador = data["data"]
+
+        if (
+            isinstance(jugador, dict)
+            and player_id_int is not None
+        ):
+
+            self._player_detail_cache[
+                player_id_int
+            ] = jugador
+
+        return jugador
+
+    # --------------------------------------------------------
     # HISTORIAL
     # --------------------------------------------------------
 
@@ -582,7 +719,6 @@ class BiwengerClient:
                 current_date is not None
                 and antigua >= current_date
             ):
-
                 break
 
             current_date = antigua - 1
@@ -707,7 +843,6 @@ class BiwengerClient:
                 current_date is not None
                 and antigua >= current_date
             ):
-
                 break
 
             current_date = antigua - 1
@@ -965,179 +1100,96 @@ def diagnostico_liga(
 
 
 # ============================================================
-# MAPA DE EQUIPOS ENCONTRADOS EN LA RESPUESTA PÚBLICA
+# MAPA DE JUGADORES
+#
+# ESTA ES LA PARTE IMPORTANTE DE LA CORRECCIÓN.
+#
+# Antes:
+#
+#   recorríamos TODO el JSON recursivamente.
+#
+# Eso provocaba que:
+#
+#   id=1 -> Primera División
+#   id=3 -> Premier League
+#   id=5 -> Serie A
+#
+# fueran tratados como equipos.
+#
+# Ahora:
+#
+#   buscamos exclusivamente la colección de jugadores.
+#
+# El jugador del endpoint masivo tiene:
+#
+# {
+#     "id": 34802,
+#     "name": "Toni Martínez",
+#     "slug": "toni-martinez",
+#     "teamID": 91,
+#     ...
+# }
+#
 # ============================================================
 
-def _extraer_mapa_equipos(
+def _obtener_lista_jugadores_desde_respuesta(
     respuesta,
 ):
-    """
-    Busca objetos de equipos dentro de la respuesta pública.
 
-    No asumimos una estructura única.
+    if not isinstance(
+        respuesta,
+        dict,
+    ):
+        return []
 
-    Buscamos objetos que tengan:
-        id
-        name
+    # --------------------------------------------------------
+    # Caso habitual:
+    #
+    # {
+    #   "data": {
+    #       "players": [...]
+    #   }
+    # }
+    # --------------------------------------------------------
 
-    y además alguna señal de que se trata de un equipo.
+    data = respuesta.get(
+        "data"
+    )
 
-    El resultado es:
+    if isinstance(
+        data,
+        dict,
+    ):
 
-        {
-            91: {
-                "id": 91,
-                "name": "Alavés",
-                "slug": "alaves"
-            }
-        }
-    """
-
-    equipos = {}
-
-    def registrar_equipo(objeto):
-
-        if not isinstance(
-            objeto,
-            dict,
-        ):
-            return
-
-        equipo_id = objeto.get(
-            "id"
+        players = data.get(
+            "players"
         )
-
-        nombre = objeto.get(
-            "name"
-        )
-
-        if equipo_id is None:
-            return
-
-        if not isinstance(
-            nombre,
-            str,
-        ):
-            return
-
-        nombre = nombre.strip()
-
-        if not nombre:
-            return
-
-        # ----------------------------------------------------
-        # Señales que hacen pensar que el objeto es un equipo.
-        # ----------------------------------------------------
-
-        indicadores = (
-            "nextGames",
-            "shortName",
-            "code",
-            "slug",
-            "stadium",
-            "venue",
-            "country",
-        )
-
-        tiene_indicador = any(
-            key in objeto
-            for key in indicadores
-        )
-
-        if not tiene_indicador:
-            return
-
-        # ----------------------------------------------------
-        # Evitamos confundir jugadores con equipos.
-        #
-        # Un jugador normalmente tiene position/price.
-        # ----------------------------------------------------
-
-        if (
-            "position" in objeto
-            and (
-                "price" in objeto
-                or "fantasyPrice" in objeto
-            )
-        ):
-            return
-
-        try:
-
-            equipo_id = int(
-                equipo_id
-            )
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-
-            return
-
-        equipos[equipo_id] = {
-            "id": equipo_id,
-            "name": nombre,
-            "slug": objeto.get(
-                "slug"
-            ),
-            "shortName": objeto.get(
-                "shortName"
-            ),
-            "code": objeto.get(
-                "code"
-            ),
-        }
-
-    def recorrer(objeto):
 
         if isinstance(
-            objeto,
-            dict,
-        ):
-
-            registrar_equipo(
-                objeto
-            )
-
-            for valor in objeto.values():
-
-                recorrer(valor)
-
-        elif isinstance(
-            objeto,
+            players,
             list,
         ):
 
-            for valor in objeto:
+            return players
 
-                recorrer(valor)
+    # --------------------------------------------------------
+    # Posibles respuestas donde players está directamente
+    # debajo de la raíz.
+    # --------------------------------------------------------
 
-    recorrer(
-        respuesta
+    players = respuesta.get(
+        "players"
     )
 
-    logger.info(
-        "Mapa de equipos detectado: %s equipos",
-        len(equipos),
-    )
-
-    for equipo_id, equipo in sorted(
-        equipos.items()
+    if isinstance(
+        players,
+        list,
     ):
 
-        logger.debug(
-            "Equipo detectado: id=%s nombre=%s",
-            equipo_id,
-            equipo.get("name"),
-        )
+        return players
 
-    return equipos
+    return []
 
-
-# ============================================================
-# MAPA DE JUGADORES
-# ============================================================
 
 def _extraer_mapa_jugadores():
 
@@ -1155,203 +1207,182 @@ def _extraer_mapa_jugadores():
 
         return {}
 
-    # --------------------------------------------------------
-    # Primero intentamos localizar equipos en la respuesta.
-    # --------------------------------------------------------
-
-    equipos_detectados = (
-        _extraer_mapa_equipos(
+    jugadores_api = (
+        _obtener_lista_jugadores_desde_respuesta(
             respuesta
         )
     )
 
-    # --------------------------------------------------------
-    # Construimos mapa de jugadores.
-    # --------------------------------------------------------
-
     mapa = {}
 
-    def recorrer(objeto):
+    if not jugadores_api:
 
-        if isinstance(
-            objeto,
+        logger.warning(
+            "La API pública no contiene una colección "
+            "de jugadores reconocible."
+        )
+
+        return mapa
+
+    sin_team = 0
+
+    for jugador in jugadores_api:
+
+        if not isinstance(
+            jugador,
             dict,
         ):
+            continue
 
-            player_id = objeto.get(
-                "id"
+        player_id = jugador.get(
+            "id"
+        )
+
+        if player_id is None:
+            continue
+
+        try:
+            player_id = int(
+                player_id
             )
-
-            nombre = objeto.get(
-                "name"
-            )
-
-            # ------------------------------------------------
-            # Consideramos jugador si tiene:
-            #
-            # id + name + algún indicador de jugador.
-            # ------------------------------------------------
-
-            es_jugador = (
-                isinstance(
-                    player_id,
-                    int,
-                )
-                and isinstance(
-                    nombre,
-                    str,
-                )
-                and (
-                    "position" in objeto
-                    or "price" in objeto
-                    or "fantasyPrice" in objeto
-                    or "teamID" in objeto
-                    or "teamId" in objeto
-                    or "team_id" in objeto
-                )
-            )
-
-            if es_jugador:
-
-                mapa[player_id] = objeto
-
-            for valor in objeto.values():
-
-                recorrer(valor)
-
-        elif isinstance(
-            objeto,
-            list,
+        except (
+            TypeError,
+            ValueError,
         ):
+            continue
 
-            for valor in objeto:
+        mapa[player_id] = jugador
 
-                recorrer(valor)
+        team_id = jugador.get(
+            "teamID"
+        )
 
-    recorrer(
-        respuesta
-    )
+        if team_id is None:
+
+            sin_team += 1
+
+            logger.debug(
+                "Jugador sin teamID: id=%s nombre=%s",
+                player_id,
+                jugador.get("name"),
+            )
 
     logger.info(
         "Mapa de jugadores cargado: %s jugadores",
         len(mapa),
     )
 
-    # --------------------------------------------------------
-    # Diagnóstico de teamID.
-    #
-    # Esto nos permite saber exactamente qué IDs estamos
-    # recibiendo de Biwenger.
-    # --------------------------------------------------------
-
-    ids_equipo_desconocidos = set()
-
-    for player_id, jugador in mapa.items():
-
-        equipo_id, equipo_nombre = (
-            _extraer_equipo_jugador(
-                jugador
-            )
-        )
-
-        if equipo_id is None:
-
-            logger.warning(
-                "Jugador API sin team/teamID: "
-                "id=%s nombre=%s keys=%s",
-                player_id,
-                jugador.get("name"),
-                list(jugador.keys()),
-            )
-
-            continue
-
-        try:
-
-            equipo_id_int = int(
-                equipo_id
-            )
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-
-            equipo_id_int = None
-
-        if (
-            equipo_id_int is not None
-            and equipo_id_int
-            not in EQUIPOS_ABREVIATURAS
-        ):
-
-            ids_equipo_desconocidos.add(
-                equipo_id_int
-            )
-
-            equipo_detectado = (
-                equipos_detectados.get(
-                    equipo_id_int
-                )
-            )
-
-            if equipo_detectado:
-
-                logger.info(
-                    "Equipo encontrado automáticamente: "
-                    "id=%s nombre=%s",
-                    equipo_id_int,
-                    equipo_detectado.get(
-                        "name"
-                    ),
-                )
-
-            else:
-
-                logger.debug(
-                    "teamID sin objeto de equipo "
-                    "en la respuesta: id=%s",
-                    equipo_id_int,
-                )
-
-    if ids_equipo_desconocidos:
+    if sin_team:
 
         logger.info(
-            "IDs de equipos todavía no incluidos "
-            "en EQUIPOS_ABREVIATURAS: %s",
-            sorted(
-                ids_equipo_desconocidos
-            ),
+            "Jugadores sin teamID en endpoint masivo: %s",
+            sin_team,
         )
 
     return mapa
 
 
 # ============================================================
-# OBTENER DATOS DEL EQUIPO DEL JUGADOR
+# OBTENER DETALLE DEL JUGADOR SI FALTA teamID
+# ============================================================
+
+def _completar_datos_jugador(
+    jugador,
+):
+
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+
+        return jugador
+
+    team_id = jugador.get(
+        "teamID"
+    )
+
+    team = jugador.get(
+        "team"
+    )
+
+    # --------------------------------------------------------
+    # Si ya tenemos teamID o team, no necesitamos hacer
+    # ninguna petición adicional.
+    # --------------------------------------------------------
+
+    if (
+        team_id is not None
+        or isinstance(team, dict)
+    ):
+
+        return jugador
+
+    player_id = jugador.get(
+        "id"
+    )
+
+    nombre = jugador.get(
+        "name"
+    )
+
+    logger.debug(
+        "Jugador sin teamID, consultando detalle: "
+        "id=%s nombre=%s",
+        player_id,
+        nombre,
+    )
+
+    detalle = _CLIENT.player_detail(
+        jugador
+    )
+
+    if not isinstance(
+        detalle,
+        dict,
+    ):
+
+        return jugador
+
+    resultado = dict(
+        jugador
+    )
+
+    # --------------------------------------------------------
+    # Copiamos únicamente información útil.
+    # --------------------------------------------------------
+
+    for key in (
+        "teamID",
+        "team",
+        "name",
+        "slug",
+        "position",
+        "price",
+        "fantasyPrice",
+        "status",
+    ):
+
+        if key in detalle:
+
+            resultado[key] = detalle[key]
+
+    return resultado
+
+
+# ============================================================
+# OBTENER EQUIPO DEL JUGADOR
+#
+# PRIORIDAD:
+#
+# 1. team.id
+# 2. teamID
+# 3. estructuras antiguas
+#
 # ============================================================
 
 def _extraer_equipo_jugador(
     jugador,
 ):
-    """
-    Soporta las dos estructuras que hemos observado.
-
-    Estructura completa:
-
-        {
-            "team": {
-                "id": 91,
-                "name": "Alavés"
-            }
-        }
-
-    Estructura que devuelve actualmente /competitions/la-liga/data:
-
-        {
-            "teamID": 91
-        }
-    """
 
     if not isinstance(
         jugador,
@@ -1363,11 +1394,14 @@ def _extraer_equipo_jugador(
             None,
         )
 
-    # ========================================================
-    # 1. ESTRUCTURA COMPLETA
+    # --------------------------------------------------------
+    # 1. Estructura del endpoint individual:
     #
-    # jugador["team"]["id"]
-    # ========================================================
+    # "team": {
+    #     "id": 91,
+    #     "name": "Alavés"
+    # }
+    # --------------------------------------------------------
 
     equipo = jugador.get(
         "team"
@@ -1389,18 +1423,25 @@ def _extraer_equipo_jugador(
             or equipo.get("code")
         )
 
-        return (
-            equipo_id,
-            str(nombre)
-            if nombre
-            else None,
-        )
+        if (
+            equipo_id is not None
+            or nombre
+        ):
 
-    # ========================================================
-    # 2. ESTRUCTURA ACTUAL
+            return (
+                equipo_id,
+                str(nombre)
+                if nombre
+                else None,
+            )
+
+    # --------------------------------------------------------
+    # 2. Estructura REAL del endpoint masivo:
     #
-    # jugador["teamID"]
-    # ========================================================
+    # "teamID": 91
+    #
+    # Aquí no existe necesariamente team.
+    # --------------------------------------------------------
 
     team_id = jugador.get(
         "teamID"
@@ -1408,34 +1449,21 @@ def _extraer_equipo_jugador(
 
     if team_id is not None:
 
+        nombre = (
+            jugador.get("teamName")
+            or jugador.get("team_name")
+        )
+
         return (
             team_id,
-            None,
+            str(nombre)
+            if nombre
+            else None,
         )
 
-    # ========================================================
-    # 3. VARIANTES
-    # ========================================================
-
-    for key in (
-        "teamId",
-        "team_id",
-    ):
-
-        team_id = jugador.get(
-            key
-        )
-
-        if team_id is not None:
-
-            return (
-                team_id,
-                None,
-            )
-
-    # ========================================================
-    # 4. ESTRUCTURAS ANTIGUAS
-    # ========================================================
+    # --------------------------------------------------------
+    # 3. Compatibilidad con posibles estructuras antiguas.
+    # --------------------------------------------------------
 
     for key in (
         "teamName",
@@ -1470,13 +1498,10 @@ def _extraer_equipo_jugador(
                 else None,
             )
 
-        if (
-            isinstance(
-                valor,
-                str,
-            )
-            and valor.strip()
-        ):
+        if isinstance(
+            valor,
+            str,
+        ) and valor.strip():
 
             return (
                 None,
@@ -1490,136 +1515,16 @@ def _extraer_equipo_jugador(
 
 
 # ============================================================
-# OBTENER NOMBRE DEL EQUIPO DESDE LA RESPUESTA
-# ============================================================
-
-def _buscar_nombre_equipo_por_id(
-    respuesta,
-    equipo_id,
-):
-    """
-    Busca recursivamente un equipo por ID.
-
-    Se utiliza como respaldo cuando el jugador solamente
-    contiene teamID.
-    """
-
-    if equipo_id is None:
-        return None
-
-    try:
-
-        equipo_id = int(
-            equipo_id
-        )
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-
-        return None
-
-    encontrado = None
-
-    def recorrer(objeto):
-
-        nonlocal encontrado
-
-        if encontrado is not None:
-            return
-
-        if isinstance(
-            objeto,
-            dict,
-        ):
-
-            objeto_id = objeto.get(
-                "id"
-            )
-
-            nombre = objeto.get(
-                "name"
-            )
-
-            if (
-                objeto_id is not None
-                and isinstance(
-                    nombre,
-                    str,
-                )
-            ):
-
-                try:
-
-                    objeto_id_int = int(
-                        objeto_id
-                    )
-
-                except (
-                    TypeError,
-                    ValueError,
-                ):
-
-                    objeto_id_int = None
-
-                if (
-                    objeto_id_int == equipo_id
-                    and
-                    (
-                        "nextGames" in objeto
-                        or "shortName" in objeto
-                        or "code" in objeto
-                        or "stadium" in objeto
-                        or "venue" in objeto
-                    )
-                ):
-
-                    encontrado = nombre
-                    return
-
-            for valor in objeto.values():
-
-                recorrer(
-                    valor
-                )
-
-        elif isinstance(
-            objeto,
-            list,
-        ):
-
-            for valor in objeto:
-
-                recorrer(
-                    valor
-                )
-
-    recorrer(
-        respuesta
-    )
-
-    return encontrado
-
-
-# ============================================================
-# ABREVIATURA POR ID DE EQUIPO
+# ABREVIATURA POR ID
 # ============================================================
 
 def _abreviar_equipo_id(
     equipo_id,
     nombre_equipo=None,
 ):
-    """
-    Prioridad:
-
-    1. ID conocido
-    2. Nombre conocido
-    3. '?'
-    """
 
     # --------------------------------------------------------
-    # 1. BUSCAR DIRECTAMENTE POR ID
+    # 1. ID explícito.
     # --------------------------------------------------------
 
     if equipo_id is not None:
@@ -1648,7 +1553,7 @@ def _abreviar_equipo_id(
             ]
 
     # --------------------------------------------------------
-    # 2. FALLBACK POR NOMBRE
+    # 2. Fallback por nombre.
     # --------------------------------------------------------
 
     if nombre_equipo:
@@ -1665,13 +1570,25 @@ def _abreviar_equipo_id(
 
         if abreviatura:
 
+            # Solo warning si realmente tenemos un ID
+            # que todavía no está en la tabla.
+            if equipo_id is not None:
+
+                logger.debug(
+                    "Equipo por nombre con ID no registrado: "
+                    "id=%s nombre=%s -> %s",
+                    equipo_id,
+                    nombre_equipo,
+                    abreviatura,
+                )
+
             return abreviatura
 
     # --------------------------------------------------------
-    # 3. DESCONOCIDO
+    # 3. Desconocido.
     # --------------------------------------------------------
 
-    logger.warning(
+    logger.debug(
         "No se pudo determinar abreviatura del equipo: "
         "id=%s nombre=%s",
         equipo_id,
@@ -1689,68 +1606,101 @@ def _datos_jugador(
     jugadores,
     player_id,
 ):
-    """
-    Devuelve:
 
-        (
-            nombre_jugador,
-            abreviatura_equipo
+    if player_id is None:
+
+        return (
+            "Jugador desconocido",
+            "?",
         )
-    """
 
-    jugador = jugadores.get(
-        player_id
-    )
+    try:
 
-    if not isinstance(
-        jugador,
-        dict,
+        player_id_int = int(
+            player_id
+        )
+
+    except (
+        TypeError,
+        ValueError,
     ):
-
-        logger.warning(
-            "Jugador no encontrado en mapa: id=%s",
-            player_id,
-        )
 
         return (
             f"Jugador {player_id}",
             "?",
         )
 
-    nombre = jugador.get(
-        "name",
-        f"Jugador {player_id}",
+    jugador = jugadores.get(
+        player_id_int
     )
 
     # --------------------------------------------------------
-    # Obtener ID/nombre del equipo.
+    # Si el jugador no está en el mapa, intentamos obtener
+    # su detalle individual.
     # --------------------------------------------------------
 
-    equipo_id, equipo_nombre = (
-        _extraer_equipo_jugador(
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+
+        detalle = _CLIENT.player_detail(
+            player_id_int
+        )
+
+        if isinstance(
+            detalle,
+            dict,
+        ):
+
+            jugador = detalle
+
+            jugadores[
+                player_id_int
+            ] = jugador
+
+    # --------------------------------------------------------
+    # Si lo tenemos pero no tiene teamID, intentamos
+    # completar mediante endpoint individual.
+    # --------------------------------------------------------
+
+    if isinstance(
+        jugador,
+        dict,
+    ):
+
+        jugador = _completar_datos_jugador(
             jugador
         )
-    )
 
-    # --------------------------------------------------------
-    # Si tenemos teamID pero no nombre, intentamos resolver
-    # el nombre mediante el mapa que devuelve la API.
-    #
-    # Para ello hacemos una búsqueda contra la respuesta
-    # pública almacenada temporalmente.
-    #
-    # Actualmente la abreviatura se resuelve principalmente
-    # por ID.
-    # --------------------------------------------------------
+        jugadores[
+            player_id_int
+        ] = jugador
 
-    equipo = _abreviar_equipo_id(
-        equipo_id,
-        equipo_nombre,
-    )
+        nombre = jugador.get(
+            "name",
+            f"Jugador {player_id_int}",
+        )
+
+        equipo_id, equipo_nombre = (
+            _extraer_equipo_jugador(
+                jugador
+            )
+        )
+
+        equipo = _abreviar_equipo_id(
+            equipo_id,
+            equipo_nombre,
+        )
+
+        return (
+            str(nombre),
+            equipo,
+        )
 
     return (
-        str(nombre),
-        equipo,
+        f"Jugador {player_id_int}",
+        "?",
     )
 
 
@@ -1778,9 +1728,7 @@ def _numero(
 
         try:
 
-            return float(
-                texto
-            )
+            return float(texto)
 
         except Exception:
 
@@ -2743,10 +2691,7 @@ def obtener_mercado_completo(
 #
 # /mercado24 se mantiene como comando.
 #
-# Actualmente muestra:
-#
 # 00:00 -> momento actual
-#
 # según Europe/Madrid.
 # ============================================================
 
