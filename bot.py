@@ -33,9 +33,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-logger = logging.getLogger(
-    __name__
-)
+logger = logging.getLogger(__name__)
 
 MAX_TELEGRAM = 4000
 
@@ -72,8 +70,8 @@ async def editar_mensaje(
 
     except Exception as exc:
 
-        # Telegram lanza excepción si el contenido
-        # es exactamente igual al mensaje actual.
+        # Telegram lanza esta excepción cuando
+        # el contenido es exactamente igual.
         if "Message is not modified" in str(exc):
             return
 
@@ -222,13 +220,33 @@ async def mostrar_menu_liga(
 
     await update.message.reply_text(
         f"🏆 {nombre}\n\n"
-        "Comandos disponibles:\n\n"
-        "/informe\n"
-        "/mercado\n"
-        "/mercado24\n"
-        "/mercadomiembro\n"
-        "/liga\n"
-        "/ayuda"
+        "Selecciona una opción:",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "📊 Informe",
+                    callback_data="menu:informe",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🔄 Mercado",
+                    callback_data="menu:mercado",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⏱️ Mercado de hoy",
+                    callback_data="menu:mercado24",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🧑‍💼 Mercado por miembro",
+                    callback_data="menu:mercadomiembro",
+                )
+            ],
+        ]),
     )
 
 
@@ -279,14 +297,14 @@ async def liga(
             update
         )
 
-    except Exception as e:
+    except Exception:
 
         logger.exception(
             "ERROR LIGA"
         )
 
         await update.message.reply_text(
-            f"Error obteniendo ligas:\n{e}"
+            "❌ Error obteniendo ligas."
         )
 
 
@@ -429,6 +447,12 @@ async def comprobar_liga(
                 "Primero selecciona una liga con /liga"
             )
 
+        elif update.callback_query is not None:
+
+            await update.callback_query.message.reply_text(
+                "Primero selecciona una liga con /liga"
+            )
+
         return None
 
     return int(
@@ -531,7 +555,6 @@ async def informe(
                 f"{formatear_dinero(puja_maxima)}\n\n"
             )
 
-        # Si cabe, editamos el mensaje de carga.
         if len(texto) <= MAX_TELEGRAM:
 
             await mensaje_carga.edit_text(
@@ -547,14 +570,14 @@ async def informe(
                 texto,
             )
 
-    except Exception as e:
+    except Exception:
 
         logger.exception(
             "ERROR INFORME"
         )
 
         await update.message.reply_text(
-            f"Error calculando informe:\n{e}"
+            "❌ Error calculando informe."
         )
 
 
@@ -642,18 +665,14 @@ async def enviar_movimientos(
             "",
         )
 
-        player_id = movimiento.get(
-            "player_id"
-        )
-
-        player_name = movimiento.get(
-            "player_name",
-            "Jugador",
-        )
-
         boton = boton_jugador(
-            player_id,
-            player_name,
+            movimiento.get(
+                "player_id"
+            ),
+            movimiento.get(
+                "player_name",
+                "Jugador",
+            ),
         )
 
         texto_candidato = (
@@ -794,7 +813,6 @@ async def mercado(
 
         from biwenger import _nombre_fecha
 
-        # Borramos el mensaje de carga.
         await mensaje_carga.delete()
 
         for clave in orden:
@@ -825,14 +843,14 @@ async def mercado(
                 ),
             )
 
-    except Exception as e:
+    except Exception:
 
         logger.exception(
             "ERROR MERCADO"
         )
 
         await update.message.reply_text(
-            f"Error obteniendo mercado:\n{e}"
+            "❌ Error obteniendo mercado."
         )
 
 
@@ -880,26 +898,42 @@ async def mercado24(
             )
         )
 
-        ahora = datos[
-            "fecha"
-        ]
+        if not datos:
 
-        movimientos_datos = datos[
-            "movimientos"
-        ]
+            await mensaje_carga.edit_text(
+                "❌ No se pudieron obtener "
+                "los movimientos de hoy."
+            )
+
+            return
+
+        ahora = datos.get(
+            "fecha"
+        )
+
+        movimientos_datos = datos.get(
+            "movimientos",
+            []
+        )
 
         from biwenger import _nombre_fecha
 
-        titulo = (
-            "⏱️ MERCADO — HOY\n"
-            "📅 "
-            + _nombre_fecha(
-                ahora.timestamp()
-            )
-        )
+        if ahora is not None:
 
-        # Sin movimientos: editamos el mensaje
-        # de carga directamente.
+            titulo = (
+                "⏱️ MERCADO — HOY\n"
+                "📅 "
+                + _nombre_fecha(
+                    ahora.timestamp()
+                )
+            )
+
+        else:
+
+            titulo = (
+                "⏱️ MERCADO — HOY"
+            )
+
         if not movimientos_datos:
 
             await mensaje_carga.edit_text(
@@ -970,15 +1004,26 @@ async def mercado24(
                 movimientos_datos,
             )
 
-    except Exception as e:
+    except Exception:
 
         logger.exception(
             "ERROR MERCADO 24H"
         )
 
-        await update.message.reply_text(
-            f"Error obteniendo mercado:\n{e}"
-        )
+        try:
+
+            await mensaje_carga.edit_text(
+                "❌ No se pudo obtener el "
+                "mercado de hoy.\n\n"
+                "Puedes probar de nuevo con /mercado24."
+            )
+
+        except Exception:
+
+            await update.message.reply_text(
+                "❌ No se pudo obtener el "
+                "mercado de hoy."
+            )
 
 
 # ============================================================
@@ -1019,14 +1064,24 @@ def construir_mensaje_dia_miembro(
 
     else:
 
-        titulo_fecha = (
-            "📅 "
-            + _nombre_fecha(
-                timestamps.get(
-                    clave
+        timestamp = timestamps.get(
+            clave
+        )
+
+        if timestamp is not None:
+
+            titulo_fecha = (
+                "📅 "
+                + _nombre_fecha(
+                    timestamp
                 )
             )
-        )
+
+        else:
+
+            titulo_fecha = (
+                "📅 FECHA DESCONOCIDA"
+            )
 
     movimientos = grupos.get(
         clave,
@@ -1081,7 +1136,10 @@ def construir_botones_dias(
 
     fila_navegacion = []
 
-    # Día anterior
+    # --------------------------------------------------------
+    # DÍA ANTERIOR
+    # --------------------------------------------------------
+
     if indice > 0:
 
         fila_navegacion.append(
@@ -1096,7 +1154,10 @@ def construir_botones_dias(
             )
         )
 
-    # Día siguiente
+    # --------------------------------------------------------
+    # DÍA SIGUIENTE
+    # --------------------------------------------------------
+
     if indice < total_dias - 1:
 
         fila_navegacion.append(
@@ -1117,7 +1178,10 @@ def construir_botones_dias(
             fila_navegacion
         )
 
-    # Botones de jugadores
+    # --------------------------------------------------------
+    # BOTONES DE JUGADORES
+    # --------------------------------------------------------
+
     for movimiento in movimientos:
 
         boton = boton_jugador(
@@ -1136,7 +1200,10 @@ def construir_botones_dias(
                 boton
             ])
 
-    # Volver a selección de miembros
+    # --------------------------------------------------------
+    # CAMBIAR MIEMBRO
+    # --------------------------------------------------------
+
     botones.append([
         InlineKeyboardButton(
             "👥 Cambiar miembro",
@@ -1173,6 +1240,16 @@ async def mostrar_dia_miembro(
                     miembro_id,
                 )
             )
+
+        if not datos:
+
+            await editar_mensaje(
+                query,
+                "❌ No se pudieron obtener "
+                "los movimientos del miembro.",
+            )
+
+            return
 
         if "error" in datos:
 
@@ -1227,6 +1304,10 @@ async def mostrar_dia_miembro(
 
             return
 
+        # ----------------------------------------------------
+        # NORMALIZAR ÍNDICE
+        # ----------------------------------------------------
+
         if indice < 0:
             indice = 0
 
@@ -1240,6 +1321,10 @@ async def mostrar_dia_miembro(
             [],
         )
 
+        # ----------------------------------------------------
+        # CONSTRUIR TEXTO
+        # ----------------------------------------------------
+
         texto = construir_mensaje_dia_miembro(
             nombre_miembro,
             grupos,
@@ -1248,8 +1333,6 @@ async def mostrar_dia_miembro(
             indice,
         )
 
-        # Si el mensaje se acercase al límite,
-        # mostramos igualmente el día sin romper Telegram.
         if len(texto) > MAX_TELEGRAM:
 
             texto = texto[
@@ -1258,6 +1341,10 @@ async def mostrar_dia_miembro(
 
             texto += "\n\n…"
 
+        # ----------------------------------------------------
+        # CONSTRUIR TECLADO
+        # ----------------------------------------------------
+
         teclado = construir_botones_dias(
             liga_id,
             miembro_id,
@@ -1265,6 +1352,10 @@ async def mostrar_dia_miembro(
             len(orden),
             movimientos,
         )
+
+        # ----------------------------------------------------
+        # EDITAR EL MISMO MENSAJE
+        # ----------------------------------------------------
 
         await editar_mensaje(
             query,
@@ -1362,14 +1453,14 @@ async def mercadomiembro(
             ),
         )
 
-    except Exception as e:
+    except Exception:
 
         logger.exception(
             "ERROR MERCADO POR MIEMBRO"
         )
 
         await update.message.reply_text(
-            f"Error obteniendo miembros:\n{e}"
+            "❌ Error obteniendo miembros."
         )
 
 
@@ -1382,53 +1473,76 @@ async def mostrar_selector_miembros(
     liga_id,
 ):
 
-    miembros = obtener_miembros_liga(
-        liga_id
-    )
+    try:
 
-    botones = []
-
-    for miembro in miembros:
-
-        miembro_id = miembro.get(
-            "id"
+        miembros = obtener_miembros_liga(
+            liga_id
         )
 
-        nombre = miembro.get(
-            "nombre",
-            "Desconocido",
-        )
+        if not miembros:
 
-        if miembro_id is None:
-            continue
-
-        botones.append([
-            InlineKeyboardButton(
-                str(nombre),
-                callback_data=(
-                    f"miembro:"
-                    f"{liga_id}:"
-                    f"{miembro_id}"
-                ),
+            await editar_mensaje(
+                query,
+                "❌ No se encontraron miembros.",
             )
-        ])
 
-    if not botones:
+            return
+
+        botones = []
+
+        for miembro in miembros:
+
+            miembro_id = miembro.get(
+                "id"
+            )
+
+            nombre = miembro.get(
+                "nombre",
+                "Desconocido",
+            )
+
+            if miembro_id is None:
+                continue
+
+            botones.append([
+                InlineKeyboardButton(
+                    str(nombre),
+                    callback_data=(
+                        f"miembro:"
+                        f"{liga_id}:"
+                        f"{miembro_id}"
+                    ),
+                )
+            ])
+
+        if not botones:
+
+            await editar_mensaje(
+                query,
+                "❌ No se encontraron miembros.",
+            )
+
+            return
 
         await editar_mensaje(
             query,
-            "❌ No se encontraron miembros.",
+            "🧑‍💼 Selecciona un miembro:",
+            InlineKeyboardMarkup(
+                botones
+            ),
         )
 
-        return
+    except Exception:
 
-    await editar_mensaje(
-        query,
-        "🧑‍💼 Selecciona un miembro:",
-        InlineKeyboardMarkup(
-            botones
-        ),
-    )
+        logger.exception(
+            "ERROR SELECTOR MIEMBROS"
+        )
+
+        await editar_mensaje(
+            query,
+            "❌ No se pudieron cargar "
+            "los miembros.",
+        )
 
 
 # ============================================================
@@ -1657,7 +1771,8 @@ async def volver_miembros(
 
         await editar_mensaje(
             query,
-            "❌ No se pudo volver a la selección de miembros.",
+            "❌ No se pudo volver a la "
+            "selección de miembros.",
         )
 
 
@@ -1671,8 +1786,6 @@ async def ficha_jugador(
 ):
 
     query = update.callback_query
-
-    await query.answer()
 
     try:
 
@@ -1698,7 +1811,8 @@ async def ficha_jugador(
         if not jugador:
 
             await query.answer(
-                "❌ No se encontró la ficha del jugador.",
+                "❌ No se encontró la ficha "
+                "del jugador.",
                 show_alert=True,
             )
 
@@ -1730,15 +1844,9 @@ async def ficha_jugador(
             f"🏟️ Equipo: {equipo}\n"
             f"💰 Precio: "
             f"{formatear_dinero(precio)}\n"
-            f"⭐ Puntos: {puntos}\n"
+            f"⭐ Puntos: {puntos}"
         )
 
-        # IMPORTANTE:
-        # La ficha ya NO se envía como mensaje nuevo.
-        #
-        # Se muestra como alerta emergente de Telegram.
-        # Así el usuario puede consultar la ficha sin
-        # desplazar el mercado hacia abajo.
         await query.answer(
             texto,
             show_alert=True,
@@ -1786,12 +1894,11 @@ async def ayuda(
             "/mercado\n"
             "Mercado completo agrupado por fechas.\n\n"
             "/mercado24\n"
-            "Movimientos del día actual, desde "
-            "las 00:00 hasta el momento de la consulta.\n\n"
+            "Movimientos del día actual.\n\n"
             "/mercadomiembro\n"
             "Movimientos de mercado de un miembro "
-            "concreto, agrupados por días y navegables "
-            "con botones.\n\n"
+            "concreto, agrupados por días y "
+            "navegables con botones.\n\n"
             "/liga\n"
             "Cambiar de liga.\n\n"
             "/ayuda\n"
@@ -1824,37 +1931,402 @@ async def menu_callback(
 
     query = update.callback_query
 
-    await query.answer()
-
     try:
+
+        if not query.data.startswith(
+            "menu:"
+        ):
+
+            return
 
         accion = query.data.split(
             ":",
             1
         )[1]
 
+        liga_id = context.user_data.get(
+            "liga"
+        )
+
+        if not liga_id:
+
+            await query.answer(
+                "❌ Primero selecciona una liga.",
+                show_alert=True,
+            )
+
+            return
+
+        # ====================================================
+        # INFORME
+        # ====================================================
+
         if accion == "informe":
 
-            await query.message.reply_text(
-                "Usa /informe para consultar el informe."
-            )
+            await query.answer()
+
+            try:
+
+                mensaje_carga = await query.message.reply_text(
+                    "📊 Calculando informe..."
+                )
+
+                report = obtener_informe(
+                    int(liga_id)
+                )
+
+                texto = (
+                    "📊 INFORME DE MANAGERS\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                )
+
+                if not report:
+
+                    await mensaje_carga.edit_text(
+                        texto
+                        + "No se han encontrado "
+                        + "miembros en esta liga."
+                    )
+
+                    return
+
+                managers = sorted(
+                    report.items(),
+                    key=lambda item: item[1].get(
+                        "saldo_actual",
+                        0,
+                    ),
+                    reverse=True,
+                )
+
+                for manager, datos in managers:
+
+                    texto += (
+                        f"👤 {manager}\n"
+                        f"⚽ Jugadores: "
+                        f"{datos.get('numero_jugadores', 0)}\n"
+                        f"🟢 Compras: "
+                        f"{formatear_dinero(datos.get('total_compras', 0))}\n"
+                        f"🔴 Ventas: "
+                        f"{formatear_dinero(datos.get('total_ventas', 0))}\n"
+                        f"💰 Saldo: "
+                        f"{formatear_dinero(datos.get('saldo_actual', 0))}\n"
+                        f"💵 Puja máxima: "
+                        f"{formatear_dinero(datos.get('puja_maxima', 0))}\n\n"
+                    )
+
+                if len(texto) <= MAX_TELEGRAM:
+
+                    await mensaje_carga.edit_text(
+                        texto
+                    )
+
+                else:
+
+                    await mensaje_carga.delete()
+
+                    await query.message.reply_text(
+                        texto[:MAX_TELEGRAM]
+                    )
+
+            except Exception:
+
+                logger.exception(
+                    "ERROR INFORME DESDE BOTÓN"
+                )
+
+                await query.message.reply_text(
+                    "❌ Error calculando informe."
+                )
+
+        # ====================================================
+        # MERCADO
+        # ====================================================
 
         elif accion == "mercado":
 
-            await query.message.reply_text(
-                "Usa /mercado para consultar el mercado."
-            )
+            await query.answer()
+
+            try:
+
+                mensaje_carga = await query.message.reply_text(
+                    "🔄 Cargando mercado completo..."
+                )
+
+                datos = (
+                    obtener_mercado_completo_datos(
+                        int(liga_id)
+                    )
+                )
+
+                grupos = datos.get(
+                    "grupos",
+                    {},
+                )
+
+                orden = datos.get(
+                    "orden",
+                    [],
+                )
+
+                timestamps = datos.get(
+                    "timestamps",
+                    {},
+                )
+
+                if not orden:
+
+                    await mensaje_carga.edit_text(
+                        "🔄 MERCADO COMPLETO\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n\n"
+                        "Sin movimientos."
+                    )
+
+                    return
+
+                from biwenger import _nombre_fecha
+
+                await mensaje_carga.delete()
+
+                for clave in orden:
+
+                    if clave == "desconocida":
+
+                        titulo = (
+                            "📅 FECHA DESCONOCIDA"
+                        )
+
+                    else:
+
+                        titulo = (
+                            "📅 "
+                            + _nombre_fecha(
+                                timestamps.get(
+                                    clave
+                                )
+                            )
+                        )
+
+                    # Usamos una pequeña función auxiliar
+                    # para enviar desde el callback.
+                    movimientos = grupos.get(
+                        clave,
+                        [],
+                    )
+
+                    texto = (
+                        titulo
+                        + "\n"
+                        + "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    )
+
+                    botones = []
+
+                    for movimiento in movimientos:
+
+                        texto += (
+                            movimiento.get(
+                                "texto",
+                                "",
+                            )
+                            + "\n\n"
+                        )
+
+                        boton = boton_jugador(
+                            movimiento.get(
+                                "player_id"
+                            ),
+                            movimiento.get(
+                                "player_name",
+                                "Jugador",
+                            ),
+                        )
+
+                        if boton is not None:
+
+                            botones.append([
+                                boton
+                            ])
+
+                    markup = (
+                        InlineKeyboardMarkup(
+                            botones
+                        )
+                        if botones
+                        else None
+                    )
+
+                    await query.message.reply_text(
+                        texto.rstrip(),
+                        reply_markup=markup,
+                    )
+
+            except Exception:
+
+                logger.exception(
+                    "ERROR MERCADO DESDE BOTÓN"
+                )
+
+                await query.message.reply_text(
+                    "❌ Error obteniendo mercado."
+                )
+
+        # ====================================================
+        # MERCADO 24H
+        # ====================================================
 
         elif accion == "mercado24":
 
-            await query.message.reply_text(
-                "Usa /mercado24 para consultar el mercado de hoy."
-            )
+            await query.answer()
+
+            try:
+
+                mensaje_carga = await query.message.reply_text(
+                    "⏱️ Cargando mercado de hoy..."
+                )
+
+                datos = (
+                    obtener_mercado_24h_datos(
+                        int(liga_id)
+                    )
+                )
+
+                if not datos:
+
+                    await mensaje_carga.edit_text(
+                        "❌ No se pudieron obtener "
+                        "los movimientos de hoy."
+                    )
+
+                    return
+
+                ahora = datos.get(
+                    "fecha"
+                )
+
+                movimientos_datos = datos.get(
+                    "movimientos",
+                    []
+                )
+
+                from biwenger import _nombre_fecha
+
+                if ahora is not None:
+
+                    titulo = (
+                        "⏱️ MERCADO — HOY\n"
+                        "📅 "
+                        + _nombre_fecha(
+                            ahora.timestamp()
+                        )
+                    )
+
+                else:
+
+                    titulo = (
+                        "⏱️ MERCADO — HOY"
+                    )
+
+                if not movimientos_datos:
+
+                    await mensaje_carga.edit_text(
+                        titulo
+                        + "\n"
+                        + "━━━━━━━━━━━━━━━━━━━━\n\n"
+                        + "Sin movimientos."
+                    )
+
+                    return
+
+                texto = (
+                    titulo
+                    + "\n"
+                    + "━━━━━━━━━━━━━━━━━━━━\n\n"
+                )
+
+                botones = []
+
+                for movimiento in movimientos_datos:
+
+                    texto += (
+                        movimiento.get(
+                            "texto",
+                            "",
+                        )
+                        + "\n\n"
+                    )
+
+                    boton = boton_jugador(
+                        movimiento.get(
+                            "player_id"
+                        ),
+                        movimiento.get(
+                            "player_name",
+                            "Jugador",
+                        ),
+                    )
+
+                    if boton is not None:
+
+                        botones.append([
+                            boton
+                        ])
+
+                markup = (
+                    InlineKeyboardMarkup(
+                        botones
+                    )
+                    if botones
+                    else None
+                )
+
+                await mensaje_carga.edit_text(
+                    texto.rstrip(),
+                    reply_markup=markup,
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "ERROR MERCADO 24H DESDE BOTÓN"
+                )
+
+                try:
+
+                    await mensaje_carga.edit_text(
+                        "❌ No se pudo obtener "
+                        "el mercado de hoy."
+                    )
+
+                except Exception:
+
+                    await query.message.reply_text(
+                        "❌ No se pudo obtener "
+                        "el mercado de hoy."
+                    )
+
+        # ====================================================
+        # MERCADO POR MIEMBRO
+        # ====================================================
 
         elif accion == "mercadomiembro":
 
-            await query.message.reply_text(
-                "Usa /mercadomiembro para consultar por miembro."
+            # ESTE ES EL CAMBIO PRINCIPAL.
+            #
+            # Antes:
+            #
+            # await query.message.reply_text(
+            #     "Usa /mercadomiembro..."
+            # )
+            #
+            # Ahora abrimos directamente
+            # el selector de miembros.
+
+            await query.answer()
+
+            await mostrar_selector_miembros(
+                query,
+                int(liga_id),
             )
 
     except Exception:
@@ -1862,6 +2334,17 @@ async def menu_callback(
         logger.exception(
             "ERROR MENU CALLBACK"
         )
+
+        try:
+
+            await query.answer(
+                "❌ No se pudo abrir esta opción.",
+                show_alert=True,
+            )
+
+        except Exception:
+
+            pass
 
 
 # ============================================================
@@ -1893,9 +2376,9 @@ def main():
         .build()
     )
 
-    # ----------------------------
+    # ========================================================
     # COMANDOS PRINCIPALES
-    # ----------------------------
+    # ========================================================
 
     app.add_handler(
         CommandHandler(
@@ -1953,9 +2436,9 @@ def main():
         )
     )
 
-    # ----------------------------
+    # ========================================================
     # BOTONES INLINE
-    # ----------------------------
+    # ========================================================
 
     app.add_handler(
         CallbackQueryHandler(
@@ -1999,9 +2482,9 @@ def main():
         )
     )
 
-    # ----------------------------
+    # ========================================================
     # MANEJADOR GLOBAL DE ERRORES
-    # ----------------------------
+    # ========================================================
 
     app.add_error_handler(
         error_handler
