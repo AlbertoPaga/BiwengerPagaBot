@@ -58,6 +58,17 @@ TEAM_ABBR = {
 
 
 # ============================================================
+# CACHÉ DE JUGADORES
+# ============================================================
+
+_PLAYERS_CACHE = {}
+
+_PLAYERS_CACHE_TIME = 0
+
+PLAYERS_CACHE_TTL = 3600
+
+
+# ============================================================
 # NORMALIZAR TEXTO
 # ============================================================
 
@@ -191,13 +202,11 @@ class BiwengerClient:
         if use_context:
 
             if self.league_id is not None:
-
                 headers["X-League"] = str(
                     self.league_id
                 )
 
             if self.user_id is not None:
-
                 headers["X-User"] = str(
                     self.user_id
                 )
@@ -929,16 +938,36 @@ def _es_jugador_api(objeto):
 # ============================================================
 # MAPA DE JUGADORES
 #
-# SOLO UNA COSA:
-#
 # player_id -> objeto jugador completo
 #
-# NO buscamos equipos.
-# NO construimos mapas de equipos.
-# NO hacemos consultas adicionales.
+# El mapa se descarga una vez y queda cacheado.
+# NO hacemos consultas individuales por jugador.
 # ============================================================
 
-def _extraer_mapa_jugadores():
+def _extraer_mapa_jugadores(
+    forzar=False,
+):
+
+    global _PLAYERS_CACHE
+    global _PLAYERS_CACHE_TIME
+
+    ahora = time.time()
+
+    if (
+        not forzar
+        and _PLAYERS_CACHE
+        and (
+            ahora - _PLAYERS_CACHE_TIME
+            < PLAYERS_CACHE_TTL
+        )
+    ):
+
+        logger.info(
+            "Usando caché de jugadores: %s jugadores",
+            len(_PLAYERS_CACHE),
+        )
+
+        return _PLAYERS_CACHE
 
     try:
 
@@ -952,7 +981,7 @@ def _extraer_mapa_jugadores():
             exc,
         )
 
-        return {}
+        return _PLAYERS_CACHE
 
     jugadores = {}
 
@@ -988,7 +1017,6 @@ def _extraer_mapa_jugadores():
 
                 if player_id is not None:
 
-                    # Guardamos el objeto completo.
                     jugadores[
                         player_id
                     ] = objeto
@@ -1014,12 +1042,83 @@ def _extraer_mapa_jugadores():
         respuesta
     )
 
+    _PLAYERS_CACHE = jugadores
+    _PLAYERS_CACHE_TIME = time.time()
+
     logger.info(
         "Mapa de jugadores cargado: %s jugadores",
         len(jugadores),
     )
 
     return jugadores
+
+
+# ============================================================
+# OBTENER FICHA DE JUGADOR
+# ============================================================
+
+def obtener_ficha_jugador(
+    player_id,
+):
+
+    jugadores = _extraer_mapa_jugadores()
+
+    try:
+
+        player_id = int(
+            player_id
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        return None
+
+    jugador = jugadores.get(
+        player_id
+    )
+
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+
+        return None
+
+    team_id = _extraer_team_id_jugador(
+        jugador
+    )
+
+    nombre = jugador.get(
+        "name",
+        f"Jugador {player_id}",
+    )
+
+    return {
+        "id": player_id,
+        "nombre": (
+            nombre.strip()
+            if isinstance(nombre, str)
+            else f"Jugador {player_id}"
+        ),
+        "equipo": _abreviar_equipo_id(
+            team_id
+        ),
+        "precio": jugador.get(
+            "price",
+            jugador.get(
+                "fantasyPrice",
+                0,
+            ),
+        ),
+        "puntos": jugador.get(
+            "points",
+            0,
+        ),
+        "datos": jugador,
+    }
 
 
 # ============================================================
@@ -1035,12 +1134,6 @@ def _extraer_team_id_jugador(
         dict,
     ):
         return None
-
-    # --------------------------------------------------------
-    # Estructura actual:
-    #
-    # "teamID": 93
-    # --------------------------------------------------------
 
     team_id = jugador.get(
         "teamID"
@@ -1060,14 +1153,6 @@ def _extraer_team_id_jugador(
         ):
 
             return None
-
-    # --------------------------------------------------------
-    # Compatibilidad si alguna respuesta trae:
-    #
-    # "team": {"id": 93, ...}
-    #
-    # Esto NO implica ninguna consulta.
-    # --------------------------------------------------------
 
     equipo = jugador.get(
         "team"
@@ -1109,7 +1194,6 @@ def _abreviar_equipo_id(
 ):
 
     if equipo_id is None:
-
         return "?"
 
     try:
@@ -1140,10 +1224,6 @@ def _datos_jugador(
     player_id,
 ):
 
-    # --------------------------------------------------------
-    # Normalizamos el ID.
-    # --------------------------------------------------------
-
     try:
 
         player_id_int = int(
@@ -1161,7 +1241,6 @@ def _datos_jugador(
         player_id_int
     )
 
-    # Compatibilidad por si el mapa tiene clave string.
     if jugador is None:
 
         jugador = jugadores.get(
@@ -1172,10 +1251,6 @@ def _datos_jugador(
         jugador,
         dict,
     ):
-
-        # ----------------------------------------------------
-        # El nombre SIEMPRE sale del objeto jugador.
-        # ----------------------------------------------------
 
         nombre = jugador.get(
             "name"
@@ -1189,12 +1264,6 @@ def _datos_jugador(
             nombre = (
                 f"Jugador {player_id}"
             )
-
-        # ----------------------------------------------------
-        # El equipo sale DIRECTAMENTE de teamID.
-        #
-        # No se consulta ninguna API.
-        # ----------------------------------------------------
 
         team_id = (
             _extraer_team_id_jugador(
@@ -1696,7 +1765,6 @@ def _nombre_fecha(
     )
 
     if fecha is None:
-
         return "FECHA DESCONOCIDA"
 
     meses = [
@@ -1740,6 +1808,9 @@ def _formatear_importe(
 
 # ============================================================
 # FORMATEAR MOVIMIENTO
+#
+# Devuelve los datos estructurados para que bot.py pueda
+# crear el botón inline del jugador.
 # ============================================================
 
 def _formatear_movimiento(
@@ -1774,7 +1845,7 @@ def _formatear_movimiento(
         dict,
     ):
 
-        return (
+        texto = (
             f"🟢 "
             f"{comprador.get('name', 'Desconocido')} "
             f"ficha a "
@@ -1782,18 +1853,30 @@ def _formatear_movimiento(
             f"por {_formatear_importe(importe)}"
         )
 
+        return {
+            "texto": texto,
+            "player_id": player_id,
+            "player_name": jugador,
+        }
+
     if isinstance(
         vendedor,
         dict,
     ):
 
-        return (
+        texto = (
             f"🔴 "
             f"{vendedor.get('name', 'Desconocido')} "
             f"vende a "
             f"⚽ {jugador} [{equipo}] "
             f"por {_formatear_importe(importe)}"
         )
+
+        return {
+            "texto": texto,
+            "player_id": player_id,
+            "player_name": jugador,
+        }
 
     return None
 
@@ -1819,10 +1902,100 @@ def _obtener_operaciones(
 
 
 # ============================================================
-# MERCADO POR MIEMBRO
+# DATOS DE MERCADO
+#
+# Esta función es la que utiliza bot.py para crear los
+# botones inline.
 # ============================================================
 
-def obtener_mercado_miembro(
+def _construir_grupos_mercado(
+    operaciones,
+    jugadores,
+):
+
+    grupos = {}
+    orden = []
+    timestamps = {}
+
+    for operacion in operaciones:
+
+        fecha = _timestamp_datetime(
+            operacion.get(
+                "_event_date"
+            )
+        )
+
+        clave = (
+            fecha.strftime("%Y-%m-%d")
+            if fecha
+            else "desconocida"
+        )
+
+        if clave not in grupos:
+
+            grupos[clave] = []
+
+            orden.append(
+                clave
+            )
+
+            timestamps[clave] = (
+                operacion.get(
+                    "_event_date"
+                )
+            )
+
+        movimiento = _formatear_movimiento(
+            operacion,
+            jugadores,
+        )
+
+        if movimiento:
+
+            grupos[clave].append(
+                movimiento
+            )
+
+    return {
+        "grupos": grupos,
+        "orden": orden,
+        "timestamps": timestamps,
+    }
+
+
+# ============================================================
+# MERCADO COMPLETO - DATOS
+# ============================================================
+
+def obtener_mercado_completo_datos(
+    liga_id,
+):
+
+    history = (
+        _CLIENT.get_full_market_history(
+            liga_id
+        )
+    )
+
+    operaciones = _obtener_operaciones(
+        history
+    )
+
+    jugadores = (
+        _extraer_mapa_jugadores()
+    )
+
+    return _construir_grupos_mercado(
+        operaciones,
+        jugadores,
+    )
+
+
+# ============================================================
+# MERCADO POR MIEMBRO - DATOS
+# ============================================================
+
+def obtener_mercado_miembro_datos(
     liga_id,
     miembro_id,
 ):
@@ -1843,10 +2016,12 @@ def obtener_mercado_miembro(
 
     if miembro is None:
 
-        return (
-            "❌ No se encontró el miembro "
-            "seleccionado."
-        )
+        return {
+            "error": (
+                "❌ No se encontró el miembro "
+                "seleccionado."
+            )
+        }
 
     nombre_miembro = miembro.get(
         "nombre",
@@ -1911,106 +2086,62 @@ def obtener_mercado_miembro(
         _extraer_mapa_jugadores()
     )
 
-    if not operaciones_miembro:
+    mercado = _construir_grupos_mercado(
+        operaciones_miembro,
+        jugadores,
+    )
+
+    mercado["nombre_miembro"] = (
+        nombre_miembro
+    )
+
+    return mercado
+
+
+# ============================================================
+# MERCADO POR MIEMBRO - TEXTO COMPATIBILIDAD
+# ============================================================
+
+def obtener_mercado_miembro(
+    liga_id,
+    miembro_id,
+):
+
+    datos = obtener_mercado_miembro_datos(
+        liga_id,
+        miembro_id,
+    )
+
+    if "error" in datos:
+        return datos["error"]
+
+    nombre_miembro = datos.get(
+        "nombre_miembro",
+        "Desconocido",
+    )
+
+    grupos = datos.get(
+        "grupos",
+        {},
+    )
+
+    orden = datos.get(
+        "orden",
+        [],
+    )
+
+    timestamps = datos.get(
+        "timestamps",
+        {},
+    )
+
+    if not orden:
 
         return (
             f"🧑‍💼 MERCADO — {nombre_miembro}\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "Sin movimientos."
         )
-
-    grupos = {}
-    orden = []
-
-    for operacion in operaciones_miembro:
-
-        fecha = _timestamp_datetime(
-            operacion.get(
-                "_event_date"
-            )
-        )
-
-        clave = (
-            fecha.strftime("%Y-%m-%d")
-            if fecha
-            else "desconocida"
-        )
-
-        if clave not in grupos:
-
-            grupos[clave] = {
-                "compras": [],
-                "ventas": [],
-                "timestamp": (
-                    operacion.get(
-                        "_event_date"
-                    )
-                    if fecha
-                    else None
-                ),
-            }
-
-            orden.append(
-                clave
-            )
-
-        player_id = operacion.get(
-            "player"
-        )
-
-        jugador, equipo = _datos_jugador(
-            jugadores,
-            player_id,
-        )
-
-        importe = operacion.get(
-            "amount",
-            0,
-        )
-
-        comprador = operacion.get(
-            "to"
-        )
-
-        vendedor = operacion.get(
-            "from"
-        )
-
-        if (
-            isinstance(
-                comprador,
-                dict,
-            )
-            and
-            str(comprador.get("id"))
-            == str(miembro_id)
-        ):
-
-            grupos[clave]["compras"].append(
-                (
-                    f"🟢 "
-                    f"⚽ {jugador} [{equipo}] | "
-                    f"💰 {_formatear_importe(importe)}"
-                )
-            )
-
-        elif (
-            isinstance(
-                vendedor,
-                dict,
-            )
-            and
-            str(vendedor.get("id"))
-            == str(miembro_id)
-        ):
-
-            grupos[clave]["ventas"].append(
-                (
-                    f"🔴 "
-                    f"⚽ {jugador} [{equipo}] | "
-                    f"💰 {_formatear_importe(importe)}"
-                )
-            )
 
     lineas = [
         f"🧑‍💼 MERCADO — {nombre_miembro}",
@@ -2019,8 +2150,6 @@ def obtener_mercado_miembro(
     ]
 
     for clave in orden:
-
-        datos_dia = grupos[clave]
 
         if clave == "desconocida":
 
@@ -2033,7 +2162,9 @@ def obtener_mercado_miembro(
             titulo = (
                 "📅 "
                 + _nombre_fecha(
-                    datos_dia["timestamp"]
+                    timestamps.get(
+                        clave
+                    )
                 )
             )
 
@@ -2043,37 +2174,16 @@ def obtener_mercado_miembro(
 
         lineas.append("")
 
-        if datos_dia["compras"]:
+        for movimiento in grupos.get(
+            clave,
+            [],
+        ):
 
             lineas.append(
-                "🟢 COMPRAS"
+                movimiento["texto"]
             )
 
-            for movimiento in datos_dia[
-                "compras"
-            ]:
-
-                lineas.append(
-                    movimiento
-                )
-
-            lineas.append("")
-
-        if datos_dia["ventas"]:
-
-            lineas.append(
-                "🔴 VENTAS"
-            )
-
-            for movimiento in datos_dia[
-                "ventas"
-            ]:
-
-                lineas.append(
-                    movimiento
-                )
-
-            lineas.append("")
+        lineas.append("")
 
     return "\n".join(
         lineas
@@ -2081,61 +2191,31 @@ def obtener_mercado_miembro(
 
 
 # ============================================================
-# MERCADO COMPLETO
+# MERCADO COMPLETO - TEXTO COMPATIBILIDAD
 # ============================================================
 
 def obtener_mercado_completo(
     liga_id,
 ):
 
-    history = (
-        _CLIENT.get_full_market_history(
-            liga_id
-        )
+    datos = obtener_mercado_completo_datos(
+        liga_id
     )
 
-    operaciones = _obtener_operaciones(
-        history
+    grupos = datos.get(
+        "grupos",
+        {},
     )
 
-    jugadores = (
-        _extraer_mapa_jugadores()
+    orden = datos.get(
+        "orden",
+        [],
     )
 
-    grupos = {}
-    orden = []
-
-    for operacion in operaciones:
-
-        fecha = _timestamp_datetime(
-            operacion.get(
-                "_event_date"
-            )
-        )
-
-        clave = (
-            fecha.strftime("%Y-%m-%d")
-            if fecha
-            else "desconocida"
-        )
-
-        if clave not in grupos:
-
-            grupos[clave] = []
-            orden.append(
-                clave
-            )
-
-        texto = _formatear_movimiento(
-            operacion,
-            jugadores,
-        )
-
-        if texto:
-
-            grupos[clave].append(
-                texto
-            )
+    timestamps = datos.get(
+        "timestamps",
+        {},
+    )
 
     bloques = []
 
@@ -2149,43 +2229,28 @@ def obtener_mercado_completo(
 
         else:
 
-            timestamp = next(
-                (
-                    op.get(
-                        "_event_date"
-                    )
-                    for op in operaciones
-                    if (
-                        _timestamp_datetime(
-                            op.get(
-                                "_event_date"
-                            )
-                        )
-                        and
-                        _timestamp_datetime(
-                            op.get(
-                                "_event_date"
-                            )
-                        ).strftime(
-                            "%Y-%m-%d"
-                        ) == clave
-                    )
-                ),
-                None,
-            )
-
             titulo = (
                 "📅 "
                 + _nombre_fecha(
-                    timestamp
+                    timestamps.get(
+                        clave
+                    )
                 )
             )
+
+        movimientos = [
+            movimiento["texto"]
+            for movimiento in grupos.get(
+                clave,
+                [],
+            )
+        ]
 
         bloques.append(
             "\n".join([
                 titulo,
                 "",
-                *grupos[clave],
+                *movimientos,
             ])
         )
 
@@ -2207,10 +2272,10 @@ def obtener_mercado_completo(
 
 
 # ============================================================
-# MERCADO DEL DÍA
+# MERCADO DEL DÍA - DATOS
 # ============================================================
 
-def obtener_mercado_24h(
+def obtener_mercado_24h_datos(
     liga_id,
 ):
 
@@ -2248,8 +2313,7 @@ def obtener_mercado_24h(
 
         if (
             fecha is not None
-            and
-            fecha.strftime(
+            and fecha.strftime(
                 "%Y-%m-%d"
             ) == fecha_hoy
         ):
@@ -2258,7 +2322,45 @@ def obtener_mercado_24h(
                 operacion
             )
 
-    if not operaciones_hoy:
+    movimientos = []
+
+    for operacion in operaciones_hoy:
+
+        movimiento = _formatear_movimiento(
+            operacion,
+            jugadores,
+        )
+
+        if movimiento:
+            movimientos.append(
+                movimiento
+            )
+
+    return {
+        "fecha": ahora,
+        "movimientos": movimientos,
+    }
+
+
+# ============================================================
+# MERCADO DEL DÍA - TEXTO COMPATIBILIDAD
+# ============================================================
+
+def obtener_mercado_24h(
+    liga_id,
+):
+
+    datos = obtener_mercado_24h_datos(
+        liga_id
+    )
+
+    ahora = datos["fecha"]
+
+    movimientos = datos[
+        "movimientos"
+    ]
+
+    if not movimientos:
 
         return (
             "⏱️ MERCADO — HOY\n"
@@ -2274,18 +2376,11 @@ def obtener_mercado_24h(
         "",
     ]
 
-    for operacion in operaciones_hoy:
+    for movimiento in movimientos:
 
-        texto = _formatear_movimiento(
-            operacion,
-            jugadores,
+        lineas.append(
+            movimiento["texto"]
         )
-
-        if texto:
-
-            lineas.append(
-                texto
-            )
 
     return "\n".join(
         lineas
