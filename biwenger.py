@@ -2273,11 +2273,6 @@ def obtener_mercado_completo(
 
 # ============================================================
 # MERCADO DEL DÍA - DATOS
-#
-# IMPORTANTE:
-# Esta función sigue mostrando MOVIMIENTOS realizados hoy.
-#
-# NO es el mercado actual de jugadores en venta.
 # ============================================================
 
 def obtener_mercado_24h_datos(
@@ -2349,8 +2344,6 @@ def obtener_mercado_24h_datos(
 
 # ============================================================
 # MERCADO DEL DÍA - TEXTO COMPATIBILIDAD
-#
-# Muestra los MOVIMIENTOS realizados hoy.
 # ============================================================
 
 def obtener_mercado_24h(
@@ -2395,172 +2388,291 @@ def obtener_mercado_24h(
 
 
 # ============================================================
-# MERCADO DE HOY - JUGADORES EN VENTA
+# MERCADO ACTUAL - JUGADORES EN VENTA
 #
 # IMPORTANTE:
-# Esta función NO consulta el historial.
+# Esta sección NO usa el historial (/board).
+# Consulta directamente /market para obtener las ventas
+# que siguen activas en este momento.
 #
-# Consulta directamente:
-#
-# GET /market
-#
-# y muestra los jugadores que están actualmente
-# disponibles en el mercado.
-#
-# No se modifica BiwengerClient.
-# Se utiliza directamente _CLIENT.get("/market").
+# Se mantiene separada de obtener_mercado_24h(), que muestra
+# movimientos realizados hoy.
 # ============================================================
+
+def _extraer_sales_mercado(response):
+    """
+    Extrae la lista de ventas activas de /market.
+
+    Biwenger puede devolver la información directamente en
+    `sales` o, dependiendo de la respuesta, dentro de `data`.
+    Se aceptan ambas formas para hacer la función más robusta.
+    """
+
+    if not isinstance(response, dict):
+        return []
+
+    sales = response.get("sales")
+
+    if isinstance(sales, list):
+        return sales
+
+    data = response.get("data")
+
+    if isinstance(data, dict):
+        sales = data.get("sales")
+        if isinstance(sales, list):
+            return sales
+
+    return []
+
+
+def _extraer_player_id_venta(sale):
+    """Obtiene el ID del jugador desde una venta de /market."""
+
+    if not isinstance(sale, dict):
+        return None
+
+    player = sale.get("player")
+
+    if isinstance(player, dict):
+        player_id = player.get("id")
+    else:
+        player_id = player
+
+    if player_id is None:
+        # Compatibilidad con respuestas que puedan usar playerId.
+        player_id = sale.get("playerId")
+
+    try:
+        return int(player_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _esta_venta_activa(sale, ahora_timestamp=None):
+    """
+    Determina si una venta de /market sigue activa.
+
+    Si Biwenger marca explícitamente la venta como expirada,
+    se descarta. Si existe `until`, se comprueba contra la hora
+    actual. Si no existe `until`, no se descarta automáticamente:
+    algunas respuestas de la API pueden omitir ese campo.
+    """
+
+    if not isinstance(sale, dict):
+        return False
+
+    if sale.get("expired") is True:
+        return False
+
+    if ahora_timestamp is None:
+        ahora_timestamp = time.time()
+
+    until = sale.get("until")
+
+    if until is not None:
+        try:
+            if float(until) <= ahora_timestamp:
+                return False
+        except (TypeError, ValueError):
+            # Un `until` inválido no debe hacer desaparecer una
+            # venta que la propia API no ha marcado como expirada.
+            pass
+
+    return True
+
+
+def _precio_venta(sale, jugador=None):
+    """Obtiene el precio de la venta con varios fallbacks."""
+
+    if isinstance(sale, dict):
+        for key in ("price", "amount"):
+            value = sale.get(key)
+            if value is not None:
+                return value
+
+    if isinstance(jugador, dict):
+        for key in ("price", "fantasyPrice"):
+            value = jugador.get(key)
+            if value is not None:
+                return value
+
+    return 0
+
 
 def obtener_mercado_hoy_datos(
     liga_id,
 ):
+    """
+    Devuelve los jugadores que están actualmente en venta.
 
-    _CLIENT.prepare_context(
-        liga_id
-    )
+    NO devuelve movimientos del día.
+    NO consulta el historial.
 
-    response = _CLIENT.get(
-        "/market"
-    )
+    La consulta se realiza directamente contra:
+        GET /market
 
-    sales = (
-        response.get(
-            "sales",
-            [],
-        )
-        if isinstance(
-            response,
-            dict,
-        )
-        else []
-    )
+    El resultado está preparado para que bot.py pueda crear
+    botones inline usando `player_id`.
+    """
 
-    ahora_timestamp = time.time()
+    # Preparamos el contexto de la liga antes de llamar a /market.
+    _CLIENT.prepare_context(liga_id)
 
-    jugadores = (
-        _extraer_mapa_jugadores()
-    )
+    response = _CLIENT.get("/market")
+
+    sales = _extraer_sales_mercado(response)
+
+    ahora = datetime.now(MADRID_TZ)
+    ahora_timestamp = ahora.timestamp()
+
+    jugadores = _extraer_mapa_jugadores()
 
     mercado = []
+    vistos = set()
 
     for sale in sales:
 
-        if not isinstance(
+        if not _esta_venta_activa(
             sale,
-            dict,
+            ahora_timestamp,
         ):
             continue
 
-        # Ignorar ofertas marcadas como expiradas.
-        if sale.get(
-            "expired"
-        ) is True:
-            continue
-
-        until = sale.get(
-            "until"
-        )
-
-        # Sin fecha de finalización no podemos
-        # determinar si sigue activa.
-        if not isinstance(
-            until,
-            (int, float),
-        ):
-            continue
-
-        # La oferta ya ha terminado.
-        if until <= ahora_timestamp:
-            continue
-
-        player = sale.get(
-            "player"
-        )
-
-        if not isinstance(
-            player,
-            dict,
-        ):
-            continue
-
-        player_id = player.get(
-            "id"
+        player_id = _extraer_player_id_venta(
+            sale
         )
 
         if player_id is None:
+            logger.warning(
+                "Venta de mercado sin player_id: %s",
+                sale,
+            )
             continue
+
+        # Evitamos duplicados si la API devuelve la misma venta
+        # más de una vez.
+        sale_id = sale.get("id") if isinstance(sale, dict) else None
+        dedupe_key = (
+            ("sale", sale_id)
+            if sale_id is not None
+            else ("player", player_id)
+        )
+
+        if dedupe_key in vistos:
+            continue
+
+        vistos.add(dedupe_key)
+
+        jugador_api = jugadores.get(player_id)
+
+        # Si /market ya trae el objeto completo del jugador,
+        # lo usamos como fallback sin hacer otra petición.
+        player_from_sale = (
+            sale.get("player")
+            if isinstance(sale, dict)
+            else None
+        )
+
+        if jugador_api is None and isinstance(
+            player_from_sale,
+            dict,
+        ):
+            jugador_api = player_from_sale
 
         nombre, equipo = _datos_jugador(
             jugadores,
             player_id,
         )
 
-        usuario = sale.get(
-            "user"
-        )
-
-        user_id = None
-
-        if isinstance(
-            usuario,
-            dict,
+        # Si el jugador no está en el mapa público pero sí viene
+        # completo en /market, aprovechamos sus datos.
+        if (
+            nombre == f"Jugador {player_id}"
+            and isinstance(player_from_sale, dict)
         ):
+            nombre_api = player_from_sale.get("name")
+            if isinstance(nombre_api, str) and nombre_api.strip():
+                nombre = nombre_api.strip()
 
-            user_id = usuario.get(
-                "id"
+            team_id = _extraer_team_id_jugador(
+                player_from_sale
             )
+            if team_id is not None:
+                equipo = _abreviar_equipo_id(team_id)
+
+        until = sale.get("until")
+        until_datetime = _timestamp_datetime(until)
+
+        usuario = sale.get("user")
+        user_id = None
+        user_name = None
+
+        if isinstance(usuario, dict):
+            user_id = usuario.get("id")
+            user_name = usuario.get("name")
+
+        precio = _precio_venta(
+            sale,
+            jugador_api,
+        )
 
         mercado.append({
             "player_id": player_id,
             "player_name": nombre,
             "team": equipo,
-            "price": sale.get(
-                "price",
-                0,
-            ),
-            "date": sale.get(
-                "date"
-            ),
+            "price": precio,
+            "date": sale.get("date"),
             "until": until,
+            "until_datetime": until_datetime,
             "user_id": user_id,
+            "user_name": user_name,
+            # Conservamos la venta original por si bot.py
+            # necesita algún campo adicional de la API.
+            "sale": sale,
         })
 
-    # Ordenamos por momento de finalización.
+    # Primero las ventas que terminan antes.
     mercado.sort(
-        key=lambda x: x.get(
-            "until",
-            0,
+        key=lambda item: (
+            float(item["until"])
+            if isinstance(item.get("until"), (int, float))
+            else float("inf"),
+            str(item.get("player_name", "")),
         )
     )
 
+    logger.info(
+        "Mercado actual: liga=%s ventas_activas=%s ventas_recibidas=%s",
+        liga_id,
+        len(mercado),
+        len(sales),
+    )
+
     return {
-        "fecha": datetime.now(
-            MADRID_TZ
-        ),
+        "fecha": ahora,
         "jugadores": mercado,
     }
 
 
-# ============================================================
-# MERCADO DE HOY - TEXTO COMPATIBILIDAD
-#
-# Muestra los JUGADORES ACTUALMENTE EN VENTA.
-# No muestra movimientos.
-# ============================================================
-
 def obtener_mercado_hoy(
     liga_id,
 ):
+    """
+    Compatibilidad de texto para el mercado actual.
 
-    datos = (
-        obtener_mercado_hoy_datos(
-            liga_id
-        )
+    Muestra jugadores que están EN VENTA AHORA MISMO,
+    no movimientos realizados durante el día.
+    """
+
+    datos = obtener_mercado_hoy_datos(
+        liga_id
     )
 
-    ahora = datos[
-        "fecha"
-    ]
+    ahora = datos.get(
+        "fecha",
+        datetime.now(MADRID_TZ),
+    )
 
     jugadores = datos.get(
         "jugadores",
@@ -2568,12 +2680,10 @@ def obtener_mercado_hoy(
     )
 
     if not jugadores:
-
         return (
             "🛒 MERCADO — HOY\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "No hay jugadores actualmente "
-            "en venta."
+            "No hay jugadores actualmente en venta."
         )
 
     lineas = [
@@ -2603,19 +2713,24 @@ def obtener_mercado_hoy(
             )
         )
 
+        until = jugador.get("until")
+        hasta = _timestamp_datetime(until)
+
         lineas.append(
             f"⚽ {nombre} [{equipo}]"
         )
-
         lineas.append(
             f"💰 {precio}"
         )
 
+        if hasta is not None:
+            lineas.append(
+                f"⏳ Termina {hasta.strftime('%H:%M')}"
+            )
+
         lineas.append("")
 
-    return "\n".join(
-        lineas
-    ).rstrip()
+    return "\n".join(lineas).rstrip()
 
 
 # ============================================================
