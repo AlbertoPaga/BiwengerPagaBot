@@ -17,12 +17,9 @@ from config import TELEGRAM_TOKEN
 from biwenger import (
     obtener_ligas,
     obtener_informe,
-    obtener_mercado_completo,
     obtener_mercado_completo_datos,
-    obtener_mercado_24h,
     obtener_mercado_24h_datos,
     obtener_miembros_liga,
-    obtener_mercado_miembro,
     obtener_mercado_miembro_datos,
     obtener_ficha_jugador,
 )
@@ -913,7 +910,7 @@ async def elegir_miembro(
 
         if "error" in datos:
 
-            await query.message.reply_text(
+            await query.edit_message_text(
                 datos["error"]
             )
 
@@ -941,7 +938,7 @@ async def elegir_miembro(
 
         if not orden:
 
-            await query.message.reply_text(
+            await query.edit_message_text(
                 f"🧑‍💼 MERCADO — "
                 f"{nombre_miembro}\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1007,6 +1004,10 @@ async def elegir_miembro(
 
 # ============================================================
 # FICHA DEL JUGADOR
+#
+# IMPORTANTE:
+# La ficha se muestra EDITANDO EL MISMO MENSAJE.
+# No se envía un mensaje nuevo al final del chat.
 # ============================================================
 
 async def ficha_jugador(
@@ -1041,7 +1042,7 @@ async def ficha_jugador(
 
         if not jugador:
 
-            await query.message.reply_text(
+            await query.edit_message_text(
                 "❌ No se encontró la ficha "
                 "del jugador."
             )
@@ -1077,8 +1078,22 @@ async def ficha_jugador(
             f"⭐ Puntos: {puntos}\n"
         )
 
-        await query.message.reply_text(
-            texto
+        botones = [[
+            InlineKeyboardButton(
+                "⬅️ Volver al mercado",
+                callback_data=(
+                    f"volver_mercado:{player_id}"
+                ),
+            )
+        ]]
+
+        await query.edit_message_text(
+            texto,
+            reply_markup=(
+                InlineKeyboardMarkup(
+                    botones
+                )
+            ),
         )
 
     except Exception:
@@ -1087,10 +1102,98 @@ async def ficha_jugador(
             "ERROR FICHA JUGADOR"
         )
 
-        await query.message.reply_text(
-            "❌ No se pudo obtener "
-            "la ficha del jugador."
+        try:
+
+            await query.edit_message_text(
+                "❌ No se pudo obtener "
+                "la ficha del jugador."
+            )
+
+        except Exception:
+
+            await query.message.reply_text(
+                "❌ No se pudo obtener "
+                "la ficha del jugador."
+            )
+
+
+# ============================================================
+# VOLVER DESDE LA FICHA DEL JUGADOR
+# ============================================================
+
+async def volver_mercado(
+    update,
+    context,
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    try:
+
+        player_id = int(
+            query.data.split(
+                ":",
+                1
+            )[1]
         )
+
+        mercado_anterior = (
+            context.user_data.get(
+                "ultimo_mercado"
+            )
+        )
+
+        if not mercado_anterior:
+
+            await query.edit_message_text(
+                "🔄 El mercado anterior "
+                "ya no está disponible.\n\n"
+                "Puedes volver a consultarlo "
+                "con /mercado."
+            )
+
+            return
+
+        texto = mercado_anterior.get(
+            "texto",
+            "",
+        )
+
+        botones = mercado_anterior.get(
+            "botones",
+            [],
+        )
+
+        await query.edit_message_text(
+            texto,
+            reply_markup=(
+                InlineKeyboardMarkup(
+                    botones
+                )
+                if botones
+                else None
+            ),
+        )
+
+    except Exception:
+
+        logger.exception(
+            "ERROR VOLVER MERCADO"
+        )
+
+        try:
+
+            await query.edit_message_text(
+                "❌ No se pudo volver al mercado."
+            )
+
+        except Exception:
+
+            await query.message.reply_text(
+                "❌ No se pudo volver al mercado."
+            )
 
 
 # ============================================================
@@ -1253,6 +1356,13 @@ def main():
         CallbackQueryHandler(
             ficha_jugador,
             pattern=r"^jugador:",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            volver_mercado,
+            pattern=r"^volver_mercado:",
         )
     )
 
