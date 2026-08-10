@@ -8,1662 +8,1323 @@ from zoneinfo import ZoneInfo
 
 from config import BIWENGER_USERNAME, BIWENGER_PASSWORD
 
+
 # ============================================================
-
 # CONFIGURACIÓN
-
 # ============================================================
 
 BASE_URL = "https://biwenger.as.com/api/v2"
-PLAYERS_URL = "https://cf.biwenger.com/api/v2/competitions/la-liga/data"
+
+PLAYERS_URL = (
+    "https://cf.biwenger.com/api/v2/"
+    "competitions/la-liga/data"
+)
 
 SALDO_INICIAL = 20_000_000
+
 MADRID_TZ = ZoneInfo("Europe/Madrid")
 
 logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger("biwenger")
 
+
 # ============================================================
-
 # CLIENTE BIWENGER
-
 # ============================================================
 
 class BiwengerClient:
 
-```
-def __init__(self):
+    def __init__(self):
+        self.session = requests.Session()
+        self.public_session = requests.Session()
 
-    self.session = requests.Session()
-    self.public_session = requests.Session()
+        self.public_session.headers.update({
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0",
+        })
 
-    self.public_session.headers.update({
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0",
-    })
+        self.token = None
+        self.league_id = None
+        self.user_id = None
+        self.login_time = 0
 
-    self.token = None
-    self.league_id = None
-    self.user_id = None
-    self.login_time = 0
+    # --------------------------------------------------------
+    # CONTEXTO
+    # --------------------------------------------------------
 
-# --------------------------------------------------------
-# CONTEXTO
-# --------------------------------------------------------
-
-def set_context(
-    self,
-    league_id=None,
-    user_id=None,
-):
-
-    self.league_id = (
-        int(league_id)
-        if league_id is not None
-        else None
-    )
-
-    self.user_id = (
-        int(user_id)
-        if user_id is not None
-        else None
-    )
-
-def clear_context(self):
-
-    self.league_id = None
-    self.user_id = None
-
-# --------------------------------------------------------
-# LOGIN
-# --------------------------------------------------------
-
-def login(self):
-
-    if (
-        self.token
-        and time.time() - self.login_time < 3600
+    def set_context(
+        self,
+        league_id=None,
+        user_id=None,
     ):
-        return
+        self.league_id = (
+            int(league_id)
+            if league_id is not None
+            else None
+        )
 
-    response = self.session.post(
-        f"{BASE_URL}/auth/login",
-        json={
-            "email": BIWENGER_USERNAME,
-            "password": BIWENGER_PASSWORD,
-        },
-        timeout=15,
-    )
+        self.user_id = (
+            int(user_id)
+            if user_id is not None
+            else None
+        )
 
-    response.raise_for_status()
+    def clear_context(self):
+        self.league_id = None
+        self.user_id = None
 
-    data = response.json()
+    # --------------------------------------------------------
+    # LOGIN
+    # --------------------------------------------------------
 
-    self.token = data["token"]
-    self.login_time = time.time()
-
-    self.session.headers.update({
-        "Authorization": f"Bearer {self.token}",
-        "Accept": "application/json",
-    })
-
-    return data
-
-# --------------------------------------------------------
-# GET
-# --------------------------------------------------------
-
-def get(
-    self,
-    endpoint,
-    params=None,
-    use_context=True,
-):
-
-    self.login()
-
-    headers = {}
-
-    if use_context:
-
-        if self.league_id is not None:
-            headers["X-League"] = str(
-                self.league_id
-            )
-
-        if self.user_id is not None:
-            headers["X-User"] = str(
-                self.user_id
-            )
-
-    response = self.session.get(
-        BASE_URL + endpoint,
-        headers=headers,
-        params=params,
-        timeout=15,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
-
-# --------------------------------------------------------
-# CUENTA / LIGAS
-# --------------------------------------------------------
-
-def account(self):
-
-    return self.get(
-        "/account",
-        use_context=False,
-    )
-
-def leagues(self):
-
-    data = self.account()
-
-    root = (
-        data.get("data", {})
-        if isinstance(data, dict)
-        else {}
-    )
-
-    leagues = (
-        root.get("leagues", [])
-        if isinstance(root, dict)
-        else []
-    )
-
-    return leagues
-
-def find_league_user(
-    self,
-    league_id,
-):
-
-    target = str(league_id)
-
-    for liga in self.leagues():
-
-        if not isinstance(liga, dict):
-            continue
-
-        if str(liga.get("id")) != target:
-            continue
-
-        usuario = liga.get("user")
-
-        if isinstance(usuario, dict):
-
-            uid = usuario.get("id")
-
-            if uid is not None:
-                return int(uid)
+    def login(self):
 
         if (
-            isinstance(usuario, (int, str))
-            and str(usuario).isdigit()
+            self.token
+            and time.time() - self.login_time < 3600
         ):
-            return int(usuario)
+            return
 
-        for key in (
-            "userId",
-            "user_id",
-        ):
+        response = self.session.post(
+            f"{BASE_URL}/auth/login",
+            json={
+                "email": BIWENGER_USERNAME,
+                "password": BIWENGER_PASSWORD,
+            },
+            timeout=15,
+        )
 
-            uid = liga.get(key)
+        response.raise_for_status()
 
-            if uid is not None:
-                return int(uid)
+        data = response.json()
+
+        self.token = data["token"]
+        self.login_time = time.time()
+
+        self.session.headers.update({
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/json",
+        })
+
+        return data
+
+    # --------------------------------------------------------
+    # GET
+    # --------------------------------------------------------
+
+    def get(
+        self,
+        endpoint,
+        params=None,
+        use_context=True,
+    ):
+
+        self.login()
+
+        headers = {}
+
+        if use_context:
+
+            if self.league_id is not None:
+                headers["X-League"] = str(
+                    self.league_id
+                )
+
+            if self.user_id is not None:
+                headers["X-User"] = str(
+                    self.user_id
+                )
+
+        response = self.session.get(
+            BASE_URL + endpoint,
+            headers=headers,
+            params=params,
+            timeout=15,
+        )
+
+        response.raise_for_status()
+
+        return response.json()
+
+    # --------------------------------------------------------
+    # CUENTA / LIGAS
+    # --------------------------------------------------------
+
+    def account(self):
+        return self.get(
+            "/account",
+            use_context=False,
+        )
+
+    def leagues(self):
+
+        data = self.account()
+
+        root = (
+            data.get("data", {})
+            if isinstance(data, dict)
+            else {}
+        )
+
+        leagues = (
+            root.get("leagues", [])
+            if isinstance(root, dict)
+            else []
+        )
+
+        return leagues
+
+    def find_league_user(
+        self,
+        league_id,
+    ):
+
+        target = str(league_id)
+
+        for liga in self.leagues():
+
+            if not isinstance(liga, dict):
+                continue
+
+            if str(liga.get("id")) != target:
+                continue
+
+            usuario = liga.get("user")
+
+            if isinstance(usuario, dict):
+
+                uid = usuario.get("id")
+
+                if uid is not None:
+                    return int(uid)
+
+            if (
+                isinstance(usuario, (int, str))
+                and str(usuario).isdigit()
+            ):
+                return int(usuario)
+
+            for key in (
+                "userId",
+                "user_id",
+            ):
+
+                uid = liga.get(key)
+
+                if uid is not None:
+                    return int(uid)
+
+            return None
 
         return None
 
-    return None
-
-def prepare_context(
-    self,
-    league_id,
-):
-
-    self.clear_context()
-
-    league_id = int(league_id)
-
-    user_id = self.find_league_user(
-        league_id
-    )
-
-    if user_id is None:
-        raise ValueError(
-            f"No se encontró usuario para liga {league_id}"
-        )
-
-    self.set_context(
+    def prepare_context(
+        self,
         league_id,
-        user_id,
-    )
+    ):
 
-    return {
-        "league_id": self.league_id,
-        "user_id": self.user_id,
-    }
+        self.clear_context()
 
-# --------------------------------------------------------
-# LIGA
-# --------------------------------------------------------
+        league_id = int(league_id)
 
-def league(
-    self,
-    league_id,
-):
-
-    """
-    Llamada inicial de la liga.
-
-    Esta respuesta contiene:
-
-        data.standings[].id
-        data.standings[].name
-        data.standings[].teamSize
-        data.standings[].teamValue
-
-    Se reutiliza para obtener los miembros.
-    """
-
-    self.prepare_context(
-        league_id
-    )
-
-    return self.get(
-        "/league",
-        params={
-            "include": "all",
-            "fields": (
-                "*,standings,tournaments,"
-                "group,settings(description)"
-            ),
-        },
-    )
-
-# --------------------------------------------------------
-# DATOS DE MIEMBROS
-# --------------------------------------------------------
-
-def league_members(
-    self,
-    league_id,
-):
-
-    return self.league(
-        league_id
-    )
-
-# --------------------------------------------------------
-# BOARD
-# --------------------------------------------------------
-
-def board(
-    self,
-    league_id,
-):
-
-    self.prepare_context(
-        league_id
-    )
-
-    return self.get(
-        f"/league/{self.league_id}/board"
-    )
-
-# --------------------------------------------------------
-# JUGADORES PÚBLICOS
-# --------------------------------------------------------
-
-def players(self):
-
-    response = self.public_session.get(
-        PLAYERS_URL,
-        params={
-            "lang": "es",
-            "score": 2,
-        },
-        timeout=15,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
-
-# --------------------------------------------------------
-# HISTORIAL
-# --------------------------------------------------------
-
-def board_history(
-    self,
-    league_id,
-    date=None,
-    limit=100,
-):
-
-    self.prepare_context(
-        league_id
-    )
-
-    params = {
-        "type": "transfer,market",
-        "limit": limit,
-    }
-
-    if date is not None:
-        params["date"] = date
-
-    return self.get(
-        f"/league/{self.league_id}/board",
-        params=params,
-    )
-
-def get_full_market_history(
-    self,
-    league_id,
-    limit=100,
-    max_pages=100,
-):
-
-    all_events = []
-    current_date = None
-    seen = set()
-
-    for _ in range(max_pages):
-
-        response = self.board_history(
-            league_id,
-            current_date,
-            limit,
+        user_id = self.find_league_user(
+            league_id
         )
 
-        data = (
-            response.get("data", [])
-            if isinstance(response, dict)
-            else []
-        )
-
-        if not data:
-            break
-
-        fechas = []
-
-        for event in data:
-
-            if not isinstance(event, dict):
-                continue
-
-            key = (
-                event.get("date"),
-                event.get("type"),
-                event.get("title"),
+        if user_id is None:
+            raise ValueError(
+                f"No se encontró usuario para liga {league_id}"
             )
 
-            if key in seen:
-                continue
-
-            seen.add(key)
-
-            all_events.append(event)
-
-            event_date = event.get("date")
-
-            if isinstance(
-                event_date,
-                (int, float),
-            ):
-                fechas.append(event_date)
-
-        if not fechas:
-            break
-
-        antigua = min(fechas)
-
-        if (
-            current_date is not None
-            and antigua >= current_date
-        ):
-            break
-
-        current_date = antigua - 1
-
-        if len(data) < limit:
-            break
-
-    all_events.sort(
-        key=lambda x: x.get("date", 0),
-        reverse=True,
-    )
-
-    logger.info(
-        "Historial completo: liga=%s eventos=%s",
-        league_id,
-        len(all_events),
-    )
-
-    return {
-        "status": 200,
-        "data": all_events,
-    }
-
-# --------------------------------------------------------
-# HISTORIAL DEL DÍA ACTUAL
-#
-# IMPORTANTE:
-# Ya NO es una ventana móvil de 24 horas.
-#
-# Si ahora son, por ejemplo:
-#
-# 7 agosto 12:45
-#
-# se obtienen los movimientos del:
-#
-# 7 agosto 00:00 -> 7 agosto 12:45
-#
-# usando la fecha natural de Europe/Madrid.
-# --------------------------------------------------------
-
-def get_market_history_last_24h(
-    self,
-    league_id,
-    limit=100,
-    max_pages=20,
-):
-
-    ahora = datetime.now(
-        MADRID_TZ
-    )
-
-    inicio_dia = datetime(
-        ahora.year,
-        ahora.month,
-        ahora.day,
-        0,
-        0,
-        0,
-        tzinfo=MADRID_TZ,
-    )
-
-    desde = inicio_dia.timestamp()
-
-    all_events = []
-    current_date = None
-    seen = set()
-
-    for _ in range(max_pages):
-
-        response = self.board_history(
+        self.set_context(
             league_id,
-            current_date,
-            limit,
+            user_id,
         )
 
-        data = (
-            response.get("data", [])
-            if isinstance(response, dict)
-            else []
+        return {
+            "league_id": self.league_id,
+            "user_id": self.user_id,
+        }
+
+    # --------------------------------------------------------
+    # LIGA
+    # --------------------------------------------------------
+
+    def league(
+        self,
+        league_id,
+    ):
+
+        self.prepare_context(
+            league_id
         )
 
-        if not data:
-            break
+        return self.get(
+            "/league",
+            params={
+                "include": "all",
+                "fields": (
+                    "*,standings,tournaments,"
+                    "group,settings(description)"
+                ),
+            },
+        )
 
-        fechas = []
+    # --------------------------------------------------------
+    # DATOS DE MIEMBROS
+    # --------------------------------------------------------
 
-        for event in data:
+    def league_members(
+        self,
+        league_id,
+    ):
 
-            if not isinstance(event, dict):
-                continue
+        return self.league(
+            league_id
+        )
 
-            event_date = event.get("date")
+    # --------------------------------------------------------
+    # BOARD
+    # --------------------------------------------------------
 
-            if not isinstance(
-                event_date,
-                (int, float),
-            ):
-                continue
+    def board(
+        self,
+        league_id,
+    ):
 
-            key = (
-                event_date,
-                event.get("type"),
-                event.get("title"),
+        self.prepare_context(
+            league_id
+        )
+
+        return self.get(
+            f"/league/{self.league_id}/board"
+        )
+
+    # --------------------------------------------------------
+    # JUGADORES PÚBLICOS
+    # --------------------------------------------------------
+
+    def players(self):
+
+        response = self.public_session.get(
+            PLAYERS_URL,
+            params={
+                "lang": "es",
+                "score": 2,
+            },
+            timeout=15,
+        )
+
+        response.raise_for_status()
+
+        return response.json()
+
+    # --------------------------------------------------------
+    # HISTORIAL
+    # --------------------------------------------------------
+
+    def board_history(
+        self,
+        league_id,
+        date=None,
+        limit=100,
+    ):
+
+        self.prepare_context(
+            league_id
+        )
+
+        params = {
+            "type": "transfer,market",
+            "limit": limit,
+        }
+
+        if date is not None:
+            params["date"] = date
+
+        return self.get(
+            f"/league/{self.league_id}/board",
+            params=params,
+        )
+
+    def get_full_market_history(
+        self,
+        league_id,
+        limit=100,
+        max_pages=100,
+    ):
+
+        all_events = []
+        current_date = None
+        seen = set()
+
+        for _ in range(max_pages):
+
+            response = self.board_history(
+                league_id,
+                current_date,
+                limit,
             )
 
-            if key in seen:
-                continue
+            data = (
+                response.get("data", [])
+                if isinstance(response, dict)
+                else []
+            )
 
-            seen.add(key)
+            if not data:
+                break
 
-            fechas.append(event_date)
+            fechas = []
 
-            # ------------------------------------------------
-            # Solo operaciones desde las 00:00 de hoy.
-            # ------------------------------------------------
+            for event in data:
 
-            if event_date >= desde:
+                if not isinstance(event, dict):
+                    continue
+
+                key = (
+                    event.get("date"),
+                    event.get("type"),
+                    event.get("title"),
+                )
+
+                if key in seen:
+                    continue
+
+                seen.add(key)
+
                 all_events.append(event)
 
-        if not fechas:
-            break
+                event_date = event.get("date")
 
-        antigua = min(fechas)
+                if isinstance(
+                    event_date,
+                    (int, float),
+                ):
+                    fechas.append(event_date)
 
-        # Ya hemos llegado a eventos anteriores
-        # al comienzo del día actual.
-        if antigua < desde:
-            break
+            if not fechas:
+                break
 
-        if (
-            current_date is not None
-            and antigua >= current_date
-        ):
-            break
+            antigua = min(fechas)
 
-        current_date = antigua - 1
+            if (
+                current_date is not None
+                and antigua >= current_date
+            ):
+                break
 
-        if len(data) < limit:
-            break
+            current_date = antigua - 1
 
-    all_events.sort(
-        key=lambda x: x.get("date", 0),
-        reverse=True,
-    )
+            if len(data) < limit:
+                break
 
-    logger.info(
-        "Historial del día actual: liga=%s fecha=%s eventos=%s",
-        league_id,
-        ahora.strftime("%Y-%m-%d"),
-        len(all_events),
-    )
-
-    return {
-        "status": 200,
-        "data": all_events,
-    }
-
-# --------------------------------------------------------
-# OPERACIONES
-# --------------------------------------------------------
-
-def extract_operations(
-    self,
-    history,
-):
-
-    operations = []
-
-    if isinstance(history, dict):
-
-        events = history.get(
-            "data",
-            [],
+        all_events.sort(
+            key=lambda x: x.get("date", 0),
+            reverse=True,
         )
 
-    elif isinstance(history, list):
+        logger.info(
+            "Historial completo: liga=%s eventos=%s",
+            league_id,
+            len(all_events),
+        )
 
-        events = history
+        return {
+            "status": 200,
+            "data": all_events,
+        }
 
-    else:
+    # --------------------------------------------------------
+    # HISTORIAL DEL DÍA ACTUAL
+    # --------------------------------------------------------
+
+    def get_market_history_last_24h(
+        self,
+        league_id,
+        limit=100,
+        max_pages=20,
+    ):
+
+        ahora = datetime.now(
+            MADRID_TZ
+        )
+
+        inicio_dia = datetime(
+            ahora.year,
+            ahora.month,
+            ahora.day,
+            0,
+            0,
+            0,
+            tzinfo=MADRID_TZ,
+        )
+
+        desde = inicio_dia.timestamp()
+
+        all_events = []
+        current_date = None
+        seen = set()
+
+        for _ in range(max_pages):
+
+            response = self.board_history(
+                league_id,
+                current_date,
+                limit,
+            )
+
+            data = (
+                response.get("data", [])
+                if isinstance(response, dict)
+                else []
+            )
+
+            if not data:
+                break
+
+            fechas = []
+
+            for event in data:
+
+                if not isinstance(event, dict):
+                    continue
+
+                event_date = event.get("date")
+
+                if not isinstance(
+                    event_date,
+                    (int, float),
+                ):
+                    continue
+
+                key = (
+                    event_date,
+                    event.get("type"),
+                    event.get("title"),
+                )
+
+                if key in seen:
+                    continue
+
+                seen.add(key)
+
+                fechas.append(event_date)
+
+                if event_date >= desde:
+                    all_events.append(event)
+
+            if not fechas:
+                break
+
+            antigua = min(fechas)
+
+            if antigua < desde:
+                break
+
+            if (
+                current_date is not None
+                and antigua >= current_date
+            ):
+                break
+
+            current_date = antigua - 1
+
+            if len(data) < limit:
+                break
+
+        all_events.sort(
+            key=lambda x: x.get("date", 0),
+            reverse=True,
+        )
+
+        logger.info(
+            "Historial del día actual: "
+            "liga=%s fecha=%s eventos=%s",
+            league_id,
+            ahora.strftime("%Y-%m-%d"),
+            len(all_events),
+        )
+
+        return {
+            "status": 200,
+            "data": all_events,
+        }
+
+    # --------------------------------------------------------
+    # OPERACIONES
+    # --------------------------------------------------------
+
+    def extract_operations(
+        self,
+        history,
+    ):
+
+        operations = []
+
+        if isinstance(history, dict):
+
+            events = history.get(
+                "data",
+                [],
+            )
+
+        elif isinstance(history, list):
+
+            events = history
+
+        else:
+
+            return operations
+
+        for event in events:
+
+            if not isinstance(event, dict):
+                continue
+
+            content = event.get(
+                "content",
+                [],
+            )
+
+            if not isinstance(content, list):
+                continue
+
+            for item in content:
+
+                if not isinstance(item, dict):
+                    continue
+
+                operation = dict(item)
+
+                operation.update({
+                    "_event_date": event.get(
+                        "date"
+                    ),
+                    "_event_type": event.get(
+                        "type"
+                    ),
+                    "_event_title": event.get(
+                        "title",
+                        "",
+                    ),
+                })
+
+                operations.append(
+                    operation
+                )
 
         return operations
 
-    for event in events:
+    # --------------------------------------------------------
+    # INFORME DE MOVIMIENTOS
+    # --------------------------------------------------------
 
-        if not isinstance(event, dict):
-            continue
+    def calculate_market_report(
+        self,
+        history,
+    ):
 
-        content = event.get(
-            "content",
-            [],
+        operations = self.extract_operations(
+            history
         )
 
-        if not isinstance(content, list):
-            continue
-
-        for item in content:
-
-            if not isinstance(item, dict):
-                continue
-
-            operation = dict(item)
-
-            operation.update({
-                "_event_date": event.get(
-                    "date"
-                ),
-                "_event_type": event.get(
-                    "type"
-                ),
-                "_event_title": event.get(
-                    "title",
-                    "",
-                ),
-            })
-
-            operations.append(
-                operation
-            )
-
-    return operations
-
-# --------------------------------------------------------
-# INFORME DE MOVIMIENTOS
-# --------------------------------------------------------
-
-def calculate_market_report(
-    self,
-    history,
-):
-
-    operations = self.extract_operations(
-        history
-    )
-
-    report = defaultdict(
-        lambda: {
-            "compras": [],
-            "ventas": [],
-            "total_compras": 0,
-            "total_ventas": 0,
-            "numero_compras": 0,
-            "numero_ventas": 0,
-        }
-    )
-
-    for operation in operations:
-
-        amount = operation.get(
-            "amount",
-            0,
+        report = defaultdict(
+            lambda: {
+                "compras": [],
+                "ventas": [],
+                "total_compras": 0,
+                "total_ventas": 0,
+                "numero_compras": 0,
+                "numero_ventas": 0,
+            }
         )
 
-        if not isinstance(
-            amount,
-            (int, float),
-        ):
-            amount = 0
+        for operation in operations:
 
-        buyer = operation.get("to")
-        seller = operation.get("from")
-
-        player_id = operation.get(
-            "player"
-        )
-
-        if isinstance(buyer, dict):
-
-            nombre = buyer.get(
-                "name",
-                "Desconocido",
+            amount = operation.get(
+                "amount",
+                0,
             )
 
-            report[nombre][
-                "compras"
-            ].append({
-                "player_id": player_id,
-                "amount": amount,
-                "date": operation.get(
-                    "_event_date"
-                ),
-            })
+            if not isinstance(
+                amount,
+                (int, float),
+            ):
+                amount = 0
 
-            report[nombre][
-                "total_compras"
-            ] += amount
+            buyer = operation.get("to")
+            seller = operation.get("from")
 
-            report[nombre][
-                "numero_compras"
-            ] += 1
-
-        if isinstance(seller, dict):
-
-            nombre = seller.get(
-                "name",
-                "Desconocido",
+            player_id = operation.get(
+                "player"
             )
 
-            report[nombre][
-                "ventas"
-            ].append({
-                "player_id": player_id,
-                "amount": amount,
-                "date": operation.get(
-                    "_event_date"
-                ),
-            })
+            if isinstance(buyer, dict):
 
-            report[nombre][
-                "total_ventas"
-            ] += amount
+                nombre = buyer.get(
+                    "name",
+                    "Desconocido",
+                )
 
-            report[nombre][
-                "numero_ventas"
-            ] += 1
+                report[nombre][
+                    "compras"
+                ].append({
+                    "player_id": player_id,
+                    "amount": amount,
+                    "date": operation.get(
+                        "_event_date"
+                    ),
+                })
 
-    return report
-```
+                report[nombre][
+                    "total_compras"
+                ] += amount
+
+                report[nombre][
+                    "numero_compras"
+                ] += 1
+
+            if isinstance(seller, dict):
+
+                nombre = seller.get(
+                    "name",
+                    "Desconocido",
+                )
+
+                report[nombre][
+                    "ventas"
+                ].append({
+                    "player_id": player_id,
+                    "amount": amount,
+                    "date": operation.get(
+                        "_event_date"
+                    ),
+                })
+
+                report[nombre][
+                    "total_ventas"
+                ] += amount
+
+                report[nombre][
+                    "numero_ventas"
+                ] += 1
+
+        return report
+
 
 # ============================================================
-
 # CLIENTE GLOBAL
-
 # ============================================================
 
 _CLIENT = BiwengerClient()
 
+
 # ============================================================
-
 # FUNCIONES PÚBLICAS
-
 # ============================================================
 
 def obtener_ligas():
+    return _CLIENT.leagues()
 
-```
-return _CLIENT.leagues()
-```
 
 # ============================================================
-
 # DIAGNÓSTICO
-
 # ============================================================
 
 def diagnostico_liga(
-liga_id,
+    liga_id,
 ):
 
-```
-contexto = _CLIENT.prepare_context(
-    liga_id
-)
+    contexto = _CLIENT.prepare_context(
+        liga_id
+    )
 
-respuesta = _CLIENT.get(
-    f"/league/{_CLIENT.league_id}/board"
-)
+    respuesta = _CLIENT.get(
+        f"/league/{_CLIENT.league_id}/board"
+    )
 
-data = (
-    respuesta.get("data", [])
-    if isinstance(respuesta, dict)
-    else []
-)
-
-return {
-    "league_id": contexto["league_id"],
-    "user_id": contexto["user_id"],
-    "eventos_board": (
-        len(data)
-        if isinstance(data, list)
-        else None
-    ),
-    "board_keys": (
-        list(respuesta.keys())
+    data = (
+        respuesta.get("data", [])
         if isinstance(respuesta, dict)
         else []
-    ),
-}
-```
+    )
+
+    return {
+        "league_id": contexto["league_id"],
+        "user_id": contexto["user_id"],
+        "eventos_board": (
+            len(data)
+            if isinstance(data, list)
+            else None
+        ),
+        "board_keys": (
+            list(respuesta.keys())
+            if isinstance(respuesta, dict)
+            else []
+        ),
+    }
+
 
 # ============================================================
-
 # MAPA DE JUGADORES
-
 # ============================================================
 
 def _extraer_mapa_jugadores():
 
-```
-try:
+    try:
 
-    respuesta = _CLIENT.players()
+        respuesta = _CLIENT.players()
 
-except Exception as exc:
+    except Exception as exc:
 
-    logger.warning(
-        "No se pudo cargar el mapa público de jugadores: %s",
-        exc,
-    )
+        logger.warning(
+            "No se pudo cargar el mapa público "
+            "de jugadores: %s",
+            exc,
+        )
 
-    return {}
+        return {}
 
-mapa = {}
+    mapa = {}
 
-def recorrer(objeto):
+    def recorrer(objeto):
 
-    if isinstance(objeto, dict):
+        if isinstance(objeto, dict):
 
-        player_id = objeto.get("id")
-        nombre = objeto.get("name")
+            player_id = objeto.get("id")
+            nombre = objeto.get("name")
 
-        if (
-            isinstance(player_id, int)
-            and isinstance(nombre, str)
-        ):
-            mapa[player_id] = nombre.strip()
+            if (
+                isinstance(player_id, int)
+                and isinstance(nombre, str)
+            ):
+                mapa[player_id] = nombre.strip()
 
-        for valor in objeto.values():
-            recorrer(valor)
+            for valor in objeto.values():
+                recorrer(valor)
 
-    elif isinstance(objeto, list):
+        elif isinstance(objeto, list):
 
-        for valor in objeto:
-            recorrer(valor)
+            for valor in objeto:
+                recorrer(valor)
 
-recorrer(respuesta)
+    recorrer(respuesta)
 
-return mapa
-```
+    return mapa
+
 
 # ============================================================
-
 # UTILIDADES NUMÉRICAS
-
 # ============================================================
 
 def _numero(valor):
 
-```
-if isinstance(
-    valor,
-    (int, float),
-):
-    return float(valor)
+    if isinstance(
+        valor,
+        (int, float),
+    ):
+        return float(valor)
 
-if isinstance(valor, str):
+    if isinstance(valor, str):
 
-    texto = valor.strip()
+        texto = valor.strip()
 
-    try:
-        return float(texto)
+        try:
+            return float(texto)
 
-    except Exception:
-        return None
+        except Exception:
+            return None
 
-return None
-```
+    return None
+
 
 # ============================================================
-
 # SALDO
-
 # ============================================================
 
 def _calcular_saldo_actual(
-compras,
-ventas,
+    compras,
+    ventas,
 ):
 
-```
-return (
-    SALDO_INICIAL
-    + ventas
-    - compras
-)
-```
+    return (
+        SALDO_INICIAL
+        + ventas
+        - compras
+    )
+
 
 # ============================================================
-
 # PUJA MÁXIMA
-
 # ============================================================
 
 def _calcular_puja_maxima(
-saldo,
-valor_equipo,
+    saldo,
+    valor_equipo,
 ):
 
-```
-return (
-    saldo
-    + (valor_equipo / 4)
-)
-```
+    return (
+        saldo
+        + (valor_equipo / 4)
+    )
+
 
 # ============================================================
-
 # STANDINGS
-
 # ============================================================
 
 def _extraer_standings(
-league_response,
-):
-
-```
-if not isinstance(
     league_response,
-    dict,
 ):
-    return []
 
-data = league_response.get(
-    "data",
-    {},
-)
+    if not isinstance(
+        league_response,
+        dict,
+    ):
+        return []
 
-if not isinstance(
-    data,
-    dict,
-):
-    return []
+    data = league_response.get(
+        "data",
+        {},
+    )
 
-standings = data.get(
-    "standings",
-    [],
-)
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return []
 
-if not isinstance(
-    standings,
-    list,
-):
-    return []
+    standings = data.get(
+        "standings",
+        [],
+    )
 
-return standings
-```
+    if not isinstance(
+        standings,
+        list,
+    ):
+        return []
+
+    return standings
+
 
 def _datos_standing(
-miembro,
+    miembro,
 ):
 
-```
-if not isinstance(
-    miembro,
-    dict,
-):
+    if not isinstance(
+        miembro,
+        dict,
+    ):
+        return {
+            "id": None,
+            "nombre": "Desconocido",
+            "numero_jugadores": 0,
+            "valor_equipo": 0,
+        }
+
+    nombre = miembro.get(
+        "name",
+        "Desconocido",
+    )
+
+    if (
+        not isinstance(
+            nombre,
+            str,
+        )
+        or not nombre.strip()
+    ):
+        nombre = "Desconocido"
+
+    team_size = miembro.get(
+        "teamSize",
+        0,
+    )
+
+    team_value = miembro.get(
+        "teamValue",
+        0,
+    )
+
+    try:
+        team_size = int(
+            team_size
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        team_size = 0
+
+    try:
+        team_value = int(
+            team_value
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        team_value = 0
+
     return {
-        "id": None,
-        "nombre": "Desconocido",
-        "numero_jugadores": 0,
-        "valor_equipo": 0,
+        "id": miembro.get("id"),
+        "nombre": nombre.strip(),
+        "numero_jugadores": team_size,
+        "valor_equipo": team_value,
     }
 
-nombre = miembro.get(
-    "name",
-    "Desconocido",
-)
-
-if not isinstance(
-    nombre,
-    str,
-) or not nombre.strip():
-
-    nombre = "Desconocido"
-
-team_size = miembro.get(
-    "teamSize",
-    0,
-)
-
-team_value = miembro.get(
-    "teamValue",
-    0,
-)
-
-try:
-    team_size = int(
-        team_size
-    )
-except (
-    TypeError,
-    ValueError,
-):
-    team_size = 0
-
-try:
-    team_value = int(
-        team_value
-    )
-except (
-    TypeError,
-    ValueError,
-):
-    team_value = 0
-
-return {
-    "id": miembro.get("id"),
-    "nombre": nombre.strip(),
-    "numero_jugadores": team_size,
-    "valor_equipo": team_value,
-}
-```
 
 # ============================================================
-
 # OBTENER MIEMBROS DE LA LIGA
-
 # ============================================================
 
 def obtener_miembros_liga(
-liga_id,
+    liga_id,
 ):
-
-```
-league_response = _CLIENT.league(
-    liga_id
-)
-
-standings = _extraer_standings(
-    league_response
-)
-
-miembros = []
-
-for miembro in standings:
-
-    datos = _datos_standing(
-        miembro
-    )
-
-    if datos["id"] is None:
-        continue
-
-    miembros.append({
-        "id": datos["id"],
-        "nombre": datos["nombre"],
-        "numero_jugadores": (
-            datos["numero_jugadores"]
-        ),
-        "valor_equipo": (
-            datos["valor_equipo"]
-        ),
-    })
-
-return miembros
-```
-
-# ============================================================
-
-# INFORME COMPLETO
-
-# ============================================================
-
-def obtener_informe(
-liga_id,
-):
-
-```
-try:
 
     league_response = _CLIENT.league(
         liga_id
     )
 
-except Exception as exc:
-
-    logger.exception(
-        "Error obteniendo datos de la liga %s",
-        liga_id,
+    standings = _extraer_standings(
+        league_response
     )
 
-    raise exc
+    miembros = []
 
-standings = _extraer_standings(
-    league_response
-)
+    for miembro in standings:
 
-try:
+        datos = _datos_standing(
+            miembro
+        )
 
-    history = (
-        _CLIENT.get_full_market_history(
+        if datos["id"] is None:
+            continue
+
+        miembros.append({
+            "id": datos["id"],
+            "nombre": datos["nombre"],
+            "numero_jugadores": (
+                datos["numero_jugadores"]
+            ),
+            "valor_equipo": (
+                datos["valor_equipo"]
+            ),
+        })
+
+    return miembros
+
+
+# ============================================================
+# INFORME COMPLETO
+# ============================================================
+
+def obtener_informe(
+    liga_id,
+):
+
+    try:
+
+        league_response = _CLIENT.league(
             liga_id
         )
-    )
 
-    market_report = (
-        _CLIENT.calculate_market_report(
-            history
+    except Exception as exc:
+
+        logger.exception(
+            "Error obteniendo datos de la liga %s",
+            liga_id,
         )
+
+        raise exc
+
+    standings = _extraer_standings(
+        league_response
     )
 
-except Exception as exc:
+    try:
 
-    logger.warning(
-        "No se pudo obtener el historial de la liga %s: %s",
-        liga_id,
-        exc,
-    )
-
-    market_report = {}
-
-resultado = {}
-
-for miembro in standings:
-
-    datos_standing = _datos_standing(
-        miembro
-    )
-
-    nombre = datos_standing[
-        "nombre"
-    ]
-
-    numero_jugadores = (
-        datos_standing[
-            "numero_jugadores"
-        ]
-    )
-
-    valor_equipo = (
-        datos_standing[
-            "valor_equipo"
-        ]
-    )
-
-    datos_movimientos = (
-        market_report.get(
-            nombre,
-            {},
-        )
-    )
-
-    compras = datos_movimientos.get(
-        "total_compras",
-        0,
-    )
-
-    ventas = datos_movimientos.get(
-        "total_ventas",
-        0,
-    )
-
-    numero_compras = (
-        datos_movimientos.get(
-            "numero_compras",
-            0,
-        )
-    )
-
-    numero_ventas = (
-        datos_movimientos.get(
-            "numero_ventas",
-            0,
-        )
-    )
-
-    saldo_actual = (
-        SALDO_INICIAL
-        + ventas
-        - compras
-    )
-
-    puja_maxima = (
-        _calcular_puja_maxima(
-            saldo_actual,
-            valor_equipo,
-        )
-    )
-
-    resultado[nombre] = {
-
-        "user_id": datos_standing[
-            "id"
-        ],
-
-        "compras": (
-            datos_movimientos.get(
-                "compras",
-                [],
+        history = (
+            _CLIENT.get_full_market_history(
+                liga_id
             )
-        ),
+        )
 
-        "ventas": (
-            datos_movimientos.get(
-                "ventas",
-                [],
+        market_report = (
+            _CLIENT.calculate_market_report(
+                history
             )
-        ),
+        )
 
-        "total_compras": compras,
-        "total_ventas": ventas,
+    except Exception as exc:
 
-        "numero_compras": (
-            numero_compras
-        ),
+        logger.warning(
+            "No se pudo obtener el historial "
+            "de la liga %s: %s",
+            liga_id,
+            exc,
+        )
 
-        "numero_ventas": (
-            numero_ventas
-        ),
+        market_report = {}
 
-        "numero_jugadores": (
-            numero_jugadores
-        ),
+    resultado = {}
 
-        "valor_equipo": (
-            valor_equipo
-        ),
+    for miembro in standings:
 
-        "saldo_actual": (
-            saldo_actual
-        ),
+        datos_standing = _datos_standing(
+            miembro
+        )
 
-        "puja_maxima": (
-            puja_maxima
-        ),
-    }
+        nombre = datos_standing[
+            "nombre"
+        ]
 
-for nombre, datos in market_report.items():
+        numero_jugadores = (
+            datos_standing[
+                "numero_jugadores"
+            ]
+        )
 
-    if nombre in resultado:
-        continue
+        valor_equipo = (
+            datos_standing[
+                "valor_equipo"
+            ]
+        )
 
-    compras = datos.get(
-        "total_compras",
-        0,
-    )
+        datos_movimientos = (
+            market_report.get(
+                nombre,
+                {},
+            )
+        )
 
-    ventas = datos.get(
-        "total_ventas",
-        0,
-    )
-
-    saldo_actual = (
-        SALDO_INICIAL
-        + ventas
-        - compras
-    )
-
-    resultado[nombre] = {
-
-        "user_id": None,
-
-        "compras": datos.get(
-            "compras",
-            [],
-        ),
-
-        "ventas": datos.get(
-            "ventas",
-            [],
-        ),
-
-        "total_compras": compras,
-        "total_ventas": ventas,
-
-        "numero_compras": datos.get(
-            "numero_compras",
+        compras = datos_movimientos.get(
+            "total_compras",
             0,
-        ),
+        )
 
-        "numero_ventas": datos.get(
-            "numero_ventas",
+        ventas = datos_movimientos.get(
+            "total_ventas",
             0,
-        ),
-
-        "numero_jugadores": 0,
-
-        "valor_equipo": 0,
-
-        "saldo_actual": saldo_actual,
-
-        "puja_maxima": saldo_actual,
-    }
-
-return resultado
-```
-
-def obtener_informe_detallado(
-liga_id,
-):
-
-```
-return obtener_informe(
-    liga_id
-)
-```
-
-# ============================================================
-
-# MOVIMIENTOS
-
-# ============================================================
-
-def _timestamp_datetime(
-timestamp,
-):
-
-```
-try:
-
-    return datetime.fromtimestamp(
-        float(timestamp),
-        tz=timezone.utc,
-    ).astimezone(
-        MADRID_TZ
-    )
-
-except Exception:
-
-    return None
-```
-
-def _nombre_fecha(
-timestamp,
-):
-
-```
-fecha = _timestamp_datetime(
-    timestamp
-)
-
-if fecha is None:
-    return "FECHA DESCONOCIDA"
-
-meses = [
-    "ENERO",
-    "FEBRERO",
-    "MARZO",
-    "ABRIL",
-    "MAYO",
-    "JUNIO",
-    "JULIO",
-    "AGOSTO",
-    "SEPTIEMBRE",
-    "OCTUBRE",
-    "NOVIEMBRE",
-    "DICIEMBRE",
-]
-
-return (
-    f"{fecha.day} "
-    f"{meses[fecha.month - 1]} "
-    f"{fecha.year}"
-)
-```
-
-def _hora(
-timestamp,
-):
-
-```
-fecha = _timestamp_datetime(
-    timestamp
-)
-
-return (
-    fecha.strftime("%H:%M")
-    if fecha
-    else ""
-)
-```
-
-def _formatear_importe(
-amount,
-):
-
-```
-try:
-    return f"{int(amount):,}€"
-
-except Exception:
-    return "0€"
-```
-
-def _formatear_movimiento(
-operation,
-jugadores,
-incluir_hora=False,
-):
-
-```
-player_id = operation.get(
-    "player"
-)
-
-jugador = jugadores.get(
-    player_id,
-    f"Jugador {player_id}",
-)
-
-importe = operation.get(
-    "amount",
-    0,
-)
-
-hora = ""
-
-if incluir_hora:
-
-    valor = _hora(
-        operation.get(
-            "_event_date"
-        )
-    )
-
-    if valor:
-
-        hora = (
-            f"🕐 {valor} | "
         )
 
-comprador = operation.get(
-    "to"
-)
-
-vendedor = operation.get(
-    "from"
-)
-
-if isinstance(
-    comprador,
-    dict,
-):
-
-    return (
-        f"🟢 {hora}"
-        f"{comprador.get('name', 'Desconocido')} "
-        f"ficha a {jugador} "
-        f"por {_formatear_importe(importe)}"
-    )
-
-if isinstance(
-    vendedor,
-    dict,
-):
-
-    return (
-        f"🔴 {hora}"
-        f"{vendedor.get('name', 'Desconocido')} "
-        f"vende a {jugador} "
-        f"por {_formatear_importe(importe)}"
-    )
-
-return None
-```
-
-def _obtener_operaciones(
-history,
-):
-
-```
-operaciones = (
-    _CLIENT.extract_operations(
-        history
-    )
-)
-
-return sorted(
-    operaciones,
-    key=lambda x: x.get(
-        "_event_date",
-        0,
-    ),
-    reverse=True,
-)
-```
-
-# ============================================================
-
-# MERCADO POR MIEMBRO
-
-#
-
-# AGRUPADO POR DÍA NATURAL
-
-#
-
-# Dentro de cada día se muestran:
-
-# 🟢 COMPRAS
-
-# 🔴 VENTAS
-
-#
-
-# No se utiliza una ventana móvil.
-
-# ============================================================
-
-def obtener_mercado_miembro(
-liga_id,
-miembro_id,
-):
-
-```
-# --------------------------------------------------------
-# 1. Obtenemos los miembros desde la llamada inicial.
-# --------------------------------------------------------
-
-miembros = obtener_miembros_liga(
-    liga_id
-)
-
-miembro = next(
-    (
-        item
-        for item in miembros
-        if str(item.get("id"))
-        == str(miembro_id)
-    ),
-    None,
-)
-
-if miembro is None:
-
-    return (
-        "❌ No se encontró el miembro "
-        "seleccionado."
-    )
-
-nombre_miembro = miembro.get(
-    "nombre",
-    "Desconocido",
-)
-
-# --------------------------------------------------------
-# 2. Historial completo.
-# --------------------------------------------------------
-
-history = (
-    _CLIENT.get_full_market_history(
-        liga_id
-    )
-)
-
-operaciones = _obtener_operaciones(
-    history
-)
-
-# --------------------------------------------------------
-# 3. Filtramos operaciones del miembro.
-# --------------------------------------------------------
-
-operaciones_miembro = []
-
-for operacion in operaciones:
-
-    comprador = operacion.get(
-        "to"
-    )
-
-    vendedor = operacion.get(
-        "from"
-    )
-
-    pertenece = False
-
-    if isinstance(
-        comprador,
-        dict,
-    ):
-
-        if str(comprador.get("id")) == str(
-            miembro_id
-        ):
-            pertenece = True
-
-    if isinstance(
-        vendedor,
-        dict,
-    ):
-
-        if str(vendedor.get("id")) == str(
-            miembro_id
-        ):
-            pertenece = True
-
-    if pertenece:
-
-        operaciones_miembro.append(
-            operacion
+        numero_compras = (
+            datos_movimientos.get(
+                "numero_compras",
+                0,
+            )
         )
 
-jugadores = (
-    _extraer_mapa_jugadores()
-)
-
-# --------------------------------------------------------
-# 4. Sin movimientos.
-# --------------------------------------------------------
-
-if not operaciones_miembro:
-
-    return (
-        f"🧑‍💼 MERCADO — {nombre_miembro}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "Sin movimientos."
-    )
-
-# --------------------------------------------------------
-# 5. Agrupar por día natural de Madrid.
-# --------------------------------------------------------
-
-grupos = {}
-orden = []
-
-for operacion in operaciones_miembro:
-
-    fecha = _timestamp_datetime(
-        operacion.get(
-            "_event_date"
+        numero_ventas = (
+            datos_movimientos.get(
+                "numero_ventas",
+                0,
+            )
         )
-    )
 
-    clave = (
-        fecha.strftime("%Y-%m-%d")
-        if fecha
-        else "desconocida"
-    )
+        saldo_actual = (
+            SALDO_INICIAL
+            + ventas
+            - compras
+        )
 
-    if clave not in grupos:
+        puja_maxima = (
+            _calcular_puja_maxima(
+                saldo_actual,
+                valor_equipo,
+            )
+        )
 
-        grupos[clave] = {
-            "compras": [],
-            "ventas": [],
-            "timestamp": (
-                operacion.get(
-                    "_event_date"
+        resultado[nombre] = {
+            "user_id": datos_standing[
+                "id"
+            ],
+            "compras": (
+                datos_movimientos.get(
+                    "compras",
+                    [],
                 )
-                if fecha
-                else None
+            ),
+            "ventas": (
+                datos_movimientos.get(
+                    "ventas",
+                    [],
+                )
+            ),
+            "total_compras": compras,
+            "total_ventas": ventas,
+            "numero_compras": (
+                numero_compras
+            ),
+            "numero_ventas": (
+                numero_ventas
+            ),
+            "numero_jugadores": (
+                numero_jugadores
+            ),
+            "valor_equipo": (
+                valor_equipo
+            ),
+            "saldo_actual": (
+                saldo_actual
+            ),
+            "puja_maxima": (
+                puja_maxima
             ),
         }
 
-        orden.append(clave)
+    for nombre, datos in market_report.items():
 
-    player_id = operacion.get(
+        if nombre in resultado:
+            continue
+
+        compras = datos.get(
+            "total_compras",
+            0,
+        )
+
+        ventas = datos.get(
+            "total_ventas",
+            0,
+        )
+
+        saldo_actual = (
+            SALDO_INICIAL
+            + ventas
+            - compras
+        )
+
+        resultado[nombre] = {
+            "user_id": None,
+            "compras": datos.get(
+                "compras",
+                [],
+            ),
+            "ventas": datos.get(
+                "ventas",
+                [],
+            ),
+            "total_compras": compras,
+            "total_ventas": ventas,
+            "numero_compras": datos.get(
+                "numero_compras",
+                0,
+            ),
+            "numero_ventas": datos.get(
+                "numero_ventas",
+                0,
+            ),
+            "numero_jugadores": 0,
+            "valor_equipo": 0,
+            "saldo_actual": saldo_actual,
+            "puja_maxima": saldo_actual,
+        }
+
+    return resultado
+
+
+def obtener_informe_detallado(
+    liga_id,
+):
+
+    return obtener_informe(
+        liga_id
+    )
+
+
+# ============================================================
+# MOVIMIENTOS
+# ============================================================
+
+def _timestamp_datetime(
+    timestamp,
+):
+
+    try:
+
+        return datetime.fromtimestamp(
+            float(timestamp),
+            tz=timezone.utc,
+        ).astimezone(
+            MADRID_TZ
+        )
+
+    except Exception:
+
+        return None
+
+
+def _nombre_fecha(
+    timestamp,
+):
+
+    fecha = _timestamp_datetime(
+        timestamp
+    )
+
+    if fecha is None:
+        return "FECHA DESCONOCIDA"
+
+    meses = [
+        "ENERO",
+        "FEBRERO",
+        "MARZO",
+        "ABRIL",
+        "MAYO",
+        "JUNIO",
+        "JULIO",
+        "AGOSTO",
+        "SEPTIEMBRE",
+        "OCTUBRE",
+        "NOVIEMBRE",
+        "DICIEMBRE",
+    ]
+
+    return (
+        f"{fecha.day} "
+        f"{meses[fecha.month - 1]} "
+        f"{fecha.year}"
+    )
+
+
+def _hora(
+    timestamp,
+):
+
+    fecha = _timestamp_datetime(
+        timestamp
+    )
+
+    return (
+        fecha.strftime("%H:%M")
+        if fecha
+        else ""
+    )
+
+
+def _formatear_importe(
+    amount,
+):
+
+    try:
+        return f"{int(amount):,}€"
+
+    except Exception:
+        return "0€"
+
+
+def _formatear_movimiento(
+    operation,
+    jugadores,
+    incluir_hora=False,
+):
+
+    player_id = operation.get(
         "player"
     )
 
@@ -1672,373 +1333,585 @@ for operacion in operaciones_miembro:
         f"Jugador {player_id}",
     )
 
-    importe = operacion.get(
+    importe = operation.get(
         "amount",
         0,
     )
 
-    hora = _hora(
-        operacion.get(
-            "_event_date"
-        )
-    )
+    hora = ""
 
-    comprador = operacion.get(
+    if incluir_hora:
+
+        valor = _hora(
+            operation.get(
+                "_event_date"
+            )
+        )
+
+        if valor:
+
+            hora = (
+                f"🕐 {valor} | "
+            )
+
+    comprador = operation.get(
         "to"
     )
 
-    vendedor = operacion.get(
+    vendedor = operation.get(
         "from"
     )
 
-    # ----------------------------------------------------
-    # COMPRA
-    # ----------------------------------------------------
-
-    if (
-        isinstance(comprador, dict)
-        and
-        str(comprador.get("id"))
-        == str(miembro_id)
+    if isinstance(
+        comprador,
+        dict,
     ):
 
-        grupos[clave]["compras"].append(
-            (
-                f"🟢 {hora} | "
-                f"⚽ {jugador} | "
-                f"💰 {_formatear_importe(importe)}"
-            )
+        return (
+            f"🟢 {hora}"
+            f"{comprador.get('name', 'Desconocido')} "
+            f"ficha a {jugador} "
+            f"por {_formatear_importe(importe)}"
         )
 
-    # ----------------------------------------------------
-    # VENTA
-    # ----------------------------------------------------
-
-    elif (
-        isinstance(vendedor, dict)
-        and
-        str(vendedor.get("id"))
-        == str(miembro_id)
+    if isinstance(
+        vendedor,
+        dict,
     ):
 
-        grupos[clave]["ventas"].append(
-            (
-                f"🔴 {hora} | "
-                f"⚽ {jugador} | "
-                f"💰 {_formatear_importe(importe)}"
-            )
+        return (
+            f"🔴 {hora}"
+            f"{vendedor.get('name', 'Desconocido')} "
+            f"vende a {jugador} "
+            f"por {_formatear_importe(importe)}"
         )
 
-# --------------------------------------------------------
-# 6. Construir salida agrupada por fecha.
-# --------------------------------------------------------
+    return None
 
-lineas = [
-    f"🧑‍💼 MERCADO — {nombre_miembro}",
-    "━━━━━━━━━━━━━━━━━━━━",
-    "",
-]
 
-for clave in orden:
+def _obtener_operaciones(
+    history,
+):
 
-    datos_dia = grupos[clave]
-
-    if clave == "desconocida":
-
-        titulo = "📅 FECHA DESCONOCIDA"
-
-    else:
-
-        titulo = (
-            "📅 "
-            + _nombre_fecha(
-                datos_dia["timestamp"]
-            )
+    operaciones = (
+        _CLIENT.extract_operations(
+            history
         )
+    )
 
-    lineas.append(titulo)
-    lineas.append("")
+    return sorted(
+        operaciones,
+        key=lambda x: x.get(
+            "_event_date",
+            0,
+        ),
+        reverse=True,
+    )
 
-    if datos_dia["compras"]:
-
-        lineas.append("🟢 COMPRAS")
-
-        for movimiento in datos_dia["compras"]:
-            lineas.append(movimiento)
-
-        lineas.append("")
-
-    if datos_dia["ventas"]:
-
-        lineas.append("🔴 VENTAS")
-
-        for movimiento in datos_dia["ventas"]:
-            lineas.append(movimiento)
-
-        lineas.append("")
-
-return "\n".join(lineas).rstrip()
-```
 
 # ============================================================
+# MERCADO POR MIEMBRO
+# ============================================================
 
+def obtener_mercado_miembro(
+    liga_id,
+    miembro_id,
+):
+
+    # --------------------------------------------------------
+    # 1. Obtener miembros
+    # --------------------------------------------------------
+
+    miembros = obtener_miembros_liga(
+        liga_id
+    )
+
+    miembro = next(
+        (
+            item
+            for item in miembros
+            if str(item.get("id"))
+            == str(miembro_id)
+        ),
+        None,
+    )
+
+    if miembro is None:
+
+        return (
+            "❌ No se encontró el miembro "
+            "seleccionado."
+        )
+
+    nombre_miembro = miembro.get(
+        "nombre",
+        "Desconocido",
+    )
+
+    # --------------------------------------------------------
+    # 2. Historial completo
+    # --------------------------------------------------------
+
+    history = (
+        _CLIENT.get_full_market_history(
+            liga_id
+        )
+    )
+
+    operaciones = _obtener_operaciones(
+        history
+    )
+
+    # --------------------------------------------------------
+    # 3. Filtrar operaciones del miembro
+    # --------------------------------------------------------
+
+    operaciones_miembro = []
+
+    for operacion in operaciones:
+
+        comprador = operacion.get(
+            "to"
+        )
+
+        vendedor = operacion.get(
+            "from"
+        )
+
+        pertenece = False
+
+        if isinstance(
+            comprador,
+            dict,
+        ):
+
+            if str(comprador.get("id")) == str(
+                miembro_id
+            ):
+                pertenece = True
+
+        if isinstance(
+            vendedor,
+            dict,
+        ):
+
+            if str(vendedor.get("id")) == str(
+                miembro_id
+            ):
+                pertenece = True
+
+        if pertenece:
+
+            operaciones_miembro.append(
+                operacion
+            )
+
+    jugadores = (
+        _extraer_mapa_jugadores()
+    )
+
+    # --------------------------------------------------------
+    # 4. Sin movimientos
+    # --------------------------------------------------------
+
+    if not operaciones_miembro:
+
+        return (
+            f"🧑‍💼 MERCADO — {nombre_miembro}\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Sin movimientos."
+        )
+
+    # --------------------------------------------------------
+    # 5. Agrupar por día natural de Madrid
+    # --------------------------------------------------------
+
+    grupos = {}
+    orden = []
+
+    for operacion in operaciones_miembro:
+
+        fecha = _timestamp_datetime(
+            operacion.get(
+                "_event_date"
+            )
+        )
+
+        clave = (
+            fecha.strftime("%Y-%m-%d")
+            if fecha
+            else "desconocida"
+        )
+
+        if clave not in grupos:
+
+            grupos[clave] = {
+                "compras": [],
+                "ventas": [],
+                "timestamp": (
+                    operacion.get(
+                        "_event_date"
+                    )
+                    if fecha
+                    else None
+                ),
+            }
+
+            orden.append(clave)
+
+        player_id = operacion.get(
+            "player"
+        )
+
+        jugador = jugadores.get(
+            player_id,
+            f"Jugador {player_id}",
+        )
+
+        importe = operacion.get(
+            "amount",
+            0,
+        )
+
+        hora = _hora(
+            operacion.get(
+                "_event_date"
+            )
+        )
+
+        comprador = operacion.get(
+            "to"
+        )
+
+        vendedor = operacion.get(
+            "from"
+        )
+
+        # ----------------------------------------------------
+        # COMPRA
+        # ----------------------------------------------------
+
+        if (
+            isinstance(comprador, dict)
+            and
+            str(comprador.get("id"))
+            == str(miembro_id)
+        ):
+
+            grupos[clave]["compras"].append(
+                (
+                    f"🟢 {hora} | "
+                    f"⚽ {jugador} | "
+                    f"💰 {_formatear_importe(importe)}"
+                )
+            )
+
+        # ----------------------------------------------------
+        # VENTA
+        # ----------------------------------------------------
+
+        elif (
+            isinstance(vendedor, dict)
+            and
+            str(vendedor.get("id"))
+            == str(miembro_id)
+        ):
+
+            grupos[clave]["ventas"].append(
+                (
+                    f"🔴 {hora} | "
+                    f"⚽ {jugador} | "
+                    f"💰 {_formatear_importe(importe)}"
+                )
+            )
+
+    # --------------------------------------------------------
+    # 6. Construir salida
+    # --------------------------------------------------------
+
+    lineas = [
+        f"🧑‍💼 MERCADO — {nombre_miembro}",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+    ]
+
+    for clave in orden:
+
+        datos_dia = grupos[clave]
+
+        if clave == "desconocida":
+
+            titulo = "📅 FECHA DESCONOCIDA"
+
+        else:
+
+            titulo = (
+                "📅 "
+                + _nombre_fecha(
+                    datos_dia["timestamp"]
+                )
+            )
+
+        lineas.append(titulo)
+        lineas.append("")
+
+        if datos_dia["compras"]:
+
+            lineas.append("🟢 COMPRAS")
+
+            for movimiento in datos_dia["compras"]:
+                lineas.append(movimiento)
+
+            lineas.append("")
+
+        if datos_dia["ventas"]:
+
+            lineas.append("🔴 VENTAS")
+
+            for movimiento in datos_dia["ventas"]:
+                lineas.append(movimiento)
+
+            lineas.append("")
+
+    return "\n".join(lineas).rstrip()
+
+
+# ============================================================
 # MERCADO COMPLETO
-
 # ============================================================
 
 def obtener_mercado_completo(
-liga_id,
+    liga_id,
 ):
 
-```
-history = (
-    _CLIENT.get_full_market_history(
-        liga_id
-    )
-)
-
-operaciones = _obtener_operaciones(
-    history
-)
-
-jugadores = (
-    _extraer_mapa_jugadores()
-)
-
-grupos = {}
-orden = []
-
-for operacion in operaciones:
-
-    fecha = _timestamp_datetime(
-        operacion.get(
-            "_event_date"
+    history = (
+        _CLIENT.get_full_market_history(
+            liga_id
         )
     )
 
-    clave = (
-        fecha.strftime("%Y-%m-%d")
-        if fecha
-        else "desconocida"
+    operaciones = _obtener_operaciones(
+        history
     )
 
-    if clave not in grupos:
-
-        grupos[clave] = []
-        orden.append(clave)
-
-    texto = _formatear_movimiento(
-        operacion,
-        jugadores,
+    jugadores = (
+        _extraer_mapa_jugadores()
     )
 
-    if texto:
-        grupos[clave].append(
-            texto
-        )
+    grupos = {}
+    orden = []
 
-bloques = []
+    for operacion in operaciones:
 
-for clave in orden:
-
-    if clave == "desconocida":
-
-        titulo = (
-            "📅 FECHA DESCONOCIDA"
-        )
-
-    else:
-
-        timestamp = next(
-            (
-                op.get(
-                    "_event_date"
-                )
-                for op in operaciones
-                if (
-                    _timestamp_datetime(
-                        op.get(
-                            "_event_date"
-                        )
-                    )
-                    and
-                    _timestamp_datetime(
-                        op.get(
-                            "_event_date"
-                        )
-                    ).strftime(
-                        "%Y-%m-%d"
-                    ) == clave
-                )
-            ),
-            None,
-        )
-
-        titulo = (
-            "📅 "
-            + _nombre_fecha(
-                timestamp
+        fecha = _timestamp_datetime(
+            operacion.get(
+                "_event_date"
             )
         )
 
-    bloques.append(
-        "\n".join([
-            titulo,
-            "",
-            *grupos[clave],
-        ])
-    )
+        clave = (
+            fecha.strftime("%Y-%m-%d")
+            if fecha
+            else "desconocida"
+        )
 
-if not bloques:
+        if clave not in grupos:
+
+            grupos[clave] = []
+            orden.append(clave)
+
+        texto = _formatear_movimiento(
+            operacion,
+            jugadores,
+        )
+
+        if texto:
+            grupos[clave].append(
+                texto
+            )
+
+    bloques = []
+
+    for clave in orden:
+
+        if clave == "desconocida":
+
+            titulo = (
+                "📅 FECHA DESCONOCIDA"
+            )
+
+        else:
+
+            timestamp = next(
+                (
+                    op.get(
+                        "_event_date"
+                    )
+                    for op in operaciones
+                    if (
+                        _timestamp_datetime(
+                            op.get(
+                                "_event_date"
+                            )
+                        )
+                        and
+                        _timestamp_datetime(
+                            op.get(
+                                "_event_date"
+                            )
+                        ).strftime(
+                            "%Y-%m-%d"
+                        ) == clave
+                    )
+                ),
+                None,
+            )
+
+            titulo = (
+                "📅 "
+                + _nombre_fecha(
+                    timestamp
+                )
+            )
+
+        bloques.append(
+            "\n".join([
+                titulo,
+                "",
+                *grupos[clave],
+            ])
+        )
+
+    if not bloques:
+
+        return (
+            "🔄 MERCADO COMPLETO\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Sin movimientos."
+        )
 
     return (
         "🔄 MERCADO COMPLETO\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "Sin movimientos."
+        + "\n\n".join(bloques)
     )
 
-return (
-    "🔄 MERCADO COMPLETO\n"
-    "━━━━━━━━━━━━━━━━━━━━\n\n"
-    + "\n\n".join(bloques)
-)
-```
 
 # ============================================================
-
 # MERCADO 24H
-
 #
-
 # El nombre del comando se mantiene por compatibilidad:
-
 # /mercado24
-
 #
-
-# PERO YA NO SIGNIFICA "últimas 24 horas".
-
-#
-
-# Muestra el DÍA NATURAL ACTUAL:
-
-#
-
+# Pero muestra el día natural actual:
 # 00:00 -> momento actual
-
 #
-
 # según Europe/Madrid.
-
 # ============================================================
 
 def obtener_mercado_24h(
-liga_id,
+    liga_id,
 ):
 
-```
-ahora = datetime.now(
-    MADRID_TZ
-)
-
-fecha_hoy = ahora.strftime(
-    "%Y-%m-%d"
-)
-
-history = (
-    _CLIENT.get_market_history_last_24h(
-        liga_id
+    ahora = datetime.now(
+        MADRID_TZ
     )
-)
 
-operaciones = _obtener_operaciones(
-    history
-)
+    fecha_hoy = ahora.strftime(
+        "%Y-%m-%d"
+    )
 
-jugadores = (
-    _extraer_mapa_jugadores()
-)
-
-# --------------------------------------------------------
-# Seguridad adicional:
-# filtramos por fecha natural de Madrid.
-# --------------------------------------------------------
-
-operaciones_hoy = []
-
-for operacion in operaciones:
-
-    fecha = _timestamp_datetime(
-        operacion.get(
-            "_event_date"
+    history = (
+        _CLIENT.get_market_history_last_24h(
+            liga_id
         )
     )
 
-    if (
-        fecha is not None
-        and fecha.strftime("%Y-%m-%d")
-        == fecha_hoy
-    ):
-        operaciones_hoy.append(
-            operacion
-        )
-
-if not operaciones_hoy:
-
-    return (
-        "⏱️ MERCADO — HOY\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "Sin movimientos."
+    operaciones = _obtener_operaciones(
+        history
     )
 
-lineas = [
-    "⏱️ MERCADO — HOY",
-    "━━━━━━━━━━━━━━━━━━━━",
-    "",
-    f"📅 {_nombre_fecha(ahora.timestamp())}",
-    "",
-]
-
-for operacion in operaciones_hoy:
-
-    texto = _formatear_movimiento(
-        operacion,
-        jugadores,
-        incluir_hora=True,
+    jugadores = (
+        _extraer_mapa_jugadores()
     )
 
-    if texto:
+    # --------------------------------------------------------
+    # Seguridad adicional:
+    # filtramos por fecha natural de Madrid.
+    # --------------------------------------------------------
 
-        lineas.append(
-            texto
+    operaciones_hoy = []
+
+    for operacion in operaciones:
+
+        fecha = _timestamp_datetime(
+            operacion.get(
+                "_event_date"
+            )
         )
 
-return "\n".join(
-    lineas
-)
-```
+        if (
+            fecha is not None
+            and fecha.strftime("%Y-%m-%d")
+            == fecha_hoy
+        ):
+
+            operaciones_hoy.append(
+                operacion
+            )
+
+    if not operaciones_hoy:
+
+        return (
+            "⏱️ MERCADO — HOY\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Sin movimientos."
+        )
+
+    lineas = [
+        "⏱️ MERCADO — HOY",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+        f"📅 {_nombre_fecha(ahora.timestamp())}",
+        "",
+    ]
+
+    for operacion in operaciones_hoy:
+
+        texto = _formatear_movimiento(
+            operacion,
+            jugadores,
+            incluir_hora=True,
+        )
+
+        if texto:
+
+            lineas.append(
+                texto
+            )
+
+    return "\n".join(
+        lineas
+    )
+
 
 # ============================================================
-
 # ALIAS MOVIMIENTOS
-
 # ============================================================
 
 def obtener_movimientos(
-liga_id,
+    liga_id,
 ):
 
-```
-return obtener_mercado_completo(
-    liga_id
-)
-```
+    return obtener_mercado_completo(
+        liga_id
+    )
+
 
 def obtener_movimientos_24h(
-liga_id,
+    liga_id,
 ):
 
-```
-return obtener_mercado_24h(
-    liga_id
-)
+    return obtener_mercado_24h(
+        liga_id
+    )
