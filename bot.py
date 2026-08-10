@@ -1,4 +1,3 @@
-```python
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -657,4 +656,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
