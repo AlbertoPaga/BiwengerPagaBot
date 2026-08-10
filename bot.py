@@ -19,10 +19,12 @@ from biwenger import (
     obtener_informe,
     obtener_mercado_completo_datos,
     obtener_mercado_24h_datos,
+    obtener_mercado_hoy_datos,
     obtener_miembros_liga,
     obtener_mercado_miembro_datos,
     obtener_ficha_jugador,
 )
+
 
 # ============================================================
 # LOGS
@@ -198,6 +200,12 @@ def teclado_submenu_mercado():
         ],
         [
             InlineKeyboardButton(
+                "📅 Mercado de hoy",
+                callback_data="mercado:hoy",
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "⏱️ Mercado 24h",
                 callback_data="mercado:24h",
             )
@@ -290,10 +298,6 @@ async def start(
         )
 
         return
-
-    # IMPORTANTE:
-    # Este mensaje es el que posteriormente
-    # se transforma en el menú de liga.
 
     mensaje = await update.message.reply_text(
         "🤖 ConsultasBiwenger\n"
@@ -485,9 +489,6 @@ async def elegir_liga(
 
         context.user_data["liga"] = liga_id
         context.user_data["liga_nombre"] = liga_nombre
-
-        # El mismo mensaje del selector
-        # se convierte en el menú principal.
 
         await editar_mensaje(
             query,
@@ -1009,6 +1010,120 @@ async def movimientos(
 
 
 # ============================================================
+# MERCADO DE HOY
+# ============================================================
+
+async def mercadohoy(
+    update,
+    context,
+):
+    """
+    Mercado actual de Biwenger.
+
+    NO sustituye al mercado 24h.
+
+    Esta función consulta únicamente la nueva fuente
+    basada en /api/v2/market.
+    """
+
+    liga_id = await comprobar_liga(
+        update,
+        context,
+    )
+
+    if not liga_id:
+        return
+
+    try:
+
+        datos = obtener_mercado_hoy_datos(
+            liga_id
+        )
+
+        movimientos_datos = datos.get(
+            "movimientos",
+            [],
+        )
+
+        fecha = datos.get(
+            "fecha"
+        )
+
+        if fecha is not None:
+
+            try:
+
+                from biwenger import _nombre_fecha
+
+                titulo = (
+                    "📅 MERCADO — HOY\n"
+                    "📅 "
+                    + _nombre_fecha(
+                        fecha.timestamp()
+                    )
+                )
+
+            except Exception:
+
+                titulo = "📅 MERCADO — HOY"
+
+        else:
+
+            titulo = "📅 MERCADO — HOY"
+
+        if not movimientos_datos:
+
+            texto = (
+                titulo
+                + "\n"
+                + "━━━━━━━━━━━━━━━━━━━━\n\n"
+                + "Sin movimientos."
+            )
+
+            if update.message is not None:
+
+                await update.message.reply_text(
+                    texto
+                )
+
+            else:
+
+                await update.callback_query.message.reply_text(
+                    texto
+                )
+
+        else:
+
+            await enviar_movimientos(
+                update,
+                titulo,
+                movimientos_datos,
+            )
+
+        await enviar_submenu_mercado(
+            update
+        )
+
+    except Exception as e:
+
+        logger.exception(
+            "ERROR MERCADO HOY"
+        )
+
+        if update.callback_query is not None:
+
+            await update.callback_query.message.reply_text(
+                f"Error obteniendo mercado de hoy:\n{e}"
+            )
+
+        elif update.message is not None:
+
+            await update.message.reply_text(
+                f"Error obteniendo mercado de hoy:\n{e}"
+            )
+
+
+# ============================================================
 # MERCADO 24H
 # ============================================================
 
@@ -1069,71 +1184,11 @@ async def mercado24(
 
         else:
 
-            texto = (
-                titulo
-                + "\n"
-                + "━━━━━━━━━━━━━━━━━━━━\n\n"
+            await enviar_movimientos(
+                update,
+                titulo,
+                movimientos_datos,
             )
-
-            botones = []
-
-            for movimiento in movimientos_datos:
-
-                texto += (
-                    movimiento.get(
-                        "texto",
-                        "",
-                    )
-                    + "\n\n"
-                )
-
-                boton = boton_jugador(
-                    movimiento.get(
-                        "player_id"
-                    ),
-                    movimiento.get(
-                        "player_name",
-                        "Jugador",
-                    ),
-                )
-
-                if boton is not None:
-
-                    botones.append([
-                        boton
-                    ])
-
-            markup = (
-                InlineKeyboardMarkup(
-                    botones
-                )
-                if botones
-                else None
-            )
-
-            if len(texto) <= MAX_TELEGRAM:
-
-                if update.message is not None:
-
-                    await update.message.reply_text(
-                        texto.rstrip(),
-                        reply_markup=markup,
-                    )
-
-                else:
-
-                    await update.callback_query.message.reply_text(
-                        texto.rstrip(),
-                        reply_markup=markup,
-                    )
-
-            else:
-
-                await enviar_movimientos(
-                    update,
-                    titulo,
-                    movimientos_datos,
-                )
 
         await enviar_submenu_mercado(
             update
@@ -1976,8 +2031,14 @@ async def ayuda(
         "Información de managers, jugadores, "
         "compras, ventas, saldo y puja máxima.\n\n"
         "🔄 Mercado\n"
-        "Mercado completo, mercado 24h y "
-        "mercado por miembro.\n\n"
+        "Mercado completo, mercado de hoy, "
+        "mercado 24h y mercado por miembro.\n\n"
+        "📅 Mercado de hoy\n"
+        "Muestra las ofertas actuales del mercado "
+        "de Biwenger.\n\n"
+        "⏱️ Mercado 24h\n"
+        "Muestra los movimientos de las últimas "
+        "24 horas.\n\n"
         "🏆 Liga\n"
         "Cambiar de liga.\n\n"
         "También puedes utilizar los botones "
@@ -2027,8 +2088,6 @@ async def menu_callback(
 
                 return
 
-            # El informe sustituye el mensaje del menú.
-
             report = obtener_informe(
                 int(liga_id)
             )
@@ -2037,8 +2096,6 @@ async def menu_callback(
                 report
             )
 
-            # Si es demasiado largo, no podemos
-            # mantenerlo todo en un solo mensaje.
             if len(texto) <= MAX_TELEGRAM:
 
                 await editar_mensaje(
@@ -2048,10 +2105,6 @@ async def menu_callback(
                 )
 
             else:
-
-                # En este caso dejamos el menú
-                # como mensaje de carga y después
-                # enviamos el contenido.
 
                 await editar_mensaje(
                     query,
@@ -2088,8 +2141,6 @@ async def menu_callback(
 
         elif accion == "mercado":
 
-            # IMPORTANTE:
-            # Editamos el mismo mensaje.
             await mostrar_submenu_mercado(
                 update,
                 context,
@@ -2113,10 +2164,6 @@ async def menu_callback(
         # ----------------------------------------------------
 
         elif accion == "liga":
-
-            # IMPORTANTE:
-            # Se edita el mismo mensaje en lugar de
-            # crear un mensaje nuevo.
 
             await mostrar_selector_liga(
                 update
@@ -2178,9 +2225,6 @@ async def mercado_callback(
         # ----------------------------------------------------
 
         if accion == "completo":
-
-            # Primero convertimos el submenu en
-            # mensaje de carga.
 
             await editar_mensaje(
                 query,
@@ -2248,9 +2292,75 @@ async def mercado_callback(
                         ),
                     )
 
-            # IMPORTANTE:
-            # El resultado queda escrito y debajo
-            # aparece un NUEVO submenu.
+            await enviar_submenu_mercado(
+                update
+            )
+
+        # ----------------------------------------------------
+        # MERCADO DE HOY
+        # ----------------------------------------------------
+
+        elif accion == "hoy":
+
+            await editar_mensaje(
+                query,
+                "📅 MERCADO — HOY\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Cargando mercado..."
+            )
+
+            datos = obtener_mercado_hoy_datos(
+                liga_id
+            )
+
+            movimientos_datos = datos.get(
+                "movimientos",
+                [],
+            )
+
+            fecha = datos.get(
+                "fecha"
+            )
+
+            if fecha is not None:
+
+                try:
+
+                    from biwenger import _nombre_fecha
+
+                    titulo = (
+                        "📅 MERCADO — HOY\n"
+                        "📅 "
+                        + _nombre_fecha(
+                            fecha.timestamp()
+                        )
+                    )
+
+                except Exception:
+
+                    titulo = "📅 MERCADO — HOY"
+
+            else:
+
+                titulo = "📅 MERCADO — HOY"
+
+            if not movimientos_datos:
+
+                await query.message.reply_text(
+                    titulo
+                    + "\n"
+                    + "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    + "Sin movimientos."
+                )
+
+            else:
+
+                await enviar_movimientos(
+                    update,
+                    titulo,
+                    movimientos_datos,
+                )
+
             await enviar_submenu_mercado(
                 update
             )
@@ -2299,65 +2409,12 @@ async def mercado_callback(
 
             else:
 
-                texto = (
-                    titulo
-                    + "\n"
-                    + "━━━━━━━━━━━━━━━━━━━━\n\n"
+                await enviar_movimientos(
+                    update,
+                    titulo,
+                    movimientos_datos,
                 )
 
-                botones = []
-
-                for movimiento in movimientos_datos:
-
-                    texto += (
-                        movimiento.get(
-                            "texto",
-                            "",
-                        )
-                        + "\n\n"
-                    )
-
-                    boton = boton_jugador(
-                        movimiento.get(
-                            "player_id"
-                        ),
-                        movimiento.get(
-                            "player_name",
-                            "Jugador",
-                        ),
-                    )
-
-                    if boton is not None:
-
-                        botones.append([
-                            boton
-                        ])
-
-                markup = (
-                    InlineKeyboardMarkup(
-                        botones
-                    )
-                    if botones
-                    else None
-                )
-
-                if len(texto) <= MAX_TELEGRAM:
-
-                    await query.message.reply_text(
-                        texto.rstrip(),
-                        reply_markup=markup,
-                    )
-
-                else:
-
-                    await enviar_movimientos(
-                        update,
-                        titulo,
-                        movimientos_datos,
-                    )
-
-            # Resultado queda escrito.
-            # Submenu nuevo debajo.
             await enviar_submenu_mercado(
                 update
             )
@@ -2391,12 +2448,6 @@ async def mercado_callback(
             "ERROR MERCADO CALLBACK"
         )
 
-        # IMPORTANTE:
-        # No utilizamos query.message.reply_text()
-        # para mostrar el error si ya estamos dentro
-        # de una excepción que puede venir de Telegram.
-        #
-        # Intentamos contestar el callback con alerta.
         try:
 
             await query.answer(
@@ -2479,6 +2530,13 @@ def main():
         CommandHandler(
             "mercado24",
             mercado24,
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "mercadohoy",
+            mercadohoy,
         )
     )
 
