@@ -32,55 +32,39 @@ logger = logging.getLogger("biwenger")
 # ============================================================
 # TABLA DE EQUIVALENCIA DE EQUIPOS
 #
-# La clave es SIEMPRE el ID que devuelve Biwenger:
+# La clave es el ID que devuelve Biwenger:
 #
 # jugador["team"]["id"]
 #
-# El valor es la abreviatura que queremos mostrar en Telegram.
-#
-# Ejemplo:
-#
-# "team": {
-#     "id": 13,
-#     "name": "Real Sociedad"
-# }
-#
-# => RSO
+# El valor es la abreviatura que queremos mostrar.
 #
 # ============================================================
 
 EQUIPOS_ABREVIATURAS = {
 
     # --------------------------------------------------------
-    # IDs confirmados a partir de la API que estamos usando
+    # IDs confirmados directamente mediante datos de Biwenger
     # --------------------------------------------------------
 
     13: "RSO",   # Real Sociedad
     87: "BET",   # Betis
+    91: "ALA",   # Alavés
 
     # --------------------------------------------------------
-    # Añadir aquí el resto de IDs que devuelva vuestra API.
-    #
-    # Ejemplo:
-    #
-    #  XX: "RMA",
-    #  XX: "FCB",
-    #  XX: "ATM",
-    #
-    # No estamos inventando IDs. Los iremos completando
-    # directamente a partir de los datos que devuelve Biwenger.
+    # El resto se puede completar según vayamos confirmando
+    # los IDs reales que devuelve vuestra API.
     # --------------------------------------------------------
+
 }
 
 
 # ============================================================
 # TABLA DE RESPALDO POR NOMBRE
 #
-# Esta tabla NO es la fuente principal.
+# NO es la fuente principal.
 #
-# Solo sirve para que, mientras completamos la tabla de IDs,
-# el bot pueda seguir mostrando una abreviatura si conoce
-# el nombre del equipo.
+# Se utiliza únicamente cuando conocemos el nombre del equipo
+# pero todavía no tenemos registrado su ID.
 #
 # ============================================================
 
@@ -486,6 +470,8 @@ class BiwengerClient:
 
     # --------------------------------------------------------
     # JUGADORES PÚBLICOS
+    #
+    # NO MODIFICAMOS ESTA PETICIÓN.
     # --------------------------------------------------------
 
     def players(self):
@@ -984,6 +970,70 @@ def diagnostico_liga(
 
 
 # ============================================================
+# DETERMINAR SI UN OBJETO ES REALMENTE UN JUGADOR
+# ============================================================
+
+def _parece_jugador(
+    objeto,
+):
+
+    if not isinstance(
+        objeto,
+        dict,
+    ):
+        return False
+
+    player_id = objeto.get(
+        "id"
+    )
+
+    nombre = objeto.get(
+        "name"
+    )
+
+    if not isinstance(
+        player_id,
+        int,
+    ):
+        return False
+
+    if not isinstance(
+        nombre,
+        str,
+    ):
+        return False
+
+    if not nombre.strip():
+        return False
+
+    # --------------------------------------------------------
+    # Un jugador de Biwenger normalmente tiene varios de estos
+    # campos.
+    #
+    # No exigimos "team", porque precisamente queremos poder
+    # detectar estructuras donde el equipo no venga.
+    # --------------------------------------------------------
+
+    campos_jugador = {
+        "position",
+        "price",
+        "fantasyPrice",
+        "country",
+        "birthday",
+        "status",
+        "priceIncrement",
+    }
+
+    coincidencias = sum(
+        1
+        for campo in campos_jugador
+        if campo in objeto
+    )
+
+    return coincidencias >= 2
+
+
+# ============================================================
 # MAPA DE JUGADORES
 # ============================================================
 
@@ -1012,33 +1062,24 @@ def _extraer_mapa_jugadores():
             dict,
         ):
 
-            player_id = objeto.get(
-                "id"
-            )
+            # ------------------------------------------------
+            # IMPORTANTE:
+            #
+            # Antes considerábamos jugador cualquier objeto
+            # con id + name.
+            #
+            # Eso provocaba falsos positivos con equipos,
+            # competiciones, etc.
+            #
+            # Ahora solo guardamos objetos que realmente
+            # parezcan jugadores.
+            # ------------------------------------------------
 
-            nombre = objeto.get(
-                "name"
-            )
+            if _parece_jugador(objeto):
 
-            if (
-                isinstance(
-                    player_id,
-                    int,
+                player_id = objeto.get(
+                    "id"
                 )
-                and isinstance(
-                    nombre,
-                    str,
-                )
-            ):
-
-                # Guardamos el objeto completo.
-                #
-                # Esto es importante porque dentro del
-                # objeto del jugador tenemos también:
-                #
-                # player["team"]["id"]
-                #
-                # y de ahí obtenemos la abreviatura.
 
                 mapa[player_id] = objeto
 
@@ -1062,19 +1103,74 @@ def _extraer_mapa_jugadores():
         len(mapa),
     )
 
+    # --------------------------------------------------------
+    # Diagnóstico de estructura.
+    #
+    # Mostramos unos pocos jugadores para comprobar qué está
+    # devolviendo realmente la API.
+    # --------------------------------------------------------
+
+    mostrados = 0
+
+    for player_id, jugador in mapa.items():
+
+        equipo = jugador.get(
+            "team"
+        )
+
+        if isinstance(
+            equipo,
+            dict,
+        ):
+
+            logger.info(
+                "Jugador API: id=%s nombre=%s "
+                "team_id=%s team_name=%s",
+                player_id,
+                jugador.get("name"),
+                equipo.get("id"),
+                equipo.get("name"),
+            )
+
+        else:
+
+            logger.warning(
+                "Jugador API sin team: "
+                "id=%s nombre=%s keys=%s",
+                player_id,
+                jugador.get("name"),
+                list(jugador.keys()),
+            )
+
+        mostrados += 1
+
+        if mostrados >= 5:
+            break
+
     return mapa
 
 
 # ============================================================
 # OBTENER DATOS DEL EQUIPO DEL JUGADOR
 #
-# Devuelve:
+# La estructura esperada por la API es:
 #
-#     (team_id, nombre_equipo)
+# {
+#     "id": 34802,
+#     "name": "Toni Martínez",
+#     ...
+#     "team": {
+#         "id": 91,
+#         "name": "Alavés",
+#         "slug": "alaves"
+#     }
+# }
 #
-# Ejemplo:
+# Por tanto:
 #
-#     (13, "Real Sociedad")
+# jugador["team"]["id"] -> 91
+#
+# 91 -> ALA
 #
 # ============================================================
 
@@ -1091,6 +1187,12 @@ def _extraer_equipo_jugador(
             None,
             None,
         )
+
+    # --------------------------------------------------------
+    # ESTRUCTURA PRINCIPAL
+    #
+    # jugador["team"]
+    # --------------------------------------------------------
 
     equipo = jugador.get(
         "team"
@@ -1182,9 +1284,9 @@ def _abreviar_equipo_id(
 ):
 
     # --------------------------------------------------------
-    # 1. MÉTODO PRINCIPAL
+    # 1. MÉTODO PRINCIPAL:
     #
-    # Buscamos directamente por ID.
+    # ID real de Biwenger.
     # --------------------------------------------------------
 
     if equipo_id is not None:
@@ -1214,9 +1316,6 @@ def _abreviar_equipo_id(
 
     # --------------------------------------------------------
     # 2. FALLBACK POR NOMBRE
-    #
-    # Esto evita que aparezca [?] mientras todavía
-    # no hemos completado algún ID en la tabla.
     # --------------------------------------------------------
 
     if nombre_equipo:
@@ -1233,22 +1332,24 @@ def _abreviar_equipo_id(
 
         if abreviatura:
 
-            # ------------------------------------------------
-            # Registramos en logs el ID que falta.
-            # ------------------------------------------------
+            # Solo avisamos si realmente falta el ID.
+            if equipo_id not in (
+                None,
+                "",
+            ):
 
-            logger.warning(
-                "Equipo con ID no registrado: "
-                "id=%s nombre=%s -> %s",
-                equipo_id,
-                nombre_equipo,
-                abreviatura,
-            )
+                logger.warning(
+                    "Equipo con ID no registrado: "
+                    "id=%s nombre=%s -> %s",
+                    equipo_id,
+                    nombre_equipo,
+                    abreviatura,
+                )
 
             return abreviatura
 
     # --------------------------------------------------------
-    # 3. Si no sabemos absolutamente nada.
+    # 3. No sabemos el equipo.
     # --------------------------------------------------------
 
     logger.warning(
@@ -1270,9 +1371,40 @@ def _datos_jugador(
     player_id,
 ):
 
-    jugador = jugadores.get(
-        player_id
-    )
+    # --------------------------------------------------------
+    # Por seguridad, aceptamos también que "player" venga como
+    # objeto en vez de como ID.
+    # --------------------------------------------------------
+
+    if isinstance(
+        player_id,
+        dict,
+    ):
+
+        jugador = player_id
+
+    else:
+
+        try:
+
+            player_id_int = int(
+                player_id
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            player_id_int = None
+
+        jugador = (
+            jugadores.get(
+                player_id_int
+            )
+            if player_id_int is not None
+            else None
+        )
 
     if isinstance(
         jugador,
@@ -1299,6 +1431,12 @@ def _datos_jugador(
             str(nombre),
             equipo,
         )
+
+    logger.warning(
+        "No se encontró jugador en el mapa: "
+        "player_id=%s",
+        player_id,
+    )
 
     return (
         f"Jugador {player_id}",
@@ -1822,19 +1960,6 @@ def _formatear_importe(
 
 # ============================================================
 # FORMATEAR MOVIMIENTO
-#
-# IMPORTANTE:
-#
-# Ya NO mostramos la hora exacta.
-#
-# El equipo se obtiene mediante:
-#
-#     jugador["team"]["id"]
-#
-# y se transforma mediante:
-#
-#     EQUIPOS_ABREVIATURAS
-#
 # ============================================================
 
 def _formatear_movimiento(
@@ -2306,13 +2431,11 @@ def obtener_mercado_completo(
 #
 # /mercado24 se mantiene como comando.
 #
-# Aunque el nombre histórico sea "24h", actualmente muestra
-# los movimientos del día natural:
+# Actualmente muestra:
 #
 # 00:00 -> momento actual
 #
 # según Europe/Madrid.
-#
 # ============================================================
 
 def obtener_mercado_24h(
