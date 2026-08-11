@@ -1,37 +1,18 @@
 import requests
 import time
 import logging
-
 from collections import defaultdict
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-
 from config import BIWENGER_USERNAME, BIWENGER_PASSWORD
 
-
-# ============================================================
-# CONFIGURACIÓN
-# ============================================================
-
 BASE_URL = "https://biwenger.as.com/api/v2"
-
-PLAYERS_URL = (
-    "https://cf.biwenger.com/api/v2/"
-    "competitions/la-liga/data"
-)
-
+PLAYERS_URL = "https://cf.biwenger.com/api/v2/competitions/la-liga/data"
 SALDO_INICIAL = 20_000_000
-
 MADRID_TZ = ZoneInfo("Europe/Madrid")
 
 logging.basicConfig(level=logging.INFO)
-
 logger = logging.getLogger("biwenger")
-
-
-# ============================================================
-# TABLA COMPLETA DE ABREVIATURAS
-# ============================================================
 
 TEAM_ABBR = {
     1: "ATH",
@@ -56,24 +37,35 @@ TEAM_ABBR = {
     812: "RAC",
 }
 
-
-# ============================================================
-# CACHÉ DE JUGADORES
-# ============================================================
+TEAM_NAMES = {
+    1: "Athletic Club",
+    2: "Atlético de Madrid",
+    3: "FC Barcelona",
+    5: "RC Celta",
+    6: "RC Deportivo",
+    7: "RCD Espanyol",
+    8: "Getafe CF",
+    10: "Levante UD",
+    13: "Real Sociedad",
+    15: "Real Madrid",
+    17: "Sevilla FC",
+    18: "Valencia CF",
+    19: "Villarreal CF",
+    65: "Málaga CF",
+    70: "Rayo Vallecano",
+    75: "Elche CF",
+    87: "Real Betis",
+    91: "Deportivo Alavés",
+    93: "CA Osasuna",
+    812: "Racing de Santander",
+}
 
 _PLAYERS_CACHE = {}
-
 _PLAYERS_CACHE_TIME = 0
-
 PLAYERS_CACHE_TTL = 3600
 
 
-# ============================================================
-# NORMALIZAR TEXTO
-# ============================================================
-
 def _normalizar_texto(texto):
-
     if texto is None:
         return ""
 
@@ -96,19 +88,12 @@ def _normalizar_texto(texto):
             destino,
         )
 
-    return " ".join(
-        texto.split()
-    )
+    return " ".join(texto.split())
 
-
-# ============================================================
-# CLIENTE BIWENGER
-# ============================================================
 
 class BiwengerClient:
 
     def __init__(self):
-
         self.session = requests.Session()
         self.public_session = requests.Session()
 
@@ -122,16 +107,11 @@ class BiwengerClient:
         self.user_id = None
         self.login_time = 0
 
-    # --------------------------------------------------------
-    # CONTEXTO
-    # --------------------------------------------------------
-
     def set_context(
         self,
         league_id=None,
         user_id=None,
     ):
-
         self.league_id = (
             int(league_id)
             if league_id is not None
@@ -145,16 +125,10 @@ class BiwengerClient:
         )
 
     def clear_context(self):
-
         self.league_id = None
         self.user_id = None
 
-    # --------------------------------------------------------
-    # LOGIN
-    # --------------------------------------------------------
-
     def login(self):
-
         if (
             self.token
             and time.time() - self.login_time < 3600
@@ -184,23 +158,17 @@ class BiwengerClient:
 
         return data
 
-    # --------------------------------------------------------
-    # GET
-    # --------------------------------------------------------
-
     def get(
         self,
         endpoint,
         params=None,
         use_context=True,
     ):
-
         self.login()
 
         headers = {}
 
         if use_context:
-
             if self.league_id is not None:
                 headers["X-League"] = str(
                     self.league_id
@@ -222,19 +190,13 @@ class BiwengerClient:
 
         return response.json()
 
-    # --------------------------------------------------------
-    # CUENTA / LIGAS
-    # --------------------------------------------------------
-
     def account(self):
-
         return self.get(
             "/account",
             use_context=False,
         )
 
     def leagues(self):
-
         data = self.account()
 
         root = (
@@ -255,7 +217,6 @@ class BiwengerClient:
         self,
         league_id,
     ):
-
         target = str(league_id)
 
         for liga in self.leagues():
@@ -269,24 +230,24 @@ class BiwengerClient:
             usuario = liga.get("user")
 
             if isinstance(usuario, dict):
-
                 uid = usuario.get("id")
 
                 if uid is not None:
                     return int(uid)
 
             if (
-                isinstance(usuario, (int, str))
+                isinstance(
+                    usuario,
+                    (int, str),
+                )
                 and str(usuario).isdigit()
             ):
-
                 return int(usuario)
 
             for key in (
                 "userId",
                 "user_id",
             ):
-
                 uid = liga.get(key)
 
                 if uid is not None:
@@ -300,7 +261,6 @@ class BiwengerClient:
         self,
         league_id,
     ):
-
         self.clear_context()
 
         league_id = int(league_id)
@@ -310,7 +270,6 @@ class BiwengerClient:
         )
 
         if user_id is None:
-
             raise ValueError(
                 f"No se encontró usuario para liga {league_id}"
             )
@@ -325,15 +284,10 @@ class BiwengerClient:
             "user_id": self.user_id,
         }
 
-    # --------------------------------------------------------
-    # LIGA
-    # --------------------------------------------------------
-
     def league(
         self,
         league_id,
     ):
-
         self.prepare_context(
             league_id
         )
@@ -349,28 +303,18 @@ class BiwengerClient:
             },
         )
 
-    # --------------------------------------------------------
-    # DATOS DE MIEMBROS
-    # --------------------------------------------------------
-
     def league_members(
         self,
         league_id,
     ):
-
         return self.league(
             league_id
         )
-
-    # --------------------------------------------------------
-    # BOARD
-    # --------------------------------------------------------
 
     def board(
         self,
         league_id,
     ):
-
         self.prepare_context(
             league_id
         )
@@ -379,12 +323,7 @@ class BiwengerClient:
             f"/league/{self.league_id}/board"
         )
 
-    # --------------------------------------------------------
-    # JUGADORES PÚBLICOS
-    # --------------------------------------------------------
-
     def players(self):
-
         response = self.public_session.get(
             PLAYERS_URL,
             params={
@@ -405,17 +344,12 @@ class BiwengerClient:
 
         return data
 
-    # --------------------------------------------------------
-    # HISTORIAL
-    # --------------------------------------------------------
-
     def board_history(
         self,
         league_id,
         date=None,
         limit=100,
     ):
-
         self.prepare_context(
             league_id
         )
@@ -439,7 +373,6 @@ class BiwengerClient:
         limit=100,
         max_pages=100,
     ):
-
         all_events = []
         current_date = None
         seen = set()
@@ -489,7 +422,6 @@ class BiwengerClient:
                     event_date,
                     (int, float),
                 ):
-
                     fechas.append(
                         event_date
                     )
@@ -529,17 +461,12 @@ class BiwengerClient:
             "data": all_events,
         }
 
-    # --------------------------------------------------------
-    # HISTORIAL DEL DÍA ACTUAL
-    # --------------------------------------------------------
-
     def get_market_history_last_24h(
         self,
         league_id,
         limit=100,
         max_pages=20,
     ):
-
         ahora = datetime.now(
             MADRID_TZ
         )
@@ -610,7 +537,6 @@ class BiwengerClient:
                 )
 
                 if event_date >= desde:
-
                     all_events.append(
                         event
                     )
@@ -655,30 +581,22 @@ class BiwengerClient:
             "data": all_events,
         }
 
-    # --------------------------------------------------------
-    # OPERACIONES
-    # --------------------------------------------------------
-
     def extract_operations(
         self,
         history,
     ):
-
         operations = []
 
         if isinstance(history, dict):
-
             events = history.get(
                 "data",
                 [],
             )
 
         elif isinstance(history, list):
-
             events = history
 
         else:
-
             return operations
 
         for event in events:
@@ -691,12 +609,18 @@ class BiwengerClient:
                 [],
             )
 
-            if not isinstance(content, list):
+            if not isinstance(
+                content,
+                list,
+            ):
                 continue
 
             for item in content:
 
-                if not isinstance(item, dict):
+                if not isinstance(
+                    item,
+                    dict,
+                ):
                     continue
 
                 operation = dict(item)
@@ -720,15 +644,10 @@ class BiwengerClient:
 
         return operations
 
-    # --------------------------------------------------------
-    # INFORME DE MOVIMIENTOS
-    # --------------------------------------------------------
-
     def calculate_market_report(
         self,
         history,
     ):
-
         operations = self.extract_operations(
             history
         )
@@ -755,7 +674,6 @@ class BiwengerClient:
                 amount,
                 (int, float),
             ):
-
                 amount = 0
 
             buyer = operation.get(
@@ -774,7 +692,6 @@ class BiwengerClient:
                 buyer,
                 dict,
             ):
-
                 nombre = buyer.get(
                     "name",
                     "Desconocido",
@@ -802,7 +719,6 @@ class BiwengerClient:
                 seller,
                 dict,
             ):
-
                 nombre = seller.get(
                     "name",
                     "Desconocido",
@@ -829,30 +745,16 @@ class BiwengerClient:
         return report
 
 
-# ============================================================
-# CLIENTE GLOBAL
-# ============================================================
-
 _CLIENT = BiwengerClient()
 
 
-# ============================================================
-# FUNCIONES PÚBLICAS
-# ============================================================
-
 def obtener_ligas():
-
     return _CLIENT.leagues()
 
-
-# ============================================================
-# DIAGNÓSTICO
-# ============================================================
 
 def diagnostico_liga(
     liga_id,
 ):
-
     contexto = _CLIENT.prepare_context(
         liga_id
     )
@@ -883,20 +785,22 @@ def diagnostico_liga(
     }
 
 
-# ============================================================
-# DETECTAR SI UN OBJETO ES REALMENTE UN JUGADOR
-# ============================================================
-
-def _es_jugador_api(objeto):
-
+def _es_jugador_api(
+    objeto,
+):
     if not isinstance(
         objeto,
         dict,
     ):
         return False
 
-    player_id = objeto.get("id")
-    nombre = objeto.get("name")
+    player_id = objeto.get(
+        "id"
+    )
+
+    nombre = objeto.get(
+        "name"
+    )
 
     if player_id is None:
         return False
@@ -935,19 +839,9 @@ def _es_jugador_api(objeto):
     return encontrados >= 2
 
 
-# ============================================================
-# MAPA DE JUGADORES
-#
-# player_id -> objeto jugador completo
-#
-# El mapa se descarga una vez y queda cacheado.
-# NO hacemos consultas individuales por jugador.
-# ============================================================
-
 def _extraer_mapa_jugadores(
     forzar=False,
 ):
-
     global _PLAYERS_CACHE
     global _PLAYERS_CACHE_TIME
 
@@ -961,7 +855,6 @@ def _extraer_mapa_jugadores(
             < PLAYERS_CACHE_TTL
         )
     ):
-
         logger.info(
             "Usando caché de jugadores: %s jugadores",
             len(_PLAYERS_CACHE),
@@ -970,11 +863,9 @@ def _extraer_mapa_jugadores(
         return _PLAYERS_CACHE
 
     try:
-
         respuesta = _CLIENT.players()
 
     except Exception as exc:
-
         logger.warning(
             "No se pudo cargar el mapa público "
             "de jugadores: %s",
@@ -988,7 +879,6 @@ def _extraer_mapa_jugadores(
     def recorrer(
         objeto,
     ):
-
         if isinstance(
             objeto,
             dict,
@@ -997,13 +887,11 @@ def _extraer_mapa_jugadores(
             if _es_jugador_api(
                 objeto
             ):
-
                 player_id = objeto.get(
                     "id"
                 )
 
                 try:
-
                     player_id = int(
                         player_id
                     )
@@ -1012,17 +900,14 @@ def _extraer_mapa_jugadores(
                     TypeError,
                     ValueError,
                 ):
-
                     player_id = None
 
                 if player_id is not None:
-
                     jugadores[
                         player_id
                     ] = objeto
 
             for valor in objeto.values():
-
                 recorrer(
                     valor
                 )
@@ -1033,7 +918,6 @@ def _extraer_mapa_jugadores(
         ):
 
             for valor in objeto:
-
                 recorrer(
                     valor
                 )
@@ -1053,18 +937,282 @@ def _extraer_mapa_jugadores(
     return jugadores
 
 
-# ============================================================
-# OBTENER FICHA DE JUGADOR
-# ============================================================
+def _extraer_posicion_jugador(
+    jugador,
+):
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+        return "?"
+
+    valor = jugador.get(
+        "position"
+    )
+
+    if valor is None:
+        valor = jugador.get(
+            "pos"
+        )
+
+    if isinstance(
+        valor,
+        dict,
+    ):
+        valor = (
+            valor.get("shortName")
+            or valor.get("short")
+            or valor.get("name")
+            or valor.get("id")
+        )
+
+    texto = (
+        str(valor).strip().lower()
+        if valor is not None
+        else ""
+    )
+
+    equivalencias = {
+        "1": "PT",
+        "gk": "PT",
+        "por": "PT",
+        "portero": "PT",
+        "porteros": "PT",
+        "pt": "PT",
+        "2": "DF",
+        "def": "DF",
+        "defensa": "DF",
+        "defensas": "DF",
+        "df": "DF",
+        "3": "MC",
+        "mid": "MC",
+        "med": "MC",
+        "medio": "MC",
+        "mediocentro": "MC",
+        "mediocampista": "MC",
+        "mc": "MC",
+        "4": "DL",
+        "fwd": "DL",
+        "fw": "DL",
+        "del": "DL",
+        "delantero": "DL",
+        "delanteros": "DL",
+        "dl": "DL",
+    }
+
+    return equivalencias.get(
+        texto,
+        "?",
+    )
+
+
+def _nombre_posicion(
+    posicion,
+):
+    return {
+        "DL": "Delantero",
+        "MC": "Mediocentro",
+        "DF": "Defensa",
+        "PT": "Portero",
+    }.get(
+        posicion,
+        "Posición desconocida",
+    )
+
+
+def _extraer_nombre_equipo(
+    jugador,
+):
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+        return "Desconocido"
+
+    for key in (
+        "teamName",
+        "team_name",
+    ):
+        valor = jugador.get(
+            key
+        )
+
+        if (
+            isinstance(valor, str)
+            and valor.strip()
+        ):
+            return valor.strip()
+
+    equipo = jugador.get(
+        "team"
+    )
+
+    if isinstance(
+        equipo,
+        dict,
+    ):
+        for key in (
+            "name",
+            "shortName",
+            "title",
+        ):
+            valor = equipo.get(
+                key
+            )
+
+            if (
+                isinstance(
+                    valor,
+                    str,
+                )
+                and valor.strip()
+            ):
+                return valor.strip()
+
+    team_id = _extraer_team_id_jugador(
+        jugador
+    )
+
+    if team_id in TEAM_NAMES:
+        return TEAM_NAMES[
+            team_id
+        ]
+
+    return "Desconocido"
+
+
+def _extraer_propietario(
+    jugador,
+):
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+        return "No disponible"
+
+    for key in (
+        "ownerName",
+        "owner_name",
+        "owner",
+    ):
+        valor = jugador.get(
+            key
+        )
+
+        if isinstance(
+            valor,
+            dict,
+        ):
+            valor = (
+                valor.get("name")
+                or valor.get("username")
+            )
+
+        if (
+            isinstance(
+                valor,
+                str,
+            )
+            and valor.strip()
+        ):
+            return valor.strip()
+
+    return "No disponible"
+
+
+def _extraer_ultimo_puntos(
+    jugador,
+):
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+        return 0
+
+    for key in (
+        "pointsLastRound",
+        "pointsLastMatchday",
+        "pointsLastGameweek",
+        "lastRoundPoints",
+        "lastMatchdayPoints",
+        "pointsLast",
+    ):
+        valor = jugador.get(
+            key
+        )
+
+        if isinstance(
+            valor,
+            (int, float),
+        ):
+            return valor
+
+    for contenedor_key in (
+        "lastRound",
+        "lastMatchday",
+        "lastGameweek",
+    ):
+        contenedor = jugador.get(
+            contenedor_key
+        )
+
+        if isinstance(
+            contenedor,
+            dict,
+        ):
+            for key in (
+                "points",
+                "score",
+                "fantasyPoints",
+            ):
+                valor = contenedor.get(
+                    key
+                )
+
+                if isinstance(
+                    valor,
+                    (int, float),
+                ):
+                    return valor
+
+    return 0
+
+
+def _extraer_media_puntos(
+    jugador,
+):
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+        return 0
+
+    for key in (
+        "averagePoints",
+        "pointsAverage",
+        "avgPoints",
+        "average",
+        "media",
+    ):
+        valor = jugador.get(
+            key
+        )
+
+        if isinstance(
+            valor,
+            (int, float),
+        ):
+            return valor
+
+    return 0
+
 
 def obtener_ficha_jugador(
     player_id,
 ):
-
     jugadores = _extraer_mapa_jugadores()
 
     try:
-
         player_id = int(
             player_id
         )
@@ -1073,7 +1221,6 @@ def obtener_ficha_jugador(
         TypeError,
         ValueError,
     ):
-
         return None
 
     jugador = jugadores.get(
@@ -1084,10 +1231,13 @@ def obtener_ficha_jugador(
         jugador,
         dict,
     ):
-
         return None
 
     team_id = _extraer_team_id_jugador(
+        jugador
+    )
+
+    posicion = _extraer_posicion_jugador(
         jugador
     )
 
@@ -1096,39 +1246,66 @@ def obtener_ficha_jugador(
         f"Jugador {player_id}",
     )
 
+    if (
+        not isinstance(
+            nombre,
+            str,
+        )
+        or not nombre.strip()
+    ):
+        nombre = f"Jugador {player_id}"
+
+    else:
+        nombre = nombre.strip()
+
+    precio = jugador.get(
+        "price",
+        jugador.get(
+            "fantasyPrice",
+            0,
+        ),
+    )
+
+    puntos = jugador.get(
+        "points",
+        0,
+    )
+
+    ultimo_puntos = _extraer_ultimo_puntos(
+        jugador
+    )
+
+    media_puntos = _extraer_media_puntos(
+        jugador
+    )
+
     return {
         "id": player_id,
-        "nombre": (
-            nombre.strip()
-            if isinstance(nombre, str)
-            else f"Jugador {player_id}"
-        ),
+        "nombre": nombre,
         "equipo": _abreviar_equipo_id(
             team_id
         ),
-        "precio": jugador.get(
-            "price",
-            jugador.get(
-                "fantasyPrice",
-                0,
-            ),
+        "equipo_nombre": _extraer_nombre_equipo(
+            jugador
         ),
-        "puntos": jugador.get(
-            "points",
-            0,
+        "posicion": posicion,
+        "posicion_nombre": _nombre_posicion(
+            posicion
+        ),
+        "precio": precio,
+        "puntos": puntos,
+        "puntos_ultima_jornada": ultimo_puntos,
+        "media_puntos": media_puntos,
+        "propietario": _extraer_propietario(
+            jugador
         ),
         "datos": jugador,
     }
 
 
-# ============================================================
-# OBTENER TEAM ID DE UN JUGADOR
-# ============================================================
-
 def _extraer_team_id_jugador(
     jugador,
 ):
-
     if not isinstance(
         jugador,
         dict,
@@ -1140,9 +1317,7 @@ def _extraer_team_id_jugador(
     )
 
     if team_id is not None:
-
         try:
-
             return int(
                 team_id
             )
@@ -1151,7 +1326,6 @@ def _extraer_team_id_jugador(
             TypeError,
             ValueError,
         ):
-
             return None
 
     equipo = jugador.get(
@@ -1162,15 +1336,12 @@ def _extraer_team_id_jugador(
         equipo,
         dict,
     ):
-
         team_id = equipo.get(
             "id"
         )
 
         if team_id is not None:
-
             try:
-
                 return int(
                     team_id
                 )
@@ -1179,25 +1350,18 @@ def _extraer_team_id_jugador(
                 TypeError,
                 ValueError,
             ):
-
                 return None
 
     return None
 
 
-# ============================================================
-# ABREVIATURA DE EQUIPO
-# ============================================================
-
 def _abreviar_equipo_id(
     equipo_id,
 ):
-
     if equipo_id is None:
         return "?"
 
     try:
-
         equipo_id = int(
             equipo_id
         )
@@ -1206,7 +1370,6 @@ def _abreviar_equipo_id(
         TypeError,
         ValueError,
     ):
-
         return "?"
 
     return TEAM_ABBR.get(
@@ -1215,17 +1378,11 @@ def _abreviar_equipo_id(
     )
 
 
-# ============================================================
-# OBTENER NOMBRE + EQUIPO
-# ============================================================
-
 def _datos_jugador(
     jugadores,
     player_id,
 ):
-
     try:
-
         player_id_int = int(
             player_id
         )
@@ -1234,7 +1391,6 @@ def _datos_jugador(
         TypeError,
         ValueError,
     ):
-
         player_id_int = player_id
 
     jugador = jugadores.get(
@@ -1242,7 +1398,6 @@ def _datos_jugador(
     )
 
     if jugador is None:
-
         jugador = jugadores.get(
             str(player_id)
         )
@@ -1251,24 +1406,23 @@ def _datos_jugador(
         jugador,
         dict,
     ):
-
         nombre = jugador.get(
             "name"
         )
 
-        if not isinstance(
-            nombre,
-            str,
-        ) or not nombre.strip():
-
+        if (
+            not isinstance(
+                nombre,
+                str,
+            )
+            or not nombre.strip()
+        ):
             nombre = (
                 f"Jugador {player_id}"
             )
 
-        team_id = (
-            _extraer_team_id_jugador(
-                jugador
-            )
+        team_id = _extraer_team_id_jugador(
+            jugador
         )
 
         equipo = _abreviar_equipo_id(
@@ -1291,50 +1445,36 @@ def _datos_jugador(
     )
 
 
-# ============================================================
-# UTILIDADES NUMÉRICAS
-# ============================================================
-
 def _numero(
     valor,
 ):
-
     if isinstance(
         valor,
         (int, float),
     ):
-
         return float(valor)
 
     if isinstance(
         valor,
         str,
     ):
-
         texto = valor.strip()
 
         try:
-
             return float(
                 texto
             )
 
         except Exception:
-
             return None
 
     return None
 
 
-# ============================================================
-# SALDO
-# ============================================================
-
 def _calcular_saldo_actual(
     compras,
     ventas,
 ):
-
     return (
         SALDO_INICIAL
         + ventas
@@ -1342,34 +1482,23 @@ def _calcular_saldo_actual(
     )
 
 
-# ============================================================
-# PUJA MÁXIMA
-# ============================================================
-
 def _calcular_puja_maxima(
     saldo,
     valor_equipo,
 ):
-
     return (
         saldo
-        + (valor_equipo / 4)
+        + valor_equipo / 4
     )
 
-
-# ============================================================
-# STANDINGS
-# ============================================================
 
 def _extraer_standings(
     league_response,
 ):
-
     if not isinstance(
         league_response,
         dict,
     ):
-
         return []
 
     data = league_response.get(
@@ -1381,7 +1510,6 @@ def _extraer_standings(
         data,
         dict,
     ):
-
         return []
 
     standings = data.get(
@@ -1393,7 +1521,6 @@ def _extraer_standings(
         standings,
         list,
     ):
-
         return []
 
     return standings
@@ -1402,12 +1529,10 @@ def _extraer_standings(
 def _datos_standing(
     miembro,
 ):
-
     if not isinstance(
         miembro,
         dict,
     ):
-
         return {
             "id": None,
             "nombre": "Desconocido",
@@ -1427,7 +1552,6 @@ def _datos_standing(
         )
         or not nombre.strip()
     ):
-
         nombre = "Desconocido"
 
     team_size = miembro.get(
@@ -1441,7 +1565,6 @@ def _datos_standing(
     )
 
     try:
-
         team_size = int(
             team_size
         )
@@ -1450,11 +1573,9 @@ def _datos_standing(
         TypeError,
         ValueError,
     ):
-
         team_size = 0
 
     try:
-
         team_value = int(
             team_value
         )
@@ -1463,7 +1584,6 @@ def _datos_standing(
         TypeError,
         ValueError,
     ):
-
         team_value = 0
 
     return {
@@ -1476,14 +1596,9 @@ def _datos_standing(
     }
 
 
-# ============================================================
-# OBTENER MIEMBROS DE LA LIGA
-# ============================================================
-
 def obtener_miembros_liga(
     liga_id,
 ):
-
     league_response = _CLIENT.league(
         liga_id
     )
@@ -1495,7 +1610,6 @@ def obtener_miembros_liga(
     miembros = []
 
     for miembro in standings:
-
         datos = _datos_standing(
             miembro
         )
@@ -1517,22 +1631,15 @@ def obtener_miembros_liga(
     return miembros
 
 
-# ============================================================
-# INFORME COMPLETO
-# ============================================================
-
 def obtener_informe(
     liga_id,
 ):
-
     try:
-
         league_response = _CLIENT.league(
             liga_id
         )
 
     except Exception as exc:
-
         logger.exception(
             "Error obteniendo datos de la liga %s",
             liga_id,
@@ -1545,7 +1652,6 @@ def obtener_informe(
     )
 
     try:
-
         history = (
             _CLIENT.get_full_market_history(
                 liga_id
@@ -1559,7 +1665,6 @@ def obtener_informe(
         )
 
     except Exception as exc:
-
         logger.warning(
             "No se pudo obtener el historial "
             "de la liga %s: %s",
@@ -1572,7 +1677,6 @@ def obtener_informe(
     resultado = {}
 
     for miembro in standings:
-
         datos_standing = _datos_standing(
             miembro
         )
@@ -1728,22 +1832,15 @@ def obtener_informe(
 def obtener_informe_detallado(
     liga_id,
 ):
-
     return obtener_informe(
         liga_id
     )
 
 
-# ============================================================
-# MOVIMIENTOS
-# ============================================================
-
 def _timestamp_datetime(
     timestamp,
 ):
-
     try:
-
         return datetime.fromtimestamp(
             float(timestamp),
             tz=timezone.utc,
@@ -1752,14 +1849,12 @@ def _timestamp_datetime(
         )
 
     except Exception:
-
         return None
 
 
 def _nombre_fecha(
     timestamp,
 ):
-
     fecha = _timestamp_datetime(
         timestamp
     )
@@ -1789,35 +1884,19 @@ def _nombre_fecha(
     )
 
 
-# ============================================================
-# FORMATEAR IMPORTE
-# ============================================================
-
 def _formatear_importe(
     amount,
 ):
-
     try:
-
         return f"{int(amount):,}€"
-
     except Exception:
-
         return "0€"
 
-
-# ============================================================
-# FORMATEAR MOVIMIENTO
-#
-# Devuelve los datos estructurados para que bot.py pueda
-# crear el botón inline del jugador.
-# ============================================================
 
 def _formatear_movimiento(
     operation,
     jugadores,
 ):
-
     player_id = operation.get(
         "player"
     )
@@ -1844,7 +1923,6 @@ def _formatear_movimiento(
         comprador,
         dict,
     ):
-
         texto = (
             f"🟢 "
             f"{comprador.get('name', 'Desconocido')} "
@@ -1863,7 +1941,6 @@ def _formatear_movimiento(
         vendedor,
         dict,
     ):
-
         texto = (
             f"🔴 "
             f"{vendedor.get('name', 'Desconocido')} "
@@ -1884,7 +1961,6 @@ def _formatear_movimiento(
 def _obtener_operaciones(
     history,
 ):
-
     operaciones = (
         _CLIENT.extract_operations(
             history
@@ -1901,18 +1977,10 @@ def _obtener_operaciones(
     )
 
 
-# ============================================================
-# DATOS DE MERCADO
-#
-# Esta función es la que utiliza bot.py para crear los
-# botones inline.
-# ============================================================
-
 def _construir_grupos_mercado(
     operaciones,
     jugadores,
 ):
-
     grupos = {}
     orden = []
     timestamps = {}
@@ -1932,9 +2000,7 @@ def _construir_grupos_mercado(
         )
 
         if clave not in grupos:
-
             grupos[clave] = []
-
             orden.append(
                 clave
             )
@@ -1951,7 +2017,6 @@ def _construir_grupos_mercado(
         )
 
         if movimiento:
-
             grupos[clave].append(
                 movimiento
             )
@@ -1963,14 +2028,9 @@ def _construir_grupos_mercado(
     }
 
 
-# ============================================================
-# MERCADO COMPLETO - DATOS
-# ============================================================
-
 def obtener_mercado_completo_datos(
     liga_id,
 ):
-
     history = (
         _CLIENT.get_full_market_history(
             liga_id
@@ -1991,15 +2051,10 @@ def obtener_mercado_completo_datos(
     )
 
 
-# ============================================================
-# MERCADO POR MIEMBRO - DATOS
-# ============================================================
-
 def obtener_mercado_miembro_datos(
     liga_id,
     miembro_id,
 ):
-
     miembros = obtener_miembros_liga(
         liga_id
     )
@@ -2015,7 +2070,6 @@ def obtener_mercado_miembro_datos(
     )
 
     if miembro is None:
-
         return {
             "error": (
                 "❌ No se encontró el miembro "
@@ -2056,28 +2110,23 @@ def obtener_mercado_miembro_datos(
             comprador,
             dict,
         ):
-
             if (
                 str(comprador.get("id"))
                 == str(miembro_id)
             ):
-
                 pertenece = True
 
         if isinstance(
             vendedor,
             dict,
         ):
-
             if (
                 str(vendedor.get("id"))
                 == str(miembro_id)
             ):
-
                 pertenece = True
 
         if pertenece:
-
             operaciones_miembro.append(
                 operacion
             )
@@ -2097,16 +2146,10 @@ def obtener_mercado_miembro_datos(
 
     return mercado
 
-
-# ============================================================
-# MERCADO POR MIEMBRO - TEXTO COMPATIBILIDAD
-# ============================================================
-
 def obtener_mercado_miembro(
     liga_id,
     miembro_id,
 ):
-
     datos = obtener_mercado_miembro_datos(
         liga_id,
         miembro_id,
@@ -2136,7 +2179,6 @@ def obtener_mercado_miembro(
     )
 
     if not orden:
-
         return (
             f"🧑‍💼 MERCADO — {nombre_miembro}\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -2152,13 +2194,11 @@ def obtener_mercado_miembro(
     for clave in orden:
 
         if clave == "desconocida":
-
             titulo = (
                 "📅 FECHA DESCONOCIDA"
             )
 
         else:
-
             titulo = (
                 "📅 "
                 + _nombre_fecha(
@@ -2178,7 +2218,6 @@ def obtener_mercado_miembro(
             clave,
             [],
         ):
-
             lineas.append(
                 movimiento["texto"]
             )
@@ -2190,14 +2229,9 @@ def obtener_mercado_miembro(
     ).rstrip()
 
 
-# ============================================================
-# MERCADO COMPLETO - TEXTO COMPATIBILIDAD
-# ============================================================
-
 def obtener_mercado_completo(
     liga_id,
 ):
-
     datos = obtener_mercado_completo_datos(
         liga_id
     )
@@ -2222,13 +2256,11 @@ def obtener_mercado_completo(
     for clave in orden:
 
         if clave == "desconocida":
-
             titulo = (
                 "📅 FECHA DESCONOCIDA"
             )
 
         else:
-
             titulo = (
                 "📅 "
                 + _nombre_fecha(
@@ -2255,7 +2287,6 @@ def obtener_mercado_completo(
         )
 
     if not bloques:
-
         return (
             "🔄 MERCADO COMPLETO\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -2271,14 +2302,9 @@ def obtener_mercado_completo(
     )
 
 
-# ============================================================
-# MERCADO DEL DÍA - DATOS
-# ============================================================
-
 def obtener_mercado_24h_datos(
     liga_id,
 ):
-
     ahora = datetime.now(
         MADRID_TZ
     )
@@ -2317,7 +2343,6 @@ def obtener_mercado_24h_datos(
                 "%Y-%m-%d"
             ) == fecha_hoy
         ):
-
             operaciones_hoy.append(
                 operacion
             )
@@ -2342,26 +2367,22 @@ def obtener_mercado_24h_datos(
     }
 
 
-# ============================================================
-# MERCADO DEL DÍA - TEXTO COMPATIBILIDAD
-# ============================================================
-
 def obtener_mercado_24h(
     liga_id,
 ):
-
     datos = obtener_mercado_24h_datos(
         liga_id
     )
 
-    ahora = datos["fecha"]
+    ahora = datos[
+        "fecha"
+    ]
 
     movimientos = datos[
         "movimientos"
     ]
 
     if not movimientos:
-
         return (
             "⏱️ MERCADO — HOY\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -2377,7 +2398,6 @@ def obtener_mercado_24h(
     ]
 
     for movimiento in movimientos:
-
         lineas.append(
             movimiento["texto"]
         )
@@ -2387,149 +2407,270 @@ def obtener_mercado_24h(
     )
 
 
-# ============================================================
-# MERCADO ACTUAL - JUGADORES EN VENTA
-#
-# IMPORTANTE:
-# Esta sección NO usa el historial (/board).
-# Consulta directamente /market para obtener las ventas
-# que siguen activas en este momento.
-#
-# Se mantiene separada de obtener_mercado_24h(), que muestra
-# movimientos realizados hoy.
-# ============================================================
-
-def _extraer_sales_mercado(response):
-    """
-    Extrae la lista de ventas activas de /market.
-
-    Biwenger puede devolver la información directamente en
-    `sales` o, dependiendo de la respuesta, dentro de `data`.
-    Se aceptan ambas formas para hacer la función más robusta.
-    """
-
-    if not isinstance(response, dict):
+def _extraer_sales_mercado(
+    response,
+):
+    if not isinstance(
+        response,
+        dict,
+    ):
         return []
 
-    sales = response.get("sales")
+    sales = response.get(
+        "sales"
+    )
 
-    if isinstance(sales, list):
+    if isinstance(
+        sales,
+        list,
+    ):
         return sales
 
-    data = response.get("data")
+    data = response.get(
+        "data"
+    )
 
-    if isinstance(data, dict):
-        sales = data.get("sales")
-        if isinstance(sales, list):
+    if isinstance(
+        data,
+        dict,
+    ):
+        sales = data.get(
+            "sales"
+        )
+
+        if isinstance(
+            sales,
+            list,
+        ):
             return sales
 
     return []
 
 
-def _extraer_player_id_venta(sale):
-    """Obtiene el ID del jugador desde una venta de /market."""
-
-    if not isinstance(sale, dict):
+def _extraer_player_id_venta(
+    sale,
+):
+    if not isinstance(
+        sale,
+        dict,
+    ):
         return None
 
-    player = sale.get("player")
+    player = sale.get(
+        "player"
+    )
 
-    if isinstance(player, dict):
-        player_id = player.get("id")
+    if isinstance(
+        player,
+        dict,
+    ):
+        player_id = player.get(
+            "id"
+        )
+
     else:
         player_id = player
 
     if player_id is None:
-        # Compatibilidad con respuestas que puedan usar playerId.
-        player_id = sale.get("playerId")
+        player_id = sale.get(
+            "playerId"
+        )
 
     try:
-        return int(player_id)
-    except (TypeError, ValueError):
+        return int(
+            player_id
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
         return None
 
 
-def _esta_venta_activa(sale, ahora_timestamp=None):
-    """
-    Determina si una venta de /market sigue activa.
-
-    Si Biwenger marca explícitamente la venta como expirada,
-    se descarta. Si existe `until`, se comprueba contra la hora
-    actual. Si no existe `until`, no se descarta automáticamente:
-    algunas respuestas de la API pueden omitir ese campo.
-    """
-
-    if not isinstance(sale, dict):
+def _esta_venta_activa(
+    sale,
+    ahora_timestamp=None,
+):
+    if not isinstance(
+        sale,
+        dict,
+    ):
         return False
 
-    if sale.get("expired") is True:
+    if sale.get(
+        "expired"
+    ) is True:
         return False
 
     if ahora_timestamp is None:
         ahora_timestamp = time.time()
 
-    until = sale.get("until")
+    until = sale.get(
+        "until"
+    )
 
     if until is not None:
+
         try:
-            if float(until) <= ahora_timestamp:
+
+            if (
+                float(until)
+                <= ahora_timestamp
+            ):
                 return False
-        except (TypeError, ValueError):
-            # Un `until` inválido no debe hacer desaparecer una
-            # venta que la propia API no ha marcado como expirada.
+
+        except (
+            TypeError,
+            ValueError,
+        ):
             pass
 
     return True
 
 
-def _precio_venta(sale, jugador=None):
-    """Obtiene el precio de la venta con varios fallbacks."""
+def _precio_venta(
+    sale,
+    jugador=None,
+):
+    if isinstance(
+        sale,
+        dict,
+    ):
+        for key in (
+            "price",
+            "amount",
+        ):
+            value = sale.get(
+                key
+            )
 
-    if isinstance(sale, dict):
-        for key in ("price", "amount"):
-            value = sale.get(key)
             if value is not None:
                 return value
 
-    if isinstance(jugador, dict):
-        for key in ("price", "fantasyPrice"):
-            value = jugador.get(key)
+    if isinstance(
+        jugador,
+        dict,
+    ):
+        for key in (
+            "price",
+            "fantasyPrice",
+        ):
+            value = jugador.get(
+                key
+            )
+
             if value is not None:
                 return value
 
     return 0
 
 
+def _normalizar_posicion_jugador(
+    jugador,
+):
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+        return "?"
+
+    valor = jugador.get(
+        "position"
+    )
+
+    if valor is None:
+        valor = jugador.get(
+            "pos"
+        )
+
+    if isinstance(
+        valor,
+        dict,
+    ):
+        valor = (
+            valor.get("name")
+            or valor.get("shortName")
+            or valor.get("short")
+            or valor.get("id")
+        )
+
+    texto = (
+        str(valor).strip().lower()
+        if valor is not None
+        else ""
+    )
+
+    equivalencias = {
+        "dl": "DL",
+        "del": "DL",
+        "delantero": "DL",
+        "delanteros": "DL",
+        "forward": "DL",
+        "fw": "DL",
+        "mc": "MC",
+        "med": "MC",
+        "medio": "MC",
+        "mediocentro": "MC",
+        "mediocampista": "MC",
+        "midfielder": "MC",
+        "mf": "MC",
+        "df": "DF",
+        "def": "DF",
+        "defensa": "DF",
+        "defensas": "DF",
+        "defender": "DF",
+        "defenderes": "DF",
+        "pt": "PT",
+        "por": "PT",
+        "portero": "PT",
+        "porteros": "PT",
+        "goalkeeper": "PT",
+        "gk": "PT",
+        "1": "PT",
+        "2": "DF",
+        "3": "MC",
+        "4": "DL",
+    }
+
+    return equivalencias.get(
+        texto,
+        "?",
+    )
+
+
 def obtener_mercado_hoy_datos(
     liga_id,
 ):
-    """
-    Devuelve los jugadores que están actualmente en venta.
+    _CLIENT.prepare_context(
+        liga_id
+    )
 
-    NO devuelve movimientos del día.
-    NO consulta el historial.
+    response = _CLIENT.get(
+        "/market"
+    )
 
-    La consulta se realiza directamente contra:
-        GET /market
+    sales = _extraer_sales_mercado(
+        response
+    )
 
-    El resultado está preparado para que bot.py pueda crear
-    botones inline usando `player_id`.
-    """
+    ahora = datetime.now(
+        MADRID_TZ
+    )
 
-    # Preparamos el contexto de la liga antes de llamar a /market.
-    _CLIENT.prepare_context(liga_id)
+    ahora_timestamp = (
+        ahora.timestamp()
+    )
 
-    response = _CLIENT.get("/market")
+    jugadores = (
+        _extraer_mapa_jugadores()
+    )
 
-    sales = _extraer_sales_mercado(response)
+    jugadores_sistema = []
+    jugadores_managers = []
 
-    ahora = datetime.now(MADRID_TZ)
-    ahora_timestamp = ahora.timestamp()
-
-    jugadores = _extraer_mapa_jugadores()
-
-    mercado = []
-    vistos = set()
+    vistos_sistema = set()
+    vistos_managers = set()
 
     for sale in sales:
 
@@ -2539,8 +2680,10 @@ def obtener_mercado_hoy_datos(
         ):
             continue
 
-        player_id = _extraer_player_id_venta(
-            sale
+        player_id = (
+            _extraer_player_id_venta(
+                sale
+            )
         )
 
         if player_id is None:
@@ -2550,9 +2693,34 @@ def obtener_mercado_hoy_datos(
             )
             continue
 
-        # Evitamos duplicados si la API devuelve la misma venta
-        # más de una vez.
-        sale_id = sale.get("id") if isinstance(sale, dict) else None
+        usuario = (
+            sale.get("user")
+            if isinstance(
+                sale,
+                dict,
+            )
+            else None
+        )
+
+        es_sistema = (
+            usuario is None
+        )
+
+        vistos = (
+            vistos_sistema
+            if es_sistema
+            else vistos_managers
+        )
+
+        sale_id = (
+            sale.get("id")
+            if isinstance(
+                sale,
+                dict,
+            )
+            else None
+        )
+
         dedupe_key = (
             ("sale", sale_id)
             if sale_id is not None
@@ -2562,109 +2730,214 @@ def obtener_mercado_hoy_datos(
         if dedupe_key in vistos:
             continue
 
-        vistos.add(dedupe_key)
+        vistos.add(
+            dedupe_key
+        )
 
-        jugador_api = jugadores.get(player_id)
+        jugador_api = jugadores.get(
+            player_id
+        )
 
-        # Si /market ya trae el objeto completo del jugador,
-        # lo usamos como fallback sin hacer otra petición.
         player_from_sale = (
             sale.get("player")
-            if isinstance(sale, dict)
+            if isinstance(
+                sale,
+                dict,
+            )
             else None
         )
 
-        if jugador_api is None and isinstance(
-            player_from_sale,
-            dict,
+        if (
+            jugador_api is None
+            and isinstance(
+                player_from_sale,
+                dict,
+            )
         ):
-            jugador_api = player_from_sale
+            jugador_api = (
+                player_from_sale
+            )
 
         nombre, equipo = _datos_jugador(
             jugadores,
             player_id,
         )
 
-        # Si el jugador no está en el mapa público pero sí viene
-        # completo en /market, aprovechamos sus datos.
         if (
             nombre == f"Jugador {player_id}"
-            and isinstance(player_from_sale, dict)
-        ):
-            nombre_api = player_from_sale.get("name")
-            if isinstance(nombre_api, str) and nombre_api.strip():
-                nombre = nombre_api.strip()
-
-            team_id = _extraer_team_id_jugador(
-                player_from_sale
+            and isinstance(
+                player_from_sale,
+                dict,
             )
+        ):
+            nombre_api = (
+                player_from_sale.get(
+                    "name"
+                )
+            )
+
+            if (
+                isinstance(
+                    nombre_api,
+                    str,
+                )
+                and nombre_api.strip()
+            ):
+                nombre = (
+                    nombre_api.strip()
+                )
+
+            team_id = (
+                _extraer_team_id_jugador(
+                    player_from_sale
+                )
+            )
+
             if team_id is not None:
-                equipo = _abreviar_equipo_id(team_id)
+                equipo = _abreviar_equipo_id(
+                    team_id
+                )
 
-        until = sale.get("until")
-        until_datetime = _timestamp_datetime(until)
+        until = sale.get(
+            "until"
+        )
 
-        usuario = sale.get("user")
+        until_datetime = (
+            _timestamp_datetime(
+                until
+            )
+        )
+
         user_id = None
         user_name = None
 
-        if isinstance(usuario, dict):
-            user_id = usuario.get("id")
-            user_name = usuario.get("name")
+        if isinstance(
+            usuario,
+            dict,
+        ):
+            user_id = usuario.get(
+                "id"
+            )
 
-        precio = _precio_venta(
-            sale,
-            jugador_api,
+            user_name = (
+                usuario.get("name")
+                or usuario.get("username")
+                or usuario.get("email")
+            )
+
+        posicion = (
+            _normalizar_posicion_jugador(
+                jugador_api
+            )
         )
 
-        mercado.append({
+        if (
+            posicion == "?"
+            and isinstance(
+                player_from_sale,
+                dict,
+            )
+        ):
+            posicion = (
+                _normalizar_posicion_jugador(
+                    player_from_sale
+                )
+            )
+
+        venta = {
             "player_id": player_id,
             "player_name": nombre,
             "team": equipo,
-            "price": precio,
-            "date": sale.get("date"),
+            "position": posicion,
+            "price": _precio_venta(
+                sale,
+                jugador_api,
+            ),
+            "date": sale.get(
+                "date"
+            ),
             "until": until,
             "until_datetime": until_datetime,
             "user_id": user_id,
             "user_name": user_name,
-            # Conservamos la venta original por si bot.py
-            # necesita algún campo adicional de la API.
             "sale": sale,
-        })
+        }
 
-    # Primero las ventas que terminan antes.
-    mercado.sort(
-        key=lambda item: (
-            float(item["until"])
-            if isinstance(item.get("until"), (int, float))
-            else float("inf"),
-            str(item.get("player_name", "")),
+        if es_sistema:
+            jugadores_sistema.append(
+                venta
+            )
+
+        else:
+            jugadores_managers.append(
+                venta
+            )
+
+    def _ordenar_ventas(
+        items,
+    ):
+        orden_posiciones = {
+            "DL": 0,
+            "MC": 1,
+            "DF": 2,
+            "PT": 3,
+            "?": 4,
+        }
+
+        items.sort(
+            key=lambda item: (
+                orden_posiciones.get(
+                    item.get(
+                        "position",
+                        "?",
+                    ),
+                    4,
+                ),
+                float(
+                    item["until"]
+                )
+                if isinstance(
+                    item.get("until"),
+                    (int, float),
+                )
+                else float("inf"),
+                str(
+                    item.get(
+                        "player_name",
+                        "",
+                    )
+                ),
+            )
         )
+
+    _ordenar_ventas(
+        jugadores_sistema
+    )
+
+    _ordenar_ventas(
+        jugadores_managers
     )
 
     logger.info(
-        "Mercado actual: liga=%s ventas_activas=%s ventas_recibidas=%s",
+        "Mercado actual: liga=%s sistema=%s managers=%s ventas_recibidas=%s",
         liga_id,
-        len(mercado),
+        len(jugadores_sistema),
+        len(jugadores_managers),
         len(sales),
     )
 
     return {
         "fecha": ahora,
-        "jugadores": mercado,
+        "jugadores": jugadores_sistema,
+        "jugadores_sistema": jugadores_sistema,
+        "jugadores_managers": jugadores_managers,
+        "mostrar_jugadores_managers": True,
     }
 
 
 def obtener_mercado_hoy(
     liga_id,
 ):
-    """
-    Compatibilidad de texto para el mercado actual.
-
-    Muestra jugadores que están EN VENTA AHORA MISMO,
-    no movimientos realizados durante el día.
-    """
-
     datos = obtener_mercado_hoy_datos(
         liga_id
     )
@@ -2675,16 +2948,12 @@ def obtener_mercado_hoy(
     )
 
     jugadores = datos.get(
-        "jugadores",
-        [],
+        "jugadores_sistema",
+        datos.get(
+            "jugadores",
+            [],
+        ),
     )
-
-    if not jugadores:
-        return (
-            "🛒 MERCADO — HOY\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "No hay jugadores actualmente en venta."
-        )
 
     lineas = [
         "🛒 MERCADO — HOY",
@@ -2692,55 +2961,75 @@ def obtener_mercado_hoy(
         "",
         f"📅 {_nombre_fecha(ahora.timestamp())}",
         "",
+        "🤖 JUGADORES DEL SISTEMA",
+        "",
     ]
 
-    for jugador in jugadores:
-
-        nombre = jugador.get(
-            "player_name",
-            "Jugador desconocido",
-        )
-
-        equipo = jugador.get(
-            "team",
-            "?",
-        )
-
-        precio = _formatear_importe(
-            jugador.get(
-                "price",
-                0,
-            )
-        )
-
-        until = jugador.get("until")
-        hasta = _timestamp_datetime(until)
-
+    if not jugadores:
         lineas.append(
-            f"⚽ {nombre} [{equipo}]"
+            "No hay jugadores actualmente en venta."
         )
-        lineas.append(
-            f"💰 {precio}"
-        )
-
-        if hasta is not None:
-            lineas.append(
-                f"⏳ Termina {hasta.strftime('%H:%M')}"
-            )
 
         lineas.append("")
 
-    return "\n".join(lineas).rstrip()
+    else:
 
+        for jugador in jugadores:
 
-# ============================================================
-# ALIAS MOVIMIENTOS
-# ============================================================
+            nombre = jugador.get(
+                "player_name",
+                "Jugador desconocido",
+            )
+
+            equipo = jugador.get(
+                "team",
+                "?",
+            )
+
+            precio = _formatear_importe(
+                jugador.get(
+                    "price",
+                    0,
+                )
+            )
+
+            until = jugador.get(
+                "until"
+            )
+
+            hasta = _timestamp_datetime(
+                until
+            )
+
+            lineas.append(
+                f"⚽ {nombre} [{equipo}]"
+            )
+
+            lineas.append(
+                f"💰 {precio}"
+            )
+
+            if hasta is not None:
+                lineas.append(
+                    f"⏳ Termina {hasta.strftime('%H:%M')}"
+                )
+
+            lineas.append("")
+
+    lineas.extend([
+        "👤 JUGADORES DE MANAGERS",
+        "",
+        "No hay jugadores en venta",
+    ])
+
+    return "\n".join(
+        lineas
+    ).rstrip()
+
 
 def obtener_movimientos(
     liga_id,
 ):
-
     return obtener_mercado_completo(
         liga_id
     )
@@ -2749,7 +3038,6 @@ def obtener_movimientos(
 def obtener_movimientos_24h(
     liga_id,
 ):
-
     return obtener_mercado_24h(
         liga_id
     )
