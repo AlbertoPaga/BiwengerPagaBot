@@ -937,11 +937,6 @@ def _es_jugador_api(objeto):
 
 # ============================================================
 # MAPA DE JUGADORES
-#
-# player_id -> objeto jugador completo
-#
-# El mapa se descarga una vez y queda cacheado.
-# NO hacemos consultas individuales por jugador.
 # ============================================================
 
 def _extraer_mapa_jugadores(
@@ -1808,9 +1803,6 @@ def _formatear_importe(
 
 # ============================================================
 # FORMATEAR MOVIMIENTO
-#
-# Devuelve los datos estructurados para que bot.py pueda
-# crear el botón inline del jugador.
 # ============================================================
 
 def _formatear_movimiento(
@@ -1903,9 +1895,6 @@ def _obtener_operaciones(
 
 # ============================================================
 # DATOS DE MERCADO
-#
-# Esta función es la que utiliza bot.py para crear los
-# botones inline.
 # ============================================================
 
 def _construir_grupos_mercado(
@@ -2389,8 +2378,10 @@ def obtener_mercado_24h(
 
 # ============================================================
 # MERCADO ACTUAL - JUGADORES EN VENTA
+# ============================================================
 #
 # IMPORTANTE:
+#
 # Esta sección NO usa el historial (/board).
 # Consulta directamente /market para obtener las ventas
 # que siguen activas en este momento.
@@ -2400,90 +2391,52 @@ def obtener_mercado_24h(
 # ============================================================
 
 def _extraer_sales_mercado(response):
-    """Extrae las ventas activas de /market de forma robusta.
-
-    Biwenger puede devolver las ventas directamente en ``sales``,
-    dentro de ``data.sales`` o como una lista dentro de ``data``.
-    También se acepta ``market`` como contenedor por compatibilidad.
     """
+    Extrae la lista de ventas activas de /market.
 
-    if isinstance(response, list):
-        return response
+    Biwenger puede devolver la información directamente en
+    `sales` o, dependiendo de la respuesta, dentro de `data`.
+    Se aceptan ambas formas para hacer la función más robusta.
+    """
 
     if not isinstance(response, dict):
         return []
 
-    candidatos = [
-        response.get("sales"),
-        response.get("market"),
-    ]
+    sales = response.get("sales")
+
+    if isinstance(sales, list):
+        return sales
 
     data = response.get("data")
 
-    if isinstance(data, list):
-        candidatos.append(data)
-
-    elif isinstance(data, dict):
-
-        candidatos.extend([
-            data.get("sales"),
-            data.get("market"),
-        ])
-
-    for ventas in candidatos:
-
-        if isinstance(ventas, list):
-            return ventas
+    if isinstance(data, dict):
+        sales = data.get("sales")
+        if isinstance(sales, list):
+            return sales
 
     return []
 
 
-def _extraer_player_id_venta(
-    sale,
-):
+def _extraer_player_id_venta(sale):
     """Obtiene el ID del jugador desde una venta de /market."""
 
-    if not isinstance(
-        sale,
-        dict,
-    ):
+    if not isinstance(sale, dict):
         return None
 
-    player = sale.get(
-        "player"
-    )
+    player = sale.get("player")
 
-    if isinstance(
-        player,
-        dict,
-    ):
-
-        player_id = player.get(
-            "id"
-        )
-
+    if isinstance(player, dict):
+        player_id = player.get("id")
     else:
-
         player_id = player
 
     if player_id is None:
-
         # Compatibilidad con respuestas que puedan usar playerId.
-        player_id = sale.get(
-            "playerId"
-        )
+        player_id = sale.get("playerId")
 
     try:
-
-        return int(
-            player_id
-        )
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-
+        return int(player_id)
+    except (TypeError, ValueError):
         return None
 
 
@@ -2500,42 +2453,22 @@ def _esta_venta_activa(
     algunas respuestas de la API pueden omitir ese campo.
     """
 
-    if not isinstance(
-        sale,
-        dict,
-    ):
+    if not isinstance(sale, dict):
         return False
 
-    if sale.get(
-        "expired"
-    ) is True:
-
+    if sale.get("expired") is True:
         return False
 
     if ahora_timestamp is None:
-
         ahora_timestamp = time.time()
 
-    until = sale.get(
-        "until"
-    )
+    until = sale.get("until")
 
     if until is not None:
-
         try:
-
-            if (
-                float(until)
-                <= ahora_timestamp
-            ):
-
+            if float(until) <= ahora_timestamp:
                 return False
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-
+        except (TypeError, ValueError):
             # Un `until` inválido no debe hacer desaparecer una
             # venta que la propia API no ha marcado como expirada.
             pass
@@ -2549,64 +2482,107 @@ def _precio_venta(
 ):
     """Obtiene el precio de la venta con varios fallbacks."""
 
-    if isinstance(
-        sale,
-        dict,
-    ):
-
-        for key in (
-            "price",
-            "amount",
-        ):
-
-            value = sale.get(
-                key
-            )
-
+    if isinstance(sale, dict):
+        for key in ("price", "amount"):
+            value = sale.get(key)
             if value is not None:
                 return value
 
-    if isinstance(
-        jugador,
-        dict,
-    ):
-
-        for key in (
-            "price",
-            "fantasyPrice",
-        ):
-
-            value = jugador.get(
-                key
-            )
-
+    if isinstance(jugador, dict):
+        for key in ("price", "fantasyPrice"):
+            value = jugador.get(key)
             if value is not None:
                 return value
 
     return 0
 
 
+def _normalizar_posicion_jugador(
+    jugador,
+):
+    """Devuelve la posición corta de Biwenger: DL, MC, DF o PT."""
+
+    if not isinstance(jugador, dict):
+        return "?"
+
+    valor = jugador.get("position")
+
+    if valor is None:
+        valor = jugador.get("pos")
+
+    if isinstance(valor, dict):
+        valor = (
+            valor.get("name")
+            or valor.get("shortName")
+            or valor.get("short")
+            or valor.get("id")
+        )
+
+    texto = (
+        str(valor).strip().lower()
+        if valor is not None
+        else ""
+    )
+
+    equivalencias = {
+        "dl": "DL",
+        "del": "DL",
+        "delantero": "DL",
+        "delanteros": "DL",
+        "forward": "DL",
+        "fw": "DL",
+
+        "mc": "MC",
+        "med": "MC",
+        "medio": "MC",
+        "mediocentro": "MC",
+        "mediocampista": "MC",
+        "midfielder": "MC",
+        "mf": "MC",
+
+        "df": "DF",
+        "def": "DF",
+        "defensa": "DF",
+        "defensas": "DF",
+        "defender": "DF",
+        "defenderes": "DF",
+
+        "pt": "PT",
+        "por": "PT",
+        "portero": "PT",
+        "porteros": "PT",
+        "goalkeeper": "PT",
+        "gk": "PT",
+
+        "1": "PT",
+        "2": "DF",
+        "3": "MC",
+        "4": "DL",
+    }
+
+    return equivalencias.get(
+        texto,
+        "?",
+    )
+
+
 def obtener_mercado_hoy_datos(
     liga_id,
 ):
     """
-    Obtiene el mercado ACTUAL de la liga directamente desde ``/market``.
+    Devuelve el mercado actual separado por origen.
 
-    Se mantiene separado del historial de /board: esta función muestra
-    exclusivamente las ventas que siguen activas en este momento.
+    - `jugadores_sistema`: ventas con `user: null`.
+    - `jugadores_managers`: ventas realizadas por otros managers.
 
-    ``jugadores_sistema`` contiene las ventas automáticas de Biwenger y
-    ``jugadores_managers`` las ventas realizadas por managers. Se devuelven
-    ambas listas para que la UI pueda mostrarlas sin volver a consultar la API.
+    La UI puede mostrar cada origen por separado. Se conserva `jugadores`
+    como alias de `jugadores_sistema` por compatibilidad con el código anterior.
     """
 
-    _CLIENT.prepare_context(
-        liga_id
-    )
+    # Preparamos el contexto de la liga antes de llamar a /market.
+    _CLIENT.prepare_context(liga_id)
 
-    response = _CLIENT.get(
-        "/market"
-    )
+    response = _CLIENT.get("/market")
 
     sales = _extraer_sales_mercado(
         response
@@ -2616,13 +2592,9 @@ def obtener_mercado_hoy_datos(
         MADRID_TZ
     )
 
-    ahora_timestamp = (
-        ahora.timestamp()
-    )
+    ahora_timestamp = ahora.timestamp()
 
-    jugadores = (
-        _extraer_mapa_jugadores()
-    )
+    jugadores = _extraer_mapa_jugadores()
 
     jugadores_sistema = []
     jugadores_managers = []
@@ -2632,22 +2604,14 @@ def obtener_mercado_hoy_datos(
 
     for sale in sales:
 
-        if not isinstance(
-            sale,
-            dict,
-        ):
-            continue
-
         if not _esta_venta_activa(
             sale,
             ahora_timestamp,
         ):
             continue
 
-        player_id = (
-            _extraer_player_id_venta(
-                sale
-            )
+        player_id = _extraer_player_id_venta(
+            sale
         )
 
         if player_id is None:
@@ -2659,13 +2623,15 @@ def obtener_mercado_hoy_datos(
 
             continue
 
-        usuario = sale.get(
-            "user"
+        # user == None => jugador del sistema.
+        # user != None => jugador puesto en venta por un manager.
+        usuario = (
+            sale.get("user")
+            if isinstance(sale, dict)
+            else None
         )
 
-        es_sistema = (
-            usuario is None
-        )
+        es_sistema = usuario is None
 
         vistos = (
             vistos_sistema
@@ -2673,8 +2639,10 @@ def obtener_mercado_hoy_datos(
             else vistos_managers
         )
 
-        sale_id = sale.get(
-            "id"
+        sale_id = (
+            sale.get("id")
+            if isinstance(sale, dict)
+            else None
         )
 
         dedupe_key = (
@@ -2690,12 +2658,16 @@ def obtener_mercado_hoy_datos(
             dedupe_key
         )
 
-        player_from_sale = sale.get(
-            "player"
-        )
-
         jugador_api = jugadores.get(
             player_id
+        )
+
+        # Si /market trae el objeto completo del jugador, lo usamos
+        # como fallback sin hacer otra petición individual.
+        player_from_sale = (
+            sale.get("player")
+            if isinstance(sale, dict)
+            else None
         )
 
         if (
@@ -2705,16 +2677,15 @@ def obtener_mercado_hoy_datos(
                 dict,
             )
         ):
-
-            jugador_api = (
-                player_from_sale
-            )
+            jugador_api = player_from_sale
 
         nombre, equipo = _datos_jugador(
             jugadores,
             player_id,
         )
 
+        # Si el jugador no está en el mapa público pero sí viene
+        # completo en /market, aprovechamos esos datos.
         if (
             nombre == f"Jugador {player_id}"
             and isinstance(
@@ -2723,10 +2694,8 @@ def obtener_mercado_hoy_datos(
             )
         ):
 
-            nombre_api = (
-                player_from_sale.get(
-                    "name"
-                )
+            nombre_api = player_from_sale.get(
+                "name"
             )
 
             if (
@@ -2737,23 +2706,25 @@ def obtener_mercado_hoy_datos(
                 and nombre_api.strip()
             ):
 
-                nombre = (
-                    nombre_api.strip()
-                )
+                nombre = nombre_api.strip()
 
-            team_id = (
-                _extraer_team_id_jugador(
-                    player_from_sale
-                )
+            team_id = _extraer_team_id_jugador(
+                player_from_sale
             )
 
             if team_id is not None:
 
-                equipo = (
-                    _abreviar_equipo_id(
-                        team_id
-                    )
+                equipo = _abreviar_equipo_id(
+                    team_id
                 )
+
+        until = sale.get(
+            "until"
+        )
+
+        until_datetime = _timestamp_datetime(
+            until
+        )
 
         user_id = None
         user_name = None
@@ -2767,18 +2738,35 @@ def obtener_mercado_hoy_datos(
                 "id"
             )
 
-            user_name = usuario.get(
-                "name"
+            user_name = (
+                usuario.get("name")
+                or usuario.get("username")
+                or usuario.get("email")
             )
 
-        until = sale.get(
-            "until"
+        posicion = _normalizar_posicion_jugador(
+            jugador_api
         )
+
+        # Si la venta trae el jugador completo, aprovechamos también
+        # su posición cuando el mapa público no la tenía disponible.
+        if (
+            posicion == "?"
+            and isinstance(
+                player_from_sale,
+                dict,
+            )
+        ):
+
+            posicion = _normalizar_posicion_jugador(
+                player_from_sale
+            )
 
         venta = {
             "player_id": player_id,
             "player_name": nombre,
             "team": equipo,
+            "position": posicion,
             "price": _precio_venta(
                 sale,
                 jugador_api,
@@ -2787,13 +2775,11 @@ def obtener_mercado_hoy_datos(
                 "date"
             ),
             "until": until,
-            "until_datetime": (
-                _timestamp_datetime(
-                    until
-                )
-            ),
+            "until_datetime": until_datetime,
             "user_id": user_id,
             "user_name": user_name,
+            # Conservamos la venta original por si la UI necesita
+            # algún campo adicional de la API.
             "sale": sale,
         }
 
@@ -2813,17 +2799,29 @@ def obtener_mercado_hoy_datos(
         items,
     ):
 
+        orden_posiciones = {
+            "DL": 0,
+            "MC": 1,
+            "DF": 2,
+            "PT": 3,
+            "?": 4,
+        }
+
         items.sort(
             key=lambda item: (
+                orden_posiciones.get(
+                    item.get(
+                        "position",
+                        "?",
+                    ),
+                    4,
+                ),
                 float(
                     item["until"]
                 )
-                if (
-                    item.get("until")
-                    is not None
-                    and _numero(
-                        item.get("until")
-                    ) is not None
+                if isinstance(
+                    item.get("until"),
+                    (int, float),
                 )
                 else float("inf"),
                 str(
@@ -2853,19 +2851,20 @@ def obtener_mercado_hoy_datos(
 
     return {
         "fecha": ahora,
+
+        # Compatibilidad: `jugadores` contiene exclusivamente
+        # los jugadores del sistema.
         "jugadores": jugadores_sistema,
-        "jugadores_sistema": jugadores_sistema,
-        "jugadores_managers": jugadores_managers,
-        "mostrar_jugadores_managers": (
-            bool(
-                jugadores_managers
-            )
+
+        "jugadores_sistema": (
+            jugadores_sistema
         ),
-        "mensaje_jugadores_managers": (
-            "No hay jugadores en venta"
-            if not jugadores_managers
-            else ""
+
+        "jugadores_managers": (
+            jugadores_managers
         ),
+
+        "mostrar_jugadores_managers": True,
     }
 
 
@@ -2885,9 +2884,7 @@ def obtener_mercado_hoy(
 
     ahora = datos.get(
         "fecha",
-        datetime.now(
-            MADRID_TZ
-        ),
+        datetime.now(MADRID_TZ),
     )
 
     jugadores = datos.get(
@@ -2941,10 +2938,8 @@ def obtener_mercado_hoy(
                 "until"
             )
 
-            hasta = (
-                _timestamp_datetime(
-                    until
-                )
+            hasta = _timestamp_datetime(
+                until
             )
 
             lineas.append(
