@@ -2641,16 +2641,27 @@ def _normalizar_posicion_jugador(
 
 def _extraer_ofertas_venta(
     sale,
+    ofertas_market=None,
 ):
     """
-    Intenta obtener las ofertas recibidas para una venta.
+    Obtiene las ofertas recibidas para una venta.
 
-    Biwenger puede exponerlas con distintos nombres dependiendo
-    de la respuesta/configuración. Si no están disponibles,
-    devuelve una lista vacía.
+    Biwenger puede exponer las ofertas:
+    1. Dentro de la propia venta.
+    2. En el campo global "offers" de /market.
+
+    Se soportan ambos formatos.
     """
-    if not isinstance(sale, dict):
+
+    if not isinstance(
+        sale,
+        dict,
+    ):
         return []
+
+    # -------------------------------------------------
+    # 1. Intentar obtener las ofertas desde la propia venta
+    # -------------------------------------------------
 
     candidatos = (
         "offers",
@@ -2660,12 +2671,22 @@ def _extraer_ofertas_venta(
     )
 
     for key in candidatos:
-        valor = sale.get(key)
 
-        if isinstance(valor, list):
+        valor = sale.get(
+            key
+        )
+
+        if isinstance(
+            valor,
+            list,
+        ):
             return valor
 
-        if isinstance(valor, dict):
+        if isinstance(
+            valor,
+            dict,
+        ):
+
             for subkey in (
                 "data",
                 "items",
@@ -2673,12 +2694,104 @@ def _extraer_ofertas_venta(
                 "offers",
                 "bids",
             ):
-                subvalor = valor.get(subkey)
 
-                if isinstance(subvalor, list):
+                subvalor = valor.get(
+                    subkey
+                )
+
+                if isinstance(
+                    subvalor,
+                    list,
+                ):
                     return subvalor
 
-    return []
+
+    # -------------------------------------------------
+    # 2. Obtener player_id de la venta
+    # -------------------------------------------------
+
+    player_id = _extraer_player_id_venta(
+        sale
+    )
+
+    if player_id is None:
+        return []
+
+    # -------------------------------------------------
+    # 3. Buscar en las ofertas globales de /market
+    # -------------------------------------------------
+
+    if not isinstance(
+        ofertas_market,
+        list,
+    ):
+        return []
+
+    ofertas_encontradas = []
+
+    for oferta in ofertas_market:
+
+        if not isinstance(
+            oferta,
+            dict,
+        ):
+            continue
+
+        # Solo ofertas de compra
+        if oferta.get(
+            "type"
+        ) != "purchase":
+            continue
+
+        # Solo ofertas pendientes
+        if oferta.get(
+            "status"
+        ) != "waiting":
+            continue
+
+        requested_players = (
+            oferta.get(
+                "requestedPlayers",
+                [],
+            )
+        )
+
+        if not isinstance(
+            requested_players,
+            list,
+        ):
+            continue
+
+        jugadores_solicitados = []
+
+        for requested_player in (
+            requested_players
+        ):
+
+            try:
+
+                jugadores_solicitados.append(
+                    int(
+                        requested_player
+                    )
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+        if player_id not in (
+            jugadores_solicitados
+        ):
+            continue
+
+        ofertas_encontradas.append(
+            oferta
+        )
+
+    return ofertas_encontradas
 
 
 def _extraer_importe_oferta(
@@ -2942,6 +3055,24 @@ def obtener_mercado_hoy_datos(
     sales = _extraer_sales_mercado(
         response
     )
+
+    ofertas_market = []
+
+    if isinstance(
+        response,
+        dict,
+    ):
+
+    	ofertas_market = response.get(
+            "offers",
+            [],
+        )
+
+    	if not isinstance(
+            ofertas_market,
+            list,
+        ):
+            ofertas_market = []
 
     ahora = datetime.now(
         MADRID_TZ
@@ -3217,10 +3348,11 @@ def obtener_mercado_hoy_datos(
             )
 
         ofertas = (
-            _extraer_ofertas_venta(
-                sale
-            )
-        )
+    	    _extraer_ofertas_venta(
+        	sale,
+        	ofertas_market,
+    	    )
+	)
 
         importes_ofertas = []
 
