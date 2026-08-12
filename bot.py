@@ -63,6 +63,8 @@ POSICIONES_MERCADO_HOY_ORDEN = (
 
 POSICION_TODAS = "TODAS"
 
+JUGADORES_POR_PAGINA = 6
+
 def formatear_dinero(valor):
     try:
         return f"{int(valor):,}€"
@@ -300,6 +302,150 @@ def boton_jugador_mercado(
     )
 
 
+def _pagina_jugadores(
+    jugadores,
+    pagina=0,
+):
+    if not isinstance(
+        jugadores,
+        list,
+    ):
+        jugadores = []
+
+    total = len(jugadores)
+
+    total_paginas = max(
+        1,
+        (
+            total
+            + JUGADORES_POR_PAGINA
+            - 1
+        )
+        // JUGADORES_POR_PAGINA,
+    )
+
+    try:
+        pagina = int(
+            pagina
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        pagina = 0
+
+    pagina = max(
+        0,
+        min(
+            pagina,
+            total_paginas - 1,
+        ),
+    )
+
+    inicio = (
+        pagina
+        * JUGADORES_POR_PAGINA
+    )
+
+    fin = (
+        inicio
+        + JUGADORES_POR_PAGINA
+    )
+
+    return (
+        jugadores[inicio:fin],
+        pagina,
+        total_paginas,
+    )
+
+
+def _botones_jugadores_paginados(
+    jugadores,
+    pagina,
+    callback_base,
+):
+    jugadores_pagina, pagina, total_paginas = (
+        _pagina_jugadores(
+            jugadores,
+            pagina,
+        )
+    )
+
+    botones = []
+
+    for jugador in jugadores_pagina:
+
+        if not isinstance(
+            jugador,
+            dict,
+        ):
+            continue
+
+        boton = boton_jugador(
+            jugador.get(
+                "player_id"
+            ),
+            jugador.get(
+                "player_name",
+                "Jugador",
+            ),
+            equipo=jugador.get(
+                "team"
+            ),
+            posicion=jugador.get(
+                "position"
+            ),
+        )
+
+        if boton is not None:
+            botones.append([
+                boton
+            ])
+
+    fila_paginacion = []
+
+    if pagina > 0:
+        fila_paginacion.append(
+            InlineKeyboardButton(
+                "◀️",
+                callback_data=(
+                    f"{callback_base}:"
+                    f"{pagina - 1}"
+                ),
+            )
+        )
+
+    fila_paginacion.append(
+        InlineKeyboardButton(
+            f"{pagina + 1}/{total_paginas}",
+            callback_data="noop",
+        )
+    )
+
+    if pagina < total_paginas - 1:
+        fila_paginacion.append(
+            InlineKeyboardButton(
+                "▶️",
+                callback_data=(
+                    f"{callback_base}:"
+                    f"{pagina + 1}"
+                ),
+            )
+        )
+
+    botones.append(
+        fila_paginacion
+    )
+
+    return botones
+
+async def noop_callback(
+    update,
+    context,
+):
+    await update.callback_query.answer()
+
+
 def teclado_menu_liga():
 
     return InlineKeyboardMarkup([
@@ -433,8 +579,43 @@ def teclado_mercado_hoy():
 def teclado_lista_mercado_hoy(
     tipo,
     posicion,
+    mostrar_jugadores=False,
+    pagina=0,
+    total_jugadores=0,
 ):
     botones = []
+
+    # ---------------------------------
+    # MOSTRAR / OCULTAR JUGADORES
+    # ---------------------------------
+
+    if total_jugadores > 0:
+
+        if mostrar_jugadores:
+            botones.append([
+                InlineKeyboardButton(
+                    "🙈 Ocultar Jugadores",
+                    callback_data=(
+                        f"mercadohoy:"
+                        f"{tipo}:"
+                        f"{posicion}:"
+                        f"ocultar"
+                    ),
+                )
+            ])
+
+        else:
+            botones.append([
+                InlineKeyboardButton(
+                    "👤 Mostrar Jugadores",
+                    callback_data=(
+                        f"mercadohoy:"
+                        f"{tipo}:"
+                        f"{posicion}:"
+                        f"mostrar:0"
+                    ),
+                )
+            ])
 
     # ---------------------------------
     # POSICIONES
@@ -505,9 +686,7 @@ def teclado_lista_mercado_hoy(
         InlineKeyboardMarkup(
             botones
         )
-
     )
-
 
 
 def texto_mercado_hoy():
@@ -1702,9 +1881,12 @@ def _añadir_venta_mercado_hoy(
 
 async def mostrar_lista_mercado_hoy(
     query,
+    context,
     datos,
     tipo,
     posicion=POSICION_TODAS,
+    mostrar_jugadores=False,
+    pagina=0,
 ):
     if tipo == "sistema":
 
@@ -1806,6 +1988,11 @@ async def mostrar_lista_mercado_hoy(
             ).casefold(),
         )
     )
+
+    ventas = [
+        venta
+        for venta, _ in ventas_filtradas
+    ]
 
     lineas = [
         titulo,
@@ -1949,13 +2136,69 @@ async def mostrar_lista_mercado_hoy(
             + "\n\n…"
         )
 
-    await editar_mensaje(
-        query,
-        texto,
+    context.user_data[
+        "mercado_hoy_jugadores"
+    ] = ventas
+
+    teclado_botones = (
         teclado_lista_mercado_hoy(
             tipo,
             posicion,
-        ),
+            mostrar_jugadores=mostrar_jugadores,
+            pagina=pagina,
+            total_jugadores=len(ventas),
+        )
+    )
+
+    if mostrar_jugadores:
+
+        botones_jugadores = (
+            _botones_jugadores_paginados(
+                ventas,
+                pagina,
+                (
+                    "mercadohoy:"
+                    f"{tipo}:"
+                    f"{posicion}:mostrar"
+                ),
+            )
+        )
+
+        filas = [
+            list(fila)
+            for fila in (
+                teclado_botones.inline_keyboard
+            )
+        ]
+
+        # Insertar los jugadores justo después
+        # del botón Mostrar/Ocultar.
+        posicion_insercion = 1 if (
+            len(filas) > 0
+            and filas[0]
+            and (
+                "Mostrar Jugadores"
+                in filas[0][0].text
+                or "Ocultar Jugadores"
+                in filas[0][0].text
+            )
+        ) else 0
+
+        filas[
+            posicion_insercion:
+            posicion_insercion
+        ] = botones_jugadores
+
+        teclado_botones = teclado_con_fijar(
+            InlineKeyboardMarkup(
+                filas
+            )
+        )
+
+    await editar_mensaje(
+        query,
+        texto,
+        teclado_botones,
     )
 
 
@@ -2276,36 +2519,54 @@ def construir_mensaje_dia_miembro(
         lineas
     ).rstrip()
 
-
 def construir_botones_dias(
     liga_id,
     miembro_id,
     indice,
-    total_dias,
     orden,
     timestamps,
     movimientos,
+    mostrar_jugadores,
+    pagina_jugadores,
 ):
 
     botones = []
 
-    for movimiento in movimientos:
+    if movimientos:
 
-        boton = boton_jugador(
-            movimiento.get(
-                "player_id"
-            ),
-            movimiento.get(
-                "player_name",
-                "Jugador",
-            ),
-        )
+        botones.append([
+            InlineKeyboardButton(
+                (
+                    "🙈 Ocultar Jugadores"
+                    if mostrar_jugadores
+                    else "👤 Mostrar Jugadores"
+                ),
+                callback_data=(
+                    f"miembrodia:"
+                    f"{liga_id}:"
+                    f"{miembro_id}:"
+                    f"{indice}:"
+                    f"{'ocultar' if mostrar_jugadores else 'mostrar'}:"
+                    f"{pagina_jugadores}"
+                ),
+            )
+        ])
 
-        if boton is not None:
+        if mostrar_jugadores:
 
-            botones.append([
-                boton
-            ])
+            botones.extend(
+                _botones_jugadores_paginados(
+                    movimientos,
+                    pagina_jugadores,
+                    (
+                        f"miembrodia:"
+                        f"{liga_id}:"
+                        f"{miembro_id}:"
+                        f"{indice}:"
+                        "mostrar"
+                    ),
+                )
+            )
 
     fila_fechas = []
 
@@ -2411,6 +2672,8 @@ async def mostrar_dia_miembro(
     miembro_id,
     indice,
     datos=None,
+    mostrar_jugadores=False,
+    pagina_jugadores=0,
 ):
 
     try:
@@ -2806,7 +3069,7 @@ async def cambiar_dia_miembro(
             ":"
         )
 
-        if len(partes) != 4:
+        if len(partes) < 4:
 
             raise ValueError(
                 "Callback de día inválido"
@@ -2823,6 +3086,24 @@ async def cambiar_dia_miembro(
         indice = int(
             partes[3]
         )
+
+        mostrar_jugadores = False
+        pagina_jugadores = 0
+
+        if len(partes) >= 5:
+
+            accion = partes[4]
+
+            if accion == "mostrar":
+                mostrar_jugadores = True
+
+                if len(partes) >= 6:
+                    pagina_jugadores = int(
+                        partes[5]
+                    )
+
+            elif accion == "ocultar":
+                mostrar_jugadores = False
 
         liga_actual = (
             context.user_data.get(
@@ -2846,6 +3127,8 @@ async def cambiar_dia_miembro(
             liga_id,
             miembro_id,
             indice,
+            mostrar_jugadores=mostrar_jugadores,
+            pagina_jugadores=pagina_jugadores,
         )
 
     except Exception:
@@ -3526,10 +3809,36 @@ def construir_mensaje_dia_mercado_completo(
         lineas
     ).rstrip()
 
+def construir_botones_jugadores_mercado_completo(
+    movimientos,
+    indice,
+    pagina=0,
+):
+    jugadores = []
+
+    for movimiento in movimientos:
+
+        if not isinstance(
+            movimiento,
+            dict,
+        ):
+            continue
+
+        jugadores.append(
+            movimiento
+        )
+
+    return _botones_jugadores_paginados(
+        jugadores,
+        pagina,
+        f"completodia:jugadores:{indice}:mostrar",
+    )
 
 def construir_botones_dia_mercado_completo(
     datos,
     indice,
+    mostrar_jugadores=False,
+    pagina_jugadores=0,
 ):
 
     orden = datos.get(
@@ -3577,23 +3886,33 @@ def construir_botones_dia_mercado_completo(
         [],
     )
 
-    for movimiento in movimientos:
+    if movimientos:
 
-        boton = boton_jugador(
-            movimiento.get(
-                "player_id"
-            ),
-            movimiento.get(
-                "player_name",
-                "Jugador",
-            ),
-        )
+        botones.append([
+            InlineKeyboardButton(
+                (
+                    "🙈 Ocultar Jugadores"
+                    if mostrar_jugadores
+                    else "👤 Mostrar Jugadores"
+                ),
+                callback_data=(
+                    f"completodia:"
+                    f"jugadores:"
+                    f"{indice}:"
+                    f"{'ocultar' if mostrar_jugadores else 'mostrar'}:"
+                    f"{pagina_jugadores}"
+                ),
+            )
+        ])
 
-        if boton:
+        if mostrar_jugadores:
 
-            botones.append([
-                boton
-            ])
+            botones.extend(
+                construir_botones_jugadores_mercado_completo(
+                    movimientos,
+                    pagina_jugadores,
+                )
+            )
 
     fila = []
 
@@ -3668,6 +3987,8 @@ async def mostrar_dia_mercado_completo(
     context,
     indice,
     datos=None,
+    mostrar_jugadores=False,
+    pagina_jugadores=0,
 ):
 
     if datos is None:
@@ -3705,6 +4026,8 @@ async def mostrar_dia_mercado_completo(
         construir_botones_dia_mercado_completo(
             datos,
             indice,
+            mostrar_jugadores,
+            pagina_jugadores,
         )
     )
 
@@ -3731,6 +4054,40 @@ async def cambiar_dia_mercado_completo(
 
     try:
 
+        partes = query.data.split(":")
+
+        if len(partes) >= 3 and partes[1] == "jugadores":
+
+            indice = int(
+                partes[2]
+            )
+
+            accion = (
+                partes[3]
+                if len(partes) >= 4
+                else "mostrar"
+            )
+
+            pagina = (
+                int(partes[4])
+                if len(partes) >= 5
+                else 0
+            )
+
+            mostrar_jugadores = (
+                accion == "mostrar"
+            )
+
+            await mostrar_dia_mercado_completo(
+                query,
+                context,
+                indice,
+                mostrar_jugadores=mostrar_jugadores,
+                pagina_jugadores=pagina,
+            )
+
+            return
+
         indice = int(
             query.data.split(
                 ":",
@@ -3744,17 +4101,20 @@ async def cambiar_dia_mercado_completo(
             indice,
         )
 
-    except Exception:
+    except Exception as exc:
 
         logger.exception(
-            "ERROR CAMBIAR DÍA MERCADO COMPLETO"
+            "Error al cambiar el día del mercado: %s",
+            exc,
         )
 
-        await editar_mensaje(
-            query,
-            "❌ No se pudo cambiar de día.",
-            teclado_submenu_mercado(),
-        )
+        try:
+            await query.answer(
+                "No se pudo cargar el mercado.",
+                show_alert=True,
+            )
+        except Exception:
+            pass
 
 
 async def mercado_callback(
@@ -3845,6 +4205,10 @@ async def mercado_callback(
                 "movimientos"
             ]
 
+            context.user_data[
+                "mercado_24h_datos"
+            ] = datos
+
             from biwenger import _nombre_fecha
 
             titulo = (
@@ -3883,33 +4247,14 @@ async def mercado_callback(
 
                 botones = []
 
-                for movimiento in (
-                    movimientos_datos
-                ):
-
-                    ficha = (
-                        obtener_ficha_jugador(
-                            movimiento.get(
-                                "player_id"
-                            )
-                        )
-                        or {}
+                botones.append([
+                    InlineKeyboardButton(
+                        "👤 Mostrar Jugadores",
+                        callback_data=(
+                            "mercado24:mostrar:0"
+                        ),
                     )
-
-                    botones.append([
-                        InlineKeyboardButton(
-                            (
-                                f"⚽ "
-                                f"{movimiento.get('player_name', 'Jugador')} "
-                                f"[{ficha.get('equipo', '?')}] "
-                                f"({ficha.get('posicion', '?')})"
-                            ),
-                            callback_data=(
-                                f"jugador:"
-                                f"{movimiento.get('player_id')}"
-                            ),
-                        )
-                    ])
+                ])
 
                 botones.append([
                     InlineKeyboardButton(
@@ -3940,7 +4285,6 @@ async def mercado_callback(
                         )
                     ),
                 )
-
         elif accion == "miembro":
 
             await mostrar_selector_miembros(
@@ -3975,6 +4319,140 @@ async def mercado_callback(
             pass
 
 
+async def mercado24_jugadores_callback(
+    update,
+    context,
+):
+    query = update.callback_query
+
+    await query.answer()
+
+    try:
+        partes = query.data.split(":")
+
+        accion = partes[1]
+
+        pagina = (
+            int(partes[2])
+            if len(partes) >= 3
+            else 0
+        )
+
+        datos = context.user_data.get(
+            "mercado_24h_datos"
+        )
+
+        if not datos:
+            liga_id = (
+                context.user_data.get(
+                    "liga"
+                )
+            )
+
+            datos = (
+                obtener_mercado_24h_datos(
+                    int(liga_id)
+                )
+            )
+
+            context.user_data[
+                "mercado_24h_datos"
+            ] = datos
+
+        movimientos = datos.get(
+            "movimientos",
+            [],
+        )
+
+        from biwenger import _nombre_fecha
+
+        ahora = datos[
+            "fecha"
+        ]
+
+        titulo = (
+            "⏱️ MERCADO — 24H\n"
+            "📅 "
+            + _nombre_fecha(
+                ahora.timestamp()
+            )
+        )
+
+        texto = (
+            titulo
+            + "\n"
+            + "━━━━━━━━━━━━━━━━━━━━\n\n"
+            + "\n\n".join(
+                m.get(
+                    "texto",
+                    "",
+                )
+                for m in movimientos
+            )
+        )
+
+        botones = []
+
+        if accion == "ocultar":
+
+            botones.append([
+                InlineKeyboardButton(
+                    "👤 Mostrar Jugadores",
+                    callback_data=(
+                        "mercado24:mostrar:0"
+                    ),
+                )
+            ])
+
+        else:
+
+            botones.append([
+                InlineKeyboardButton(
+                    "🙈 Ocultar Jugadores",
+                    callback_data=(
+                        "mercado24:ocultar"
+                    ),
+                )
+            ])
+
+            botones.extend(
+                _botones_jugadores_paginados(
+                    movimientos,
+                    pagina,
+                    "mercado24:mostrar",
+                )
+            )
+
+        botones.append([
+            InlineKeyboardButton(
+                "◀️ Volver a Mercado",
+                callback_data=(
+                    "menu:mercado"
+                ),
+            )
+        ])
+
+        await editar_mensaje(
+            query,
+            texto,
+            teclado_con_fijar(
+                InlineKeyboardMarkup(
+                    botones
+                )
+            ),
+        )
+
+    except Exception:
+        logger.exception(
+            "ERROR MERCADO 24H JUGADORES"
+        )
+
+        await editar_mensaje(
+            query,
+            "❌ No se pudieron mostrar los jugadores.",
+            teclado_submenu_mercado(),
+        )
+
 async def mercado_hoy_callback(
     update,
     context,
@@ -3987,7 +4465,7 @@ async def mercado_hoy_callback(
 
         partes = query.data.split(":")
 
-        if len(partes) < 2:
+        if len(partes) < 3:
             raise ValueError(
                 "Callback de mercado de hoy inválido"
             )
@@ -4003,11 +4481,7 @@ async def mercado_hoy_callback(
                 "Tipo de mercado de hoy inválido"
             )
 
-        posicion = (
-            partes[2]
-            if len(partes) >= 3
-            else POSICION_TODAS
-        )
+        posicion = partes[2]
 
         posiciones_validas = set(
             POSICIONES_MERCADO_HOY_ORDEN
@@ -4018,10 +4492,33 @@ async def mercado_hoy_callback(
         )
 
         if posicion not in posiciones_validas:
-
             raise ValueError(
                 "Posición de mercado inválida"
             )
+
+        mostrar_jugadores = False
+        pagina = 0
+
+        if len(partes) >= 4:
+
+            accion = partes[3]
+
+            if accion == "ocultar":
+                mostrar_jugadores = False
+
+            elif accion == "mostrar":
+
+                mostrar_jugadores = True
+
+                if len(partes) >= 5:
+                    pagina = int(
+                        partes[4]
+                    )
+
+            else:
+                raise ValueError(
+                    "Acción de mercado inválida"
+                )
 
         liga_id = (
             context.user_data.get(
@@ -4051,9 +4548,12 @@ async def mercado_hoy_callback(
 
         await mostrar_lista_mercado_hoy(
             query,
+            context,
             datos,
             tipo,
             posicion,
+            mostrar_jugadores,
+            pagina,
         )
 
     except Exception:
@@ -4155,6 +4655,17 @@ def main():
         )
     )
 
+    # -----------------------------
+    # CALLBACKS
+    # -----------------------------
+
+    app.add_handler(
+        CallbackQueryHandler(
+            noop_callback,
+            pattern=r"^noop$",
+        )
+    )
+
     app.add_handler(
         CallbackQueryHandler(
             elegir_liga,
@@ -4173,6 +4684,13 @@ def main():
         CallbackQueryHandler(
             mercado_callback,
             pattern=r"^mercado:",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            mercado24_jugadores_callback,
+            pattern=r"^mercado24:",
         )
     )
 
