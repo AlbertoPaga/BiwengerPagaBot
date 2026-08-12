@@ -2757,6 +2757,177 @@ def _extraer_valor_actual_jugador(
     return 0
 
 
+def _extraer_precio_compra_jugador(
+    player_id,
+    user_id,
+    historial,
+):
+    """
+    Busca la última compra conocida del jugador
+    realizada por el usuario.
+
+    Devuelve:
+        - importe de compra si existe
+        - None si no existe una compra registrada
+    """
+
+    if not isinstance(
+        historial,
+        dict,
+    ):
+        return None
+
+    eventos = historial.get(
+        "data",
+        [],
+    )
+
+    if not isinstance(
+        eventos,
+        list,
+    ):
+        return None
+
+    try:
+        player_id = int(
+            player_id
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+    try:
+        user_id = int(
+            user_id
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+    operaciones = []
+
+    for event in eventos:
+
+        if not isinstance(
+            event,
+            dict,
+        ):
+            continue
+
+        content = event.get(
+            "content",
+            [],
+        )
+
+        if not isinstance(
+            content,
+            list,
+        ):
+            continue
+
+        event_date = event.get(
+            "date",
+            0,
+        )
+
+        for operation in content:
+
+            if not isinstance(
+                operation,
+                dict,
+            ):
+                continue
+
+            operation_player = (
+                operation.get(
+                    "player"
+                )
+            )
+
+            try:
+                operation_player = int(
+                    operation_player
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            if (
+                operation_player
+                != player_id
+            ):
+                continue
+
+            comprador = operation.get(
+                "to"
+            )
+
+            if not isinstance(
+                comprador,
+                dict,
+            ):
+                continue
+
+            comprador_id = (
+                comprador.get(
+                    "id"
+                )
+            )
+
+            try:
+                comprador_id = int(
+                    comprador_id
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            if (
+                comprador_id
+                != user_id
+            ):
+                continue
+
+            importe = operation.get(
+                "amount"
+            )
+
+            try:
+                importe = float(
+                    importe
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            operaciones.append(
+                (
+                    event_date,
+                    importe,
+                )
+            )
+
+    if not operaciones:
+        return None
+
+    operaciones.sort(
+        key=lambda item: item[0],
+        reverse=True,
+    )
+
+    return operaciones[0][1]
+
+
 def obtener_mercado_hoy_datos(
     liga_id,
 ):
@@ -2783,6 +2954,21 @@ def obtener_mercado_hoy_datos(
     jugadores = (
         _extraer_mapa_jugadores()
     )
+
+    historial = None
+
+    try:
+        historial = (
+            _CLIENT.get_full_market_history(
+                liga_id
+            )
+        )
+    except Exception as exc:
+        logger.warning(
+            "No se pudo cargar el historial "
+            "para calcular precios de compra: %s",
+            exc,
+        )
 
     jugadores_sistema = []
     jugadores_managers = []
@@ -2862,6 +3048,18 @@ def obtener_mercado_hoy_datos(
             and mi_user_id is not None
             and user_id_int == int(mi_user_id)
         )
+
+        precio_compra = None
+
+        if es_mia:
+
+            precio_compra = (
+                _extraer_precio_compra_jugador(
+                    player_id,
+                    mi_user_id,
+                    historial,
+                )
+            )
 
         if es_sistema:
             vistos = vistos_sistema
@@ -3053,6 +3251,7 @@ def obtener_mercado_hoy_datos(
             "points": puntos_totales,
 
             "price": precio_venta,
+            "purchase_price": precio_compra,
             "market_value": valor_actual,
 
             "date": sale.get(

@@ -1448,57 +1448,57 @@ def _añadir_venta_mercado_hoy(
             0,
         )
 
-        lineas.append(
-            f"💰 Venta: {precio}"
+        precio_compra = venta.get(
+            "purchase_price"
         )
 
         lineas.append(
-            f"📊 Valor actual: "
-            f"{formatear_dinero(valor_actual)}"
+            f"💰 Precio de Venta: {precio}"
         )
 
-        try:
-            diferencia = (
-                float(
-                    venta.get(
-                        "price",
-                        0,
+        if precio_compra is not None:
+
+            try:
+
+                diferencia_valor = (
+                    float(
+                        valor_actual
                     )
-                )
-                - float(
-                    valor_actual
-                )
-            )
-
-            if diferencia > 0:
-
-                lineas.append(
-                    "📈 Diferencia: +"
-                    + formatear_dinero(
-                        diferencia
+                    - float(
+                        precio_compra
                     )
                 )
 
-            elif diferencia < 0:
+                if diferencia_valor > 0:
 
-                lineas.append(
-                    "📉 Diferencia: "
-                    + formatear_dinero(
-                        diferencia
+                    lineas.append(
+                        "📈 Diferencia de Valor: +"
+                        + formatear_dinero(
+                            diferencia_valor
+                        )
                     )
-                )
 
-            else:
+                elif diferencia_valor < 0:
 
-                lineas.append(
-                    "➖ Diferencia: 0€"
-                )
+                    lineas.append(
+                        "📉 Diferencia de Valor: "
+                        + formatear_dinero(
+                            diferencia_valor
+                        )
+                    )
 
-        except (
-            TypeError,
-            ValueError,
-        ):
-            pass
+                else:
+
+                    lineas.append(
+                        "➖ Diferencia de Valor: 0€"
+                    )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                pass
+
 
         ofertas = venta.get(
             "offers_count",
@@ -1516,11 +1516,95 @@ def _añadir_venta_mercado_hoy(
         if mejor_oferta is not None:
 
             lineas.append(
-                "🔥 Mejor oferta: "
+                "🔥 Oferta más alta: "
                 + formatear_dinero(
                     mejor_oferta
                 )
             )
+
+            try:
+
+                ganancia_venta = (
+                    float(
+                        mejor_oferta
+                    )
+                    - float(
+                        valor_actual
+                    )
+                )
+
+                if ganancia_venta > 0:
+
+                    lineas.append(
+                        "💵 Ganancia en Venta: +"
+                        + formatear_dinero(
+                            ganancia_venta
+                        )
+                    )
+
+                elif ganancia_venta < 0:
+
+                    lineas.append(
+                        "💵 Ganancia en Venta: "
+                        + formatear_dinero(
+                            ganancia_venta
+                        )
+                    )
+
+                else:
+
+                    lineas.append(
+                        "💵 Ganancia en Venta: 0€"
+                    )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                pass
+
+            if precio_compra is not None:
+
+                try:
+
+                    ganancia_total = (
+                        float(
+                            mejor_oferta
+                        )
+                        - float(
+                            precio_compra
+                        )
+                    )
+
+                    if ganancia_total > 0:
+
+                        lineas.append(
+                            "🏆 Ganancia Total: +"
+                            + formatear_dinero(
+                                ganancia_total
+                            )
+                        )
+
+                    elif ganancia_total < 0:
+
+                        lineas.append(
+                            "🏆 Ganancia Total: "
+                            + formatear_dinero(
+                                ganancia_total
+                            )
+                        )
+
+                    else:
+
+                        lineas.append(
+                            "🏆 Ganancia Total: 0€"
+                        )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    pass
 
     # ---------------------------------
     # SISTEMA / MIEMBROS
