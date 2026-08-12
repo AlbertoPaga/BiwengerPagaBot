@@ -2646,11 +2646,9 @@ def _extraer_ofertas_venta(
     """
     Obtiene las ofertas recibidas para una venta.
 
-    Biwenger puede exponer las ofertas:
-    1. Dentro de la propia venta.
-    2. En el campo global "offers" de /market.
-
-    Se soportan ambos formatos.
+    Biwenger puede devolver las ofertas:
+    - dentro de la propia venta
+    - o en el campo global "offers" de /market
     """
 
     if not isinstance(
@@ -2659,9 +2657,9 @@ def _extraer_ofertas_venta(
     ):
         return []
 
-    # -------------------------------------------------
-    # 1. Intentar obtener las ofertas desde la propia venta
-    # -------------------------------------------------
+    # ---------------------------------
+    # 1. Ofertas dentro de la propia venta
+    # ---------------------------------
 
     candidatos = (
         "offers",
@@ -2705,10 +2703,9 @@ def _extraer_ofertas_venta(
                 ):
                     return subvalor
 
-
-    # -------------------------------------------------
-    # 2. Obtener player_id de la venta
-    # -------------------------------------------------
+    # ---------------------------------
+    # 2. Player ID de la venta
+    # ---------------------------------
 
     player_id = _extraer_player_id_venta(
         sale
@@ -2717,9 +2714,9 @@ def _extraer_ofertas_venta(
     if player_id is None:
         return []
 
-    # -------------------------------------------------
-    # 3. Buscar en las ofertas globales de /market
-    # -------------------------------------------------
+    # ---------------------------------
+    # 3. Ofertas globales de /market
+    # ---------------------------------
 
     if not isinstance(
         ofertas_market,
@@ -2737,7 +2734,7 @@ def _extraer_ofertas_venta(
         ):
             continue
 
-        # Solo ofertas de compra
+        # Solo nos interesan ofertas de compra
         if oferta.get(
             "type"
         ) != "purchase":
@@ -3062,17 +3059,22 @@ def obtener_mercado_hoy_datos(
         response,
         dict,
     ):
-
-    	ofertas_market = response.get(
+        ofertas_market = response.get(
             "offers",
             [],
         )
 
-    	if not isinstance(
+        if not isinstance(
             ofertas_market,
             list,
         ):
             ofertas_market = []
+
+    logger.info(
+        "Mercado: ventas=%s ofertas=%s",
+        len(sales),
+        len(ofertas_market),
+    )
 
     ahora = datetime.now(
         MADRID_TZ
@@ -3322,8 +3324,8 @@ def obtener_mercado_hoy_datos(
         valor_actual = (
 	    _extraer_valor_actual_jugador(
 		jugador_api
-            )
-        )
+	    )
+	)
 
         puntos_totales = (
             _extraer_puntos_totales(
