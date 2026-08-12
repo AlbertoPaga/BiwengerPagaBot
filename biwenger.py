@@ -2710,6 +2710,28 @@ def _extraer_importe_oferta(
 
     return None
 
+def _extraer_puntos_totales(
+    jugador,
+):
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+        return 0
+
+    valor = jugador.get(
+        "points",
+        0,
+    )
+
+    try:
+        return float(valor)
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0
+
 
 def _extraer_valor_actual_jugador(
     jugador,
@@ -2968,11 +2990,33 @@ def obtener_mercado_hoy_datos(
             jugador_api,
         )
 
-        valor_actual = (
+                valor_actual = (
             _extraer_valor_actual_jugador(
                 jugador_api
             )
         )
+
+        puntos_totales = (
+            _extraer_puntos_totales(
+                jugador_api
+            )
+        )
+
+        # Si la información pública del jugador
+        # no tiene los puntos, intentamos obtenerlos
+        # directamente del jugador incluido en la venta.
+        if (
+            puntos_totales == 0
+            and isinstance(
+                player_from_sale,
+                dict,
+            )
+        ):
+            puntos_totales = (
+                _extraer_puntos_totales(
+                    player_from_sale
+                )
+            )
 
         ofertas = (
             _extraer_ofertas_venta(
@@ -3005,6 +3049,8 @@ def obtener_mercado_hoy_datos(
             "player_name": nombre,
             "team": equipo,
             "position": posicion,
+
+            "points": puntos_totales,
 
             "price": precio_venta,
             "market_value": valor_actual,
@@ -3051,6 +3097,17 @@ def obtener_mercado_hoy_datos(
             "?": 4,
         }
 
+        def numero(
+            valor,
+        ):
+            try:
+                return float(valor)
+            except (
+                TypeError,
+                ValueError,
+            ):
+                return 0
+
         items.sort(
             key=lambda item: (
                 orden_posiciones.get(
@@ -3060,14 +3117,18 @@ def obtener_mercado_hoy_datos(
                     ),
                     4,
                 ),
-                float(
-                    item["until"]
-                )
-                if isinstance(
-                    item.get("until"),
-                    (int, float),
-                )
-                else float("inf"),
+                -numero(
+                    item.get(
+                        "points",
+                        0,
+                    )
+                ),
+                -numero(
+                    item.get(
+                        "price",
+                        0,
+                    )
+                ),
                 str(
                     item.get(
                         "player_name",
@@ -3076,6 +3137,7 @@ def obtener_mercado_hoy_datos(
                 ).casefold(),
             )
         )
+
 
     _ordenar_ventas(
         jugadores_sistema

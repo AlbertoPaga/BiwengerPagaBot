@@ -436,13 +436,19 @@ def teclado_lista_mercado_hoy(
 ):
     botones = []
 
+    # ---------------------------------
+    # POSICIONES
+    # ---------------------------------
+
     fila_posiciones = []
 
     for codigo in POSICIONES_MERCADO_HOY_ORDEN:
 
-        texto = POSICIONES_MERCADO_HOY[
-            codigo
-        ]["boton"]
+        texto = (
+            POSICIONES_MERCADO_HOY[
+                codigo
+            ]["boton"]
+        )
 
         if posicion == codigo:
             texto += " ✅"
@@ -458,12 +464,22 @@ def teclado_lista_mercado_hoy(
             )
         )
 
-    texto_todas = "TODAS"
+    botones.append(
+        fila_posiciones
+    )
+
+    # ---------------------------------
+    # TODAS LAS POSICIONES
+    # ---------------------------------
+
+    texto_todas = (
+        "TODAS LAS POSICIONES"
+    )
 
     if posicion == POSICION_TODAS:
         texto_todas += " ✅"
 
-    fila_posiciones.append(
+    botones.append([
         InlineKeyboardButton(
             texto_todas,
             callback_data=(
@@ -472,15 +488,15 @@ def teclado_lista_mercado_hoy(
                 f"{POSICION_TODAS}"
             ),
         )
-    )
+    ])
 
-    botones.append(
-        fila_posiciones
-    )
+    # ---------------------------------
+    # VOLVER
+    # ---------------------------------
 
     botones.append([
         InlineKeyboardButton(
-            "◀️ Volver a Mercado de Hoy",
+            "◀️ Volver al Mercado de Hoy",
             callback_data="mercado:hoy",
         )
     ])
@@ -489,6 +505,7 @@ def teclado_lista_mercado_hoy(
         InlineKeyboardMarkup(
             botones
         )
+
     )
 
 
@@ -1382,6 +1399,21 @@ def _añadir_venta_mercado_hoy(
         "?",
     )
 
+    puntos = venta.get(
+        "points",
+        0,
+    )
+
+    try:
+        puntos = int(
+            float(puntos)
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        puntos = 0
+
     precio = formatear_dinero(
         venta.get(
             "price",
@@ -1393,9 +1425,21 @@ def _añadir_venta_mercado_hoy(
         "until_datetime"
     )
 
+    # ---------------------------------
+    # CABECERA DEL JUGADOR
+    # ---------------------------------
+
     lineas.append(
         f"⚽ {nombre} [{equipo}]"
     )
+
+    lineas.append(
+        f"⭐ Puntos: {puntos}"
+    )
+
+    # ---------------------------------
+    # MIS JUGADORES
+    # ---------------------------------
 
     if tipo == "mios":
 
@@ -1414,7 +1458,6 @@ def _añadir_venta_mercado_hoy(
         )
 
         try:
-
             diferencia = (
                 float(
                     venta.get(
@@ -1476,6 +1519,10 @@ def _añadir_venta_mercado_hoy(
                 )
             )
 
+    # ---------------------------------
+    # SISTEMA / MIEMBROS
+    # ---------------------------------
+
     else:
 
         lineas.append(
@@ -1498,7 +1545,16 @@ def _añadir_venta_mercado_hoy(
                 )
             )
 
-    if until_datetime is not None:
+    # ---------------------------------
+    # HORA DE EXPIRACIÓN
+    #
+    # NO SE MUESTRA PARA EL SISTEMA
+    # ---------------------------------
+
+    if (
+        tipo != "sistema"
+        and until_datetime is not None
+    ):
 
         try:
 
@@ -1513,7 +1569,6 @@ def _añadir_venta_mercado_hoy(
             pass
 
     lineas.append("")
-
 
 
 async def mostrar_lista_mercado_hoy(
@@ -1586,10 +1641,33 @@ async def mostrar_lista_mercado_hoy(
                 )
             )
 
+        def _numero_venta(
+        valor,
+    ):
+        try:
+            return float(valor)
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return 0
+
     ventas_filtradas.sort(
         key=lambda item: (
             _orden_posicion(
                 item[1]
+            ),
+            -_numero_venta(
+                item[0].get(
+                    "points",
+                    0,
+                )
+            ),
+            -_numero_venta(
+                item[0].get(
+                    "price",
+                    0,
+                )
             ),
             str(
                 item[0].get(
@@ -1599,6 +1677,7 @@ async def mostrar_lista_mercado_hoy(
             ).casefold(),
         )
     )
+
 
     lineas = [
         titulo,
