@@ -1494,7 +1494,10 @@ def _añadir_venta_mercado_hoy(
                     "➖ Diferencia: 0€"
                 )
 
-        except Exception:
+        except (
+            TypeError,
+            ValueError,
+        ):
             pass
 
         ofertas = venta.get(
@@ -1555,17 +1558,17 @@ def _añadir_venta_mercado_hoy(
         tipo != "sistema"
         and until_datetime is not None
     ):
-
         try:
-
             lineas.append(
                 "⏳ Termina: "
                 + until_datetime.strftime(
                     "%H:%M"
                 )
             )
-
-        except Exception:
+        except (
+            AttributeError,
+            TypeError,
+        ):
             pass
 
     lineas.append("")
@@ -1641,7 +1644,7 @@ async def mostrar_lista_mercado_hoy(
                 )
             )
 
-        def _numero_venta(
+    def numero_venta(
         valor,
     ):
         try:
@@ -1657,13 +1660,13 @@ async def mostrar_lista_mercado_hoy(
             _orden_posicion(
                 item[1]
             ),
-            -_numero_venta(
+            -numero_venta(
                 item[0].get(
                     "points",
                     0,
                 )
             ),
-            -_numero_venta(
+            -numero_venta(
                 item[0].get(
                     "price",
                     0,
@@ -1677,7 +1680,6 @@ async def mostrar_lista_mercado_hoy(
             ).casefold(),
         )
     )
-
 
     lineas = [
         titulo,
@@ -1694,18 +1696,21 @@ async def mostrar_lista_mercado_hoy(
         if not ventas_filtradas:
 
             if tipo == "sistema":
+
                 mensaje = (
                     "ℹ️ No hay jugadores del sistema "
                     "en venta actualmente."
                 )
 
             elif tipo == "miembros":
+
                 mensaje = (
                     "ℹ️ No hay jugadores de otros "
                     "miembros en venta actualmente."
                 )
 
             else:
+
                 mensaje = (
                     "ℹ️ No tienes jugadores en venta "
                     "actualmente."
@@ -1741,12 +1746,15 @@ async def mostrar_lista_mercado_hoy(
                     )
 
                     if datos_posicion:
+
                         lineas.append(
                             datos_posicion[
                                 "titulo"
                             ]
                         )
+
                     else:
+
                         lineas.append(
                             "📌 SIN POSICIÓN"
                         )
@@ -1776,6 +1784,7 @@ async def mostrar_lista_mercado_hoy(
         )
 
         if datos_posicion:
+
             lineas.append(
                 datos_posicion[
                     "titulo"
@@ -1822,6 +1831,7 @@ async def mostrar_lista_mercado_hoy(
             posicion,
         ),
     )
+
 
 
 async def enviar_submenu_mercado(
