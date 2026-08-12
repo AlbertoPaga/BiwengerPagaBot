@@ -3059,10 +3059,19 @@ def obtener_mercado_hoy_datos(
         response,
         dict,
     ):
-        ofertas_market = response.get(
-            "offers",
-            [],
+        response_data = response.get(
+            "data",
+            {},
         )
+
+        if isinstance(
+            response_data,
+            dict,
+        ):
+            ofertas_market = response_data.get(
+                "offers",
+                [],
+            )
 
         if not isinstance(
             ofertas_market,
