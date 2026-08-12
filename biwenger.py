@@ -2639,6 +2639,102 @@ def _normalizar_posicion_jugador(
     )
 
 
+def _extraer_ofertas_venta(
+    sale,
+):
+    """
+    Intenta obtener las ofertas recibidas para una venta.
+
+    Biwenger puede exponerlas con distintos nombres dependiendo
+    de la respuesta/configuración. Si no están disponibles,
+    devuelve una lista vacía.
+    """
+    if not isinstance(sale, dict):
+        return []
+
+    candidatos = (
+        "offers",
+        "bids",
+        "offersReceived",
+        "bidsReceived",
+    )
+
+    for key in candidatos:
+        valor = sale.get(key)
+
+        if isinstance(valor, list):
+            return valor
+
+        if isinstance(valor, dict):
+            for subkey in (
+                "data",
+                "items",
+                "results",
+                "offers",
+                "bids",
+            ):
+                subvalor = valor.get(subkey)
+
+                if isinstance(subvalor, list):
+                    return subvalor
+
+    return []
+
+
+def _extraer_importe_oferta(
+    oferta,
+):
+    if not isinstance(oferta, dict):
+        return None
+
+    for key in (
+        "amount",
+        "price",
+        "value",
+        "offer",
+        "bid",
+    ):
+        valor = oferta.get(key)
+
+        if isinstance(valor, (int, float)):
+            return valor
+
+        try:
+            if valor is not None:
+                return float(valor)
+        except (
+            TypeError,
+            ValueError,
+        ):
+            pass
+
+    return None
+
+
+def _extraer_valor_actual_jugador(
+    jugador,
+):
+    if not isinstance(jugador, dict):
+        return 0
+
+    for key in (
+        "price",
+        "fantasyPrice",
+    ):
+        valor = jugador.get(key)
+
+        if valor is not None:
+            try:
+                return float(valor)
+            except (
+                TypeError,
+                ValueError,
+            ):
+                pass
+
+    return 0
+
+
 def obtener_mercado_hoy_datos(
     liga_id,
 ):
@@ -2668,9 +2764,13 @@ def obtener_mercado_hoy_datos(
 
     jugadores_sistema = []
     jugadores_managers = []
+    jugadores_mios = []
 
     vistos_sistema = set()
     vistos_managers = set()
+    vistos_mios = set()
+
+    mi_user_id = _CLIENT.user_id
 
     for sale in sales:
 
@@ -2706,11 +2806,47 @@ def obtener_mercado_hoy_datos(
             usuario is None
         )
 
-        vistos = (
-            vistos_sistema
-            if es_sistema
-            else vistos_managers
+        user_id = None
+        user_name = None
+
+        if isinstance(
+            usuario,
+            dict,
+        ):
+            user_id = usuario.get(
+                "id"
+            )
+
+            user_name = (
+                usuario.get("name")
+                or usuario.get("username")
+                or usuario.get("email")
+            )
+
+        try:
+            user_id_int = (
+                int(user_id)
+                if user_id is not None
+                else None
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            user_id_int = None
+
+        es_mia = (
+            not es_sistema
+            and mi_user_id is not None
+            and user_id_int == int(mi_user_id)
         )
+
+        if es_sistema:
+            vistos = vistos_sistema
+        elif es_mia:
+            vistos = vistos_mios
+        else:
+            vistos = vistos_managers
 
         sale_id = (
             sale.get("id")
@@ -2808,23 +2944,6 @@ def obtener_mercado_hoy_datos(
             )
         )
 
-        user_id = None
-        user_name = None
-
-        if isinstance(
-            usuario,
-            dict,
-        ):
-            user_id = usuario.get(
-                "id"
-            )
-
-            user_name = (
-                usuario.get("name")
-                or usuario.get("username")
-                or usuario.get("email")
-            )
-
         posicion = (
             _normalizar_posicion_jugador(
                 jugador_api
@@ -2844,27 +2963,75 @@ def obtener_mercado_hoy_datos(
                 )
             )
 
+        precio_venta = _precio_venta(
+            sale,
+            jugador_api,
+        )
+
+        valor_actual = (
+            _extraer_valor_actual_jugador(
+                jugador_api
+            )
+        )
+
+        ofertas = (
+            _extraer_ofertas_venta(
+                sale
+            )
+        )
+
+        importes_ofertas = []
+
+        for oferta in ofertas:
+            importe = (
+                _extraer_importe_oferta(
+                    oferta
+                )
+            )
+
+            if importe is not None:
+                importes_ofertas.append(
+                    importe
+                )
+
+        mejor_oferta = (
+            max(importes_ofertas)
+            if importes_ofertas
+            else None
+        )
+
         venta = {
             "player_id": player_id,
             "player_name": nombre,
             "team": equipo,
             "position": posicion,
-            "price": _precio_venta(
-                sale,
-                jugador_api,
-            ),
+
+            "price": precio_venta,
+            "market_value": valor_actual,
+
             "date": sale.get(
                 "date"
             ),
             "until": until,
             "until_datetime": until_datetime,
-            "user_id": user_id,
+
+            "user_id": user_id_int,
             "user_name": user_name,
+
+            "offers": ofertas,
+            "offers_count": len(ofertas),
+            "best_offer": mejor_oferta,
+
             "sale": sale,
         }
 
         if es_sistema:
             jugadores_sistema.append(
+                venta
+            )
+
+        elif es_mia:
+            jugadores_mios.append(
                 venta
             )
 
@@ -2906,7 +3073,7 @@ def obtener_mercado_hoy_datos(
                         "player_name",
                         "",
                     )
-                ),
+                ).casefold(),
             )
         )
 
@@ -2918,19 +3085,31 @@ def obtener_mercado_hoy_datos(
         jugadores_managers
     )
 
+    _ordenar_ventas(
+        jugadores_mios
+    )
+
     logger.info(
-        "Mercado actual: liga=%s sistema=%s managers=%s ventas_recibidas=%s",
+        "Mercado actual: liga=%s sistema=%s "
+        "otros_managers=%s mis_ventas=%s ventas_recibidas=%s",
         liga_id,
         len(jugadores_sistema),
         len(jugadores_managers),
+        len(jugadores_mios),
         len(sales),
     )
 
     return {
         "fecha": ahora,
+
         "jugadores": jugadores_sistema,
+
         "jugadores_sistema": jugadores_sistema,
+
         "jugadores_managers": jugadores_managers,
+
+        "jugadores_mios": jugadores_mios,
+
         "mostrar_jugadores_managers": True,
     }
 

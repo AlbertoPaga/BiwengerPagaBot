@@ -375,18 +375,23 @@ def teclado_submenu_mercado():
 
 
 def teclado_mercado_hoy():
-
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "🤖 Jugadores en Venta Sistema",
+                "🤖 Jugadores en Venta - Sistema",
                 callback_data="mercadohoy:sistema",
             )
         ],
         [
             InlineKeyboardButton(
-                "👤 Jugadores en Venta Miembros",
+                "👥 Jugadores en Venta - Miembros",
                 callback_data="mercadohoy:miembros",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👤 Mis jugadores en venta",
+                callback_data="mercadohoy:mios",
             )
         ],
         [
@@ -396,7 +401,6 @@ def teclado_mercado_hoy():
             )
         ],
     ])
-
 
 def teclado_lista_mercado_hoy():
 
@@ -1292,7 +1296,6 @@ async def mostrar_lista_mercado_hoy(
     datos,
     tipo,
 ):
-
     if tipo == "sistema":
 
         titulo = (
@@ -1304,10 +1307,10 @@ async def mostrar_lista_mercado_hoy(
             [],
         )
 
-    else:
+    elif tipo == "miembros":
 
         titulo = (
-            "👤 JUGADORES EN VENTA — MIEMBROS"
+            "👥 JUGADORES EN VENTA — MIEMBROS"
         )
 
         ventas = datos.get(
@@ -1315,11 +1318,21 @@ async def mostrar_lista_mercado_hoy(
             [],
         )
 
+    else:
+
+        titulo = (
+            "👤 MIS JUGADORES EN VENTA"
+        )
+
+        ventas = datos.get(
+            "jugadores_mios",
+            [],
+        )
+
     if not isinstance(
         ventas,
         list,
     ):
-
         ventas = []
 
     ordenadas = (
@@ -1336,8 +1349,29 @@ async def mostrar_lista_mercado_hoy(
 
     if not ordenadas:
 
+        if tipo == "sistema":
+
+            mensaje = (
+                "ℹ️ No hay jugadores del sistema "
+                "en venta actualmente."
+            )
+
+        elif tipo == "miembros":
+
+            mensaje = (
+                "ℹ️ No hay jugadores de otros "
+                "miembros en venta actualmente."
+            )
+
+        else:
+
+            mensaje = (
+                "ℹ️ No tienes jugadores en venta "
+                "actualmente."
+            )
+
         lineas.append(
-            "No hay jugadores en venta."
+            mensaje
         )
 
     else:
@@ -1359,7 +1393,11 @@ async def mostrar_lista_mercado_hoy(
                 }
 
                 lineas.append(
-                    f"📌 {nombres_posicion.get(posicion, 'SIN POSICIÓN')}"
+                    "📌 "
+                    + nombres_posicion.get(
+                        posicion,
+                        "SIN POSICIÓN",
+                    )
                 )
 
                 lineas.append("")
@@ -1387,41 +1425,108 @@ async def mostrar_lista_mercado_hoy(
                 "until_datetime"
             )
 
-            user_name = venta.get(
-                "user_name"
-            )
-
             lineas.append(
                 f"⚽ {nombre} [{equipo}]"
             )
 
-            lineas.append(
-                f"💰 Precio: {precio}"
-            )
+            if tipo == "mios":
 
-            if (
-                tipo == "miembros"
-                and user_name
-            ):
-
-                lineas.append(
-                    f"👤 Vendedor: {user_name}"
+                valor_actual = formatear_dinero(
+                    venta.get(
+                        "market_value",
+                        0,
+                    )
                 )
 
-            if (
-                tipo == "miembros"
-                and until_datetime is not None
-            ):
+                diferencia = (
+                    venta.get(
+                        "price",
+                        0,
+                    )
+                    - venta.get(
+                        "market_value",
+                        0,
+                    )
+                )
+
+                lineas.append(
+                    f"💰 Venta: {precio}"
+                )
+
+                lineas.append(
+                    f"📊 Valor actual: {valor_actual}"
+                )
+
+                if diferencia > 0:
+                    lineas.append(
+                        "📈 Diferencia: +"
+                        + formatear_dinero(
+                            diferencia
+                        )
+                    )
+
+                elif diferencia < 0:
+                    lineas.append(
+                        "📉 Diferencia: "
+                        + formatear_dinero(
+                            diferencia
+                        )
+                    )
+
+                else:
+                    lineas.append(
+                        "➖ Diferencia: 0€"
+                    )
+
+                ofertas_count = venta.get(
+                    "offers_count",
+                    0,
+                )
+
+                lineas.append(
+                    f"💬 Ofertas recibidas: {ofertas_count}"
+                )
+
+                mejor_oferta = venta.get(
+                    "best_offer"
+                )
+
+                if mejor_oferta is not None:
+                    lineas.append(
+                        "🔥 Mejor oferta: "
+                        + formatear_dinero(
+                            mejor_oferta
+                        )
+                    )
+
+            else:
+
+                lineas.append(
+                    f"💰 Precio: {precio}"
+                )
+
+                if (
+                    tipo == "miembros"
+                    and venta.get("user_name")
+                ):
+                    lineas.append(
+                        "👤 Vendedor: "
+                        + str(
+                            venta.get(
+                                "user_name"
+                            )
+                        )
+                    )
+
+            if until_datetime is not None:
 
                 try:
-
                     lineas.append(
                         "⏳ Termina: "
                         + until_datetime.strftime(
                             "%H:%M"
                         )
                     )
-
                 except Exception:
                     pass
 
@@ -1445,7 +1550,6 @@ async def mostrar_lista_mercado_hoy(
         texto,
         teclado_lista_mercado_hoy(),
     )
-
 
 async def enviar_submenu_mercado(
     update,
@@ -3466,20 +3570,17 @@ async def mercado_hoy_callback(
     update,
     context,
 ):
-
     query = update.callback_query
 
     await query.answer()
 
     try:
-
         partes = query.data.split(
             ":",
             1,
         )
 
         if len(partes) != 2:
-
             raise ValueError(
                 "Callback de mercado de hoy inválido"
             )
@@ -3489,8 +3590,8 @@ async def mercado_hoy_callback(
         if tipo not in (
             "sistema",
             "miembros",
+            "mios",
         ):
-
             raise ValueError(
                 "Tipo de mercado de hoy inválido"
             )
@@ -3502,7 +3603,6 @@ async def mercado_hoy_callback(
         )
 
         if not liga_id:
-
             await query.answer(
                 "Primero selecciona una liga.",
                 show_alert=True,
@@ -3528,9 +3628,8 @@ async def mercado_hoy_callback(
         )
 
     except Exception:
-
         logger.exception(
-            "ERROR MERCADO HOY CALLBACK"
+            "ERROR MERCADO HOY"
         )
 
         await editar_mensaje(
