@@ -2990,9 +2990,9 @@ def obtener_mercado_hoy_datos(
             jugador_api,
         )
 
-                valor_actual = (
-            _extraer_valor_actual_jugador(
-                jugador_api
+        valor_actual = (
+	    _extraer_valor_actual_jugador(
+		jugador_api
             )
         )
 
