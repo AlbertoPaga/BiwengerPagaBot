@@ -1452,9 +1452,40 @@ def _añadir_venta_mercado_hoy(
             "purchase_price"
         )
 
+        # -----------------------------
+        # PRECIOS
+        # -----------------------------
+
         lineas.append(
             f"💰 Precio de Venta: {precio}"
         )
+
+        if precio_compra is not None:
+
+            lineas.append(
+                "🛒 Precio de Compra: "
+                + formatear_dinero(
+                    precio_compra
+                )
+            )
+
+        else:
+
+            lineas.append(
+                "🛒 Precio de Compra: "
+                "No disponible"
+            )
+
+        lineas.append(
+            "📊 Valor Actual: "
+            + formatear_dinero(
+                valor_actual
+            )
+        )
+
+        # -----------------------------
+        # DIFERENCIA DE VALOR
+        # -----------------------------
 
         if precio_compra is not None:
 
@@ -1499,6 +1530,9 @@ def _añadir_venta_mercado_hoy(
             ):
                 pass
 
+        # -----------------------------
+        # OFERTAS
+        # -----------------------------
 
         ofertas = venta.get(
             "offers_count",
@@ -1521,6 +1555,10 @@ def _añadir_venta_mercado_hoy(
                     mejor_oferta
                 )
             )
+
+            # -------------------------
+            # GANANCIA EN VENTA
+            # -------------------------
 
             try:
 
@@ -1562,6 +1600,10 @@ def _añadir_venta_mercado_hoy(
                 ValueError,
             ):
                 pass
+
+            # -------------------------
+            # GANANCIA TOTAL
+            # -------------------------
 
             if precio_compra is not None:
 
