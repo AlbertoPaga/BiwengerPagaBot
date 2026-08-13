@@ -890,6 +890,13 @@ class BiwengerClient:
             if not isinstance(games, list):
                 games = []
 
+            if games:
+                logger.warning(
+                    "DEBUG PARTIDO JORNADA %s: %r",
+                    round_id,
+                    games[0],
+                )
+
             jornada = {
                 "id": round_id,
                 "short": short,
@@ -1028,20 +1035,49 @@ def obtener_jornadas():
     """
     Obtiene todas las jornadas de LaLiga.
 
-    El cliente ya se encarga de recorrer los IDs de las jornadas
-    y obtener cada jornada individualmente.
-
-    Aquí simplemente devolvemos las jornadas normalizadas.
+    El cliente ya recorre los IDs de las jornadas
+    y obtiene los partidos de cada una.
     """
 
     try:
-        jornadas = _CLIENT.obtener_jornadas()
 
-        if not isinstance(jornadas, list):
+        response = _CLIENT.obtener_jornadas()
+
+        # El cliente devuelve:
+        #
+        # {
+        #     "data": [
+        #         {
+        #             "id": 4899,
+        #             "short": "J1",
+        #             "name": "Jornada 1",
+        #             "games": [...]
+        #         },
+        #         ...
+        #     ]
+        # }
+
+        if not isinstance(response, dict):
+
             logger.error(
                 "Respuesta de jornadas inesperada: %r",
+                type(response).__name__,
+            )
+
+            return []
+
+        jornadas = response.get(
+            "data",
+            [],
+        )
+
+        if not isinstance(jornadas, list):
+
+            logger.error(
+                "Campo data de jornadas inesperado: %r",
                 type(jornadas).__name__,
             )
+
             return []
 
         logger.warning(
@@ -1051,7 +1087,12 @@ def obtener_jornadas():
                     jornada.get("id"),
                     jornada.get("name"),
                     jornada.get("short"),
-                    len(jornada.get("games", [])),
+                    len(
+                        jornada.get(
+                            "games",
+                            [],
+                        )
+                    ),
                 )
                 for jornada in jornadas
                 if isinstance(jornada, dict)
@@ -1061,11 +1102,15 @@ def obtener_jornadas():
         return jornadas
 
     except Exception as exc:
+
         logger.exception(
             "Error obteniendo jornadas: %s",
             exc,
         )
+
         return []
+
+
 def obtener_jornada(
     jornada_id,
 ):
