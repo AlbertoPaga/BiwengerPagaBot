@@ -7,9 +7,20 @@ from zoneinfo import ZoneInfo
 from config import BIWENGER_USERNAME, BIWENGER_PASSWORD
 
 BASE_URL = "https://biwenger.as.com/api/v2"
-PLAYERS_URL = "https://cf.biwenger.com/api/v2/competitions/la-liga/data"
+
+PLAYERS_URL = (
+    "https://cf.biwenger.com/api/v2/competitions/la-liga/data"
+)
+
+ROUNDS_URL = (
+    "https://cf.biwenger.com/api/v2/rounds/la-liga"
+)
+
 SALDO_INICIAL = 20_000_000
-MADRID_TZ = ZoneInfo("Europe/Madrid")
+
+MADRID_TZ = ZoneInfo(
+    "Europe/Madrid"
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("biwenger")
@@ -747,6 +758,188 @@ class BiwengerClient:
 
 _CLIENT = BiwengerClient()
 
+
+def obtener_jornadas():
+    """
+    Obtiene todas las jornadas de LaLiga.
+
+    La información procede del endpoint público:
+    /rounds/la-liga
+
+    Cada jornada conserva:
+        id
+        short
+        name
+        games
+    """
+
+    try:
+
+        response = requests.get(
+            ROUNDS_URL,
+            params={
+                "score": 2,
+                "lang": "es",
+                "v": 631,
+            },
+            timeout=15,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+    except Exception as exc:
+
+        logger.exception(
+            "Error obteniendo jornadas: %s",
+            exc,
+        )
+
+        return []
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return []
+
+    jornadas = data.get(
+        "data",
+        [],
+    )
+
+    if not isinstance(
+        jornadas,
+        list,
+    ):
+        return []
+
+    resultado = []
+
+    for jornada in jornadas:
+
+        if not isinstance(
+            jornada,
+            dict,
+        ):
+            continue
+
+        jornada_id = jornada.get(
+            "id"
+        )
+
+        if jornada_id is None:
+            continue
+
+        resultado.append({
+            "id": jornada_id,
+            "short": jornada.get(
+                "short",
+                "",
+            ),
+            "name": jornada.get(
+                "name",
+                "",
+            ),
+            "games": (
+                jornada.get(
+                    "games",
+                    [],
+                )
+                if isinstance(
+                    jornada.get(
+                        "games",
+                        [],
+                    ),
+                    list,
+                )
+                else []
+            ),
+        })
+
+    logger.info(
+        "Jornadas obtenidas: %s",
+        len(resultado),
+    )
+
+    return resultado
+
+
+def obtener_jornada(
+    jornada_id,
+):
+    """
+    Obtiene una jornada concreta por su ID.
+    """
+
+    jornadas = obtener_jornadas()
+
+    for jornada in jornadas:
+
+        if str(
+            jornada.get("id")
+        ) == str(jornada_id):
+
+            return jornada
+
+    return None
+
+
+def _timestamp_partido(
+    partido,
+):
+    """
+    Intenta obtener el timestamp del comienzo
+    de un partido.
+    """
+
+    if not isinstance(
+        partido,
+        dict,
+    ):
+        return None
+
+    for clave in (
+        "date",
+        "start",
+        "startDate",
+        "timestamp",
+    ):
+
+        valor = partido.get(
+            clave
+        )
+
+        if isinstance(
+            valor,
+            (int, float),
+        ):
+            return float(
+                valor
+            )
+
+        if isinstance(
+            valor,
+            str,
+        ):
+
+            try:
+
+                return datetime.fromisoformat(
+                    valor.replace(
+                        "Z",
+                        "+00:00",
+                    )
+                ).timestamp()
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+    return None
 
 def obtener_ligas():
     return _CLIENT.leagues()
