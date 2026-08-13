@@ -25,6 +25,14 @@ from biwenger import (
     obtener_ficha_jugador,
     obtener_jornadas,
     obtener_jornada,
+    _timestamp_partido,
+)
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+MADRID_TZ = ZoneInfo(
+    "Europe/Madrid"
 )
 
 logging.basicConfig(
@@ -246,7 +254,8 @@ def formatear_fecha_boton(timestamp):
         from datetime import datetime
 
         fecha = datetime.fromtimestamp(
-            float(timestamp)
+            float(timestamp),
+            tz=MADRID_TZ,
         )
 
         return fecha.strftime(
@@ -279,10 +288,23 @@ async def mostrar_todas_jornadas(
 
             return
 
-        jornadas = list(
-            reversed(
-                jornadas
-            )
+        jornadas = sorted(
+            jornadas,
+            key=lambda jornada: (
+                min(
+                    (
+                        _timestamp_partido(game)
+                        for game in jornada.get(
+                            "games",
+                            []
+                        )
+                        if _timestamp_partido(game)
+                        is not None
+                    ),
+                    default=float("inf"),
+                ),
+                int(jornada.get("id", 0)),
+            ),
         )
 
         texto = (
@@ -3512,6 +3534,11 @@ def construir_texto_jornada(
         "",
     )
 
+    if "aplazada" in name.lower():
+        texto_boton = f"{short} ⏳"
+    else:
+        texto_boton = str(short)
+
     games = jornada.get(
         "games",
         [],
@@ -5018,6 +5045,76 @@ async def mercado_hoy_callback(
             teclado_mercado_hoy(),
         )
 
+async def mostrar_jornada_actual(
+    query,
+    context,
+):
+    try:
+        jornadas = obtener_jornadas()
+
+        if not jornadas:
+            await editar_mensaje(
+                query,
+                (
+                    "📅 JORNADA ACTUAL\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "No se encontraron jornadas."
+                ),
+                teclado_submenu_jornadas(),
+            )
+            return
+
+        ahora = datetime.now().timestamp()
+
+        jornada_actual = None
+        mejor_timestamp = None
+
+        for jornada in jornadas:
+
+            for game in jornada.get(
+                "games",
+                [],
+            ):
+                timestamp = _timestamp_partido(
+                    game
+                )
+
+                if timestamp is None:
+                    continue
+
+                # Primera jornada cuyo partido todavía
+                # no ha comenzado.
+                if timestamp >= ahora:
+
+                    if (
+                        mejor_timestamp is None
+                        or timestamp < mejor_timestamp
+                    ):
+                        mejor_timestamp = timestamp
+                        jornada_actual = jornada
+
+        # Si todos los partidos ya han pasado,
+        # utilizamos la última jornada disponible.
+        if jornada_actual is None:
+            jornada_actual = jornadas[-1]
+
+        await mostrar_jornada(
+            query,
+            context,
+            jornada_actual,
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "ERROR JORNADA ACTUAL: %s",
+            exc,
+        )
+
+        await editar_mensaje(
+            query,
+            "❌ No se pudo cargar la jornada actual.",
+            teclado_submenu_jornadas(),
+        )
 
 async def jornadas_callback(
     update,
@@ -5266,12 +5363,6 @@ def main():
         )
     )
 
-    app.add_handler(
-        CallbackQueryHandler(
-            jornadas_callback,
-            pattern=r"^jornadas:",
-        )
-    )
 
     app.add_handler(
         CallbackQueryHandler(
