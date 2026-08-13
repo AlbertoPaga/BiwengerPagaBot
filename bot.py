@@ -447,7 +447,6 @@ async def noop_callback(
 
 
 def teclado_menu_liga():
-
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -459,6 +458,12 @@ def teclado_menu_liga():
             InlineKeyboardButton(
                 "🔄 Mercado",
                 callback_data="menu:mercado",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📅 Jornadas",
+                callback_data="menu:jornadas",
             )
         ],
         [
@@ -545,6 +550,73 @@ def teclado_submenu_mercado():
             )
         ],
     ])
+
+
+def teclado_submenu_jornadas():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "🟢 Jornada Actual",
+                callback_data="jornadas:actual",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📚 Todas las Jornadas",
+                callback_data="jornadas:todas",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "◀️ Volver",
+                callback_data="menu:principal",
+            )
+        ],
+    ])
+
+
+def texto_submenu_jornadas():
+    return (
+        "📅 JORNADAS\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Selecciona una opción:"
+    )
+
+
+async def mostrar_submenu_jornadas(
+    update,
+    context,
+    editar=True,
+):
+    texto = texto_submenu_jornadas()
+
+    teclado = teclado_submenu_jornadas()
+
+    if update.callback_query is not None:
+
+        if editar:
+
+            await editar_mensaje(
+                update.callback_query,
+                texto,
+                teclado,
+            )
+
+        else:
+
+            await update.callback_query.message.reply_text(
+                texto,
+                reply_markup=teclado,
+            )
+
+        return
+
+    if update.message is not None:
+
+        await update.message.reply_text(
+            texto,
+            reply_markup=teclado,
+        )
 
 
 def teclado_mercado_hoy():
@@ -3685,6 +3757,14 @@ async def menu_callback(
                 editar=True,
             )
 
+        elif accion == "jornadas":
+
+            await mostrar_submenu_jornadas(
+                update,
+                context,
+                editar=True,
+            )
+
         elif accion == "principal":
 
             await editar_mensaje(
@@ -4569,6 +4649,110 @@ async def mercado_hoy_callback(
         )
 
 
+async def jornadas_callback(
+    update,
+    context,
+):
+    query = update.callback_query
+
+    await query.answer()
+
+    try:
+
+        partes = query.data.split(
+            ":"
+        )
+
+        if len(partes) < 2:
+            raise ValueError(
+                "Callback de jornadas inválido"
+            )
+
+        accion = partes[1]
+
+        if accion == "principal":
+
+            await mostrar_submenu_jornadas(
+                update,
+                context,
+                editar=True,
+            )
+
+            return
+
+        if accion == "actual":
+
+            await editar_mensaje(
+                query,
+                (
+                    "🟢 JORNADA ACTUAL\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🚧 Esta sección se implementará "
+                    "en el siguiente paso."
+                ),
+                teclado_con_fijar(
+                    InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton(
+                                "◀️ Volver a Jornadas",
+                                callback_data=(
+                                    "jornadas:principal"
+                                ),
+                            )
+                        ]
+                    ])
+                ),
+            )
+
+            return
+
+        if accion == "todas":
+
+            await editar_mensaje(
+                query,
+                (
+                    "📚 TODAS LAS JORNADAS\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🚧 Esta sección se implementará "
+                    "en el siguiente paso."
+                ),
+                teclado_con_fijar(
+                    InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton(
+                                "◀️ Volver a Jornadas",
+                                callback_data=(
+                                    "jornadas:principal"
+                                ),
+                            )
+                        ]
+                    ])
+                ),
+            )
+
+            return
+
+        raise ValueError(
+            "Acción de jornadas desconocida"
+        )
+
+    except Exception:
+
+        logger.exception(
+            "ERROR JORNADAS CALLBACK"
+        )
+
+        try:
+
+            await query.answer(
+                "❌ Se produjo un error.",
+                show_alert=True,
+            )
+
+        except Exception:
+            pass
+
+
 async def error_handler(
     update,
     context,
@@ -4684,6 +4868,13 @@ def main():
         CallbackQueryHandler(
             mercado_callback,
             pattern=r"^mercado:",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            jornadas_callback,
+            pattern=r"^jornadas:",
         )
     )
 
