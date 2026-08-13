@@ -3549,8 +3549,13 @@ def construir_texto_jornada(
     if "aplazada" in str(name).lower():
         indicador_aplazada = " ⏳"
 
+    numero_jornada = short
+
+    if short.upper().startswith("J"):
+        numero_jornada = short[1:]
+
     lineas = [
-        f"📅 {short}{indicador_aplazada}",
+        f"🏆 Jornada {numero_jornada}{indicador_aplazada}",
         "━━━━━━━━━━━━━━━━━━━━",
     ]
 
@@ -3687,46 +3692,50 @@ def construir_texto_jornada(
 
 
 def teclado_jornada(
+    jornada_id,
     origen="actual",
 ):
     """
     Teclado de una jornada concreta.
-
-    origen:
-        actual -> venimos de Jornada Actual
-        todas -> venimos del selector Todas las Jornadas
     """
 
-    if origen == "todas":
-
-        volver_callback = (
-            "jornadas:todas"
-        )
-
-        volver_texto = (
-            "◀️ Volver a Todas las Jornadas"
-        )
-
-    else:
-
-        volver_callback = (
-            "menu:jornadas"
-        )
-
-        volver_texto = (
-            "◀️ Volver a Menú Jornadas"
-        )
+    teclado = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "⚽ Partidos",
+                callback_data=(
+                    f"jornada:partidos:{jornada_id}"
+                ),
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👥 Onces elegidos",
+                callback_data=(
+                    f"jornada:onces:{jornada_id}"
+                ),
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👤 Mi jornada",
+                callback_data=(
+                    f"jornada:mi_jornada:{jornada_id}"
+                ),
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔙 Todas las jornadas",
+                callback_data="jornadas:todas",
+            )
+        ],
+    ])
 
     return teclado_con_fijar(
-        InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(
-                    volver_texto,
-                    callback_data=volver_callback,
-                )
-            ],
-        ])
+        teclado
     )
+
 
 def construir_texto_ficha_jugador(
     jugador,
@@ -5003,14 +5012,18 @@ async def mostrar_jornada(
         context,
     )
 
+    context.user_data[
+        "jornada_actual"
+    ] = jornada
+
     await editar_mensaje(
         query,
         texto,
         teclado_jornada(
-            origen
+            jornada.get("id"),
+            origen,
         ),
     )
-
 
 async def mercado_hoy_callback(
     update,
@@ -5285,6 +5298,87 @@ async def jornada_callback(
 
         partes = query.data.split(":")
 
+        if not partes or partes[0] != "jornada":
+            raise ValueError(
+                "Callback de jornada inválido"
+            )
+
+        # -------------------------------------------------
+        # ACCIONES DE LA JORNADA
+        # -------------------------------------------------
+
+        if len(partes) >= 2:
+
+            accion = partes[1]
+
+            # ---------------------------------------------
+            # PARTIDOS
+            # ---------------------------------------------
+
+            if accion == "partidos":
+
+                if len(partes) < 3:
+                    raise ValueError(
+                        "Falta el ID de la jornada"
+                    )
+
+                jornada_id = int(
+                    partes[2]
+                )
+
+                jornada = obtener_jornada(
+                    jornada_id
+                )
+
+                if jornada is None:
+                    await query.answer(
+                        "❌ No se encontró la jornada.",
+                        show_alert=True,
+                    )
+                    return
+
+                context.user_data[
+                    "jornada_actual"
+                ] = jornada
+
+                await mostrar_partidos_jornada(
+                    query,
+                    context,
+                    jornada,
+                )
+
+                return
+
+            # ---------------------------------------------
+            # ONCES
+            # ---------------------------------------------
+
+            if accion == "onces":
+
+                await query.answer(
+                    "🚧 Onces elegidos: próximamente.",
+                    show_alert=True,
+                )
+
+                return
+
+            # ---------------------------------------------
+            # MI JORNADA
+            # ---------------------------------------------
+
+            if accion == "mi_jornada":
+
+                await query.answer(
+                    "🚧 Mi jornada: próximamente.",
+                    show_alert=True,
+                )
+
+                return
+
+        # -------------------------------------------------
+        # JORNADA NORMAL
+        # -------------------------------------------------
+
         if len(partes) not in (2, 3):
             raise ValueError(
                 "Callback de jornada inválido"
@@ -5319,6 +5413,10 @@ async def jornada_callback(
 
             return
 
+        context.user_data[
+            "jornada_actual"
+        ] = jornada
+
         await mostrar_jornada(
             query,
             context,
@@ -5337,18 +5435,6 @@ async def jornada_callback(
             "❌ No se pudo cargar la jornada.",
             show_alert=True,
         )
-
-async def error_handler(
-    update,
-    context,
-):
-
-    logger.error(
-        "ERROR GLOBAL: %s",
-        context.error,
-        exc_info=context.error,
-    )
-
 
 def main():
 
