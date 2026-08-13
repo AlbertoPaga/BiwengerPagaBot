@@ -756,6 +756,38 @@ class BiwengerClient:
         return report
 
 
+    def obtener_jornadas(self):
+        """
+        Obtiene la respuesta RAW de la API pública de jornadas.
+        """
+
+        response = self.public_session.get(
+            ROUNDS_URL,
+            params={
+                "score": 2,
+                "lang": "es",
+                "v": 631,
+            },
+            timeout=15,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        if not isinstance(data, dict):
+            raise ValueError(
+                "Respuesta inesperada de la API de jornadas"
+            )
+
+        logger.info(
+            "Respuesta pública de jornadas recibida: tipo=%s",
+            type(data).__name__,
+        )
+
+        return data
+
+
 _CLIENT = BiwengerClient()
 
 # ============================================================
