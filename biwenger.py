@@ -756,36 +756,197 @@ class BiwengerClient:
         return report
 
 
-    def obtener_jornadas(self):
+    def obtener_jornadas(
+        self,
+        start_id=4899,
+        max_jornadas=38,
+    ):
         """
-        Obtiene la respuesta RAW de la API pública de jornadas.
+        Obtiene todas las jornadas recorriendo los IDs de Biwenger.
+
+        Los IDs son consecutivos, pero una jornada aplazada tiene
+        un ID diferente y conserva el mismo `short`.
+
+        Ejemplo:
+ 
+            4899 -> J1 -> Jornada 1
+            4900 -> J2 -> Jornada 2
+            ...
+            4937 -> J1 -> Jornada 1 (aplazada)
+
+        Devuelve una lista con todas las jornadas encontradas.
         """
 
-        response = self.public_session.get(
-            ROUNDS_URL,
-            params={
-                "score": 2,
-                "lang": "es",
-                "v": 631,
-            },
-            timeout=15,
-        )
+        import re
 
-        response.raise_for_status()
+        jornadas = []
 
-        data = response.json()
+        # Evitamos duplicados por ID
+        ids_vistos = set()
 
-        if not isinstance(data, dict):
-            raise ValueError(
-                "Respuesta inesperada de la API de jornadas"
-            )
+        # Necesitamos seguir buscando después de encontrar la J38,
+        # porque puede haber jornadas aplazadas con IDs posteriores.
+    #
+        # El límite evita hacer peticiones infinitas si Biwenger
+        # devuelve errores o cambia el comportamiento.
+        max_ids = 100
 
         logger.info(
-            "Respuesta pública de jornadas recibida: tipo=%s",
-            type(data).__name__,
+            "Obteniendo jornadas recorriendo IDs desde %s",
+            start_id,
         )
 
-        return data
+        for offset in range(max_ids):
+
+            round_id = start_id + offset
+
+            if round_id in ids_vistos:
+                continue
+
+            ids_vistos.add(round_id)
+ 
+            try:
+                response = self.public_session.get(
+                    f"{ROUNDS_URL}/{round_id}",
+                    params={
+                        "score": 2,
+                        "lang": "es",
+                        "v": 631,
+                    },
+                    timeout=15,
+                )
+
+                if response.status_code == 404:
+                    logger.info(
+                        "ID %s no existe. Fin de búsqueda.",
+                        round_id,
+                    )
+                    break
+
+                response.raise_for_status()
+
+                data = response.json()
+
+            except Exception as exc:
+                logger.warning(
+                    "Error obteniendo jornada ID %s: %s",
+                    round_id,
+                    exc,
+                )
+                continue
+
+            if not isinstance(data, dict):
+                logger.warning(
+                    "Respuesta inesperada para jornada %s: %s",
+                    round_id,
+                    type(data).__name__,
+                )
+                continue
+
+        # -------------------------------------------------
+        # Extraer información de la jornada
+        # -------------------------------------------------
+
+            root = data.get("data", data)
+
+            if not isinstance(root, dict):
+                continue
+
+            short = root.get("short")
+            name = root.get("name")
+
+            # Algunas respuestas pueden tener la información
+            # en otro nivel.
+            if short is None:
+                short = data.get("short")
+
+            if name is None:
+                name = data.get("name")
+
+            # Si no encontramos short, probablemente ese ID no
+            # corresponde a una jornada.
+            if not short:
+                logger.warning(
+                    "ID %s sin short. Keys=%s",
+                    round_id,
+                    list(root.keys()),
+                )
+                continue
+
+            # Normalizamos
+            short = str(short).strip()
+
+            if name is None:
+                name = f"Jornada {short}"
+
+            name = str(name).strip()
+
+        # -------------------------------------------------
+        # Partidos
+        # -------------------------------------------------
+
+            games = root.get("games", [])
+
+            if not isinstance(games, list):
+                games = []
+
+            jornada = {
+                "id": round_id,
+                "short": short,
+                "name": name,
+                "games": games,
+                "data": data,
+            }
+
+            jornadas.append(jornada)
+
+            logger.info(
+                "Jornada encontrada: id=%s short=%s name=%s games=%s",
+                round_id,
+                short,
+                name,
+                len(games),
+            )
+
+    # -----------------------------------------------------
+    # Ordenación
+    # -----------------------------------------------------
+
+        jornadas.sort(
+            key=lambda j: (
+                int(
+                    re.search(
+                        r"\d+",
+                        j["short"],
+                    ).group()
+                )
+                if re.search(
+                    r"\d+",
+                    j["short"],
+                )
+                else 999,
+                j["id"],
+            )
+        )
+
+    # -----------------------------------------------------
+    # Diagnóstico
+    # -----------------------------------------------------
+
+        logger.warning(
+            "JORNADAS ENCONTRADAS: %s",
+            [
+                (
+                    j["id"],
+                    j["name"],
+                    j["short"],
+                    len(j["games"]),
+                )
+                for j in jornadas
+            ],
+        )
+
+        return jornadas
 
 
 _CLIENT = BiwengerClient()
