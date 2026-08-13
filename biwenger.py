@@ -789,24 +789,24 @@ def obtener_jornadas():
 
         data = response.json()
         
-	logger.info(
+        logger.info(
             "ROUNDS RESPONSE TYPE: %s",
-    	    type(data).__name__,
+            type(data).__name__,
         )
 
-	logger.info(
-    	    "ROUNDS RESPONSE KEYS: %s",
-    	    list(data.keys())
-    	    if isinstance(data, dict)
-    	    else None,
-	)
+        logger.info(
+            "ROUNDS RESPONSE KEYS: %s",
+            list(data.keys())
+            if isinstance(data, dict)
+            else None,
+        )
 
-	logger.info(
-    	    "ROUNDS DATA TYPE: %s",
-    	    type(data.get("data")).__name__
-    	    if isinstance(data, dict)
-    	    else None,
-	)
+        logger.info(
+            "ROUNDS DATA TYPE: %s",
+            type(data.get("data")).__name__
+            if isinstance(data, dict)
+            else None,
+        )
 
     except Exception as exc:
 
