@@ -23,6 +23,8 @@ from biwenger import (
     obtener_miembros_liga,
     obtener_mercado_miembro_datos,
     obtener_ficha_jugador,
+    obtener_jornadas,
+    obtener_jornada,
 )
 
 logging.basicConfig(
@@ -64,6 +66,170 @@ POSICIONES_MERCADO_HOY_ORDEN = (
 POSICION_TODAS = "TODAS"
 
 JUGADORES_POR_PAGINA = 6
+JORNADAS_POR_PAGINA = 9
+
+def teclado_jornadas(
+    jornadas,
+    pagina=0,
+):
+    """
+    Construye el selector paginado de jornadas.
+    """
+
+    if not isinstance(
+        jornadas,
+        list,
+    ):
+        jornadas = []
+
+    total = len(
+        jornadas
+    )
+
+    total_paginas = max(
+        1,
+        (
+            total
+            + JORNADAS_POR_PAGINA
+            - 1
+        )
+        // JORNADAS_POR_PAGINA,
+    )
+
+    try:
+
+        pagina = int(
+            pagina
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        pagina = 0
+
+    pagina = max(
+        0,
+        min(
+            pagina,
+            total_paginas - 1,
+        ),
+    )
+
+    inicio = (
+        pagina
+        * JORNADAS_POR_PAGINA
+    )
+
+    fin = (
+        inicio
+        + JORNADAS_POR_PAGINA
+    )
+
+    jornadas_pagina = jornadas[
+        inicio:fin
+    ]
+
+    botones = []
+
+    fila = []
+
+    for jornada in jornadas_pagina:
+
+        if not isinstance(
+            jornada,
+            dict,
+        ):
+            continue
+
+        jornada_id = jornada.get(
+            "id"
+        )
+
+        short = jornada.get(
+            "short",
+            "J?",
+        )
+
+        if jornada_id is None:
+            continue
+
+        fila.append(
+            InlineKeyboardButton(
+                str(short),
+                callback_data=(
+                    f"jornada:{jornada_id}"
+                ),
+            )
+        )
+
+        if len(fila) == 3:
+
+            botones.append(
+                fila
+            )
+
+            fila = []
+
+    if fila:
+
+        botones.append(
+            fila
+        )
+
+    fila_paginacion = []
+
+    if pagina > 0:
+
+        fila_paginacion.append(
+            InlineKeyboardButton(
+                "◀️",
+                callback_data=(
+                    f"jornadas:pagina:"
+                    f"{pagina - 1}"
+                ),
+            )
+        )
+
+    fila_paginacion.append(
+        InlineKeyboardButton(
+            f"{pagina + 1}/{total_paginas}",
+            callback_data="noop",
+        )
+    )
+
+    if pagina < total_paginas - 1:
+
+        fila_paginacion.append(
+            InlineKeyboardButton(
+                "▶️",
+                callback_data=(
+                    f"jornadas:pagina:"
+                    f"{pagina + 1}"
+                ),
+            )
+        )
+
+    botones.append(
+        fila_paginacion
+    )
+
+    botones.append([
+        InlineKeyboardButton(
+            "◀️ Volver",
+            callback_data=(
+                "menu:jornadas"
+            ),
+        )
+    ])
+
+    return teclado_con_fijar(
+        InlineKeyboardMarkup(
+            botones
+        )
+    )
+
 
 def formatear_dinero(valor):
     try:
@@ -89,6 +255,66 @@ def formatear_fecha_boton(timestamp):
 
     except Exception:
         return "??/??/??"
+
+async def mostrar_todas_jornadas(
+    query,
+    context,
+    pagina=0,
+):
+    try:
+
+        jornadas = obtener_jornadas()
+
+        if not jornadas:
+
+            await editar_mensaje(
+                query,
+                (
+                    "📚 TODAS LAS JORNADAS\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "No se encontraron jornadas."
+                ),
+                teclado_submenu_jornadas(),
+            )
+
+            return
+
+        jornadas = list(
+            reversed(
+                jornadas
+            )
+        )
+
+        texto = (
+            "📚 TODAS LAS JORNADAS\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Selecciona una jornada:"
+        )
+
+        await editar_mensaje(
+            query,
+            texto,
+            teclado_jornadas(
+                jornadas,
+                pagina,
+            ),
+        )
+
+    except Exception as exc:
+
+        logger.exception(
+            "ERROR TODAS LAS JORNADAS: %s",
+            exc,
+        )
+
+        await editar_mensaje(
+            query,
+            (
+                "❌ No se pudieron cargar "
+                "las jornadas."
+            ),
+            teclado_submenu_jornadas(),
+        )
 
 
 async def editar_mensaje(
@@ -3273,6 +3499,129 @@ async def volver_miembros(
         )
 
 
+def construir_texto_jornada(
+    jornada,
+):
+    short = jornada.get(
+        "short",
+        "J?",
+    )
+
+    name = jornada.get(
+        "name",
+        "",
+    )
+
+    games = jornada.get(
+        "games",
+        [],
+    )
+
+    lineas = [
+        f"📅 {short}",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+
+    if name:
+
+        lineas.append(
+            name
+        )
+
+    lineas.append("")
+
+    if not games:
+
+        lineas.append(
+            "No hay partidos disponibles."
+        )
+
+        return "\n".join(
+            lineas
+        )
+
+    lineas.append(
+        "⚽ PARTIDOS"
+    )
+
+    lineas.append("")
+
+    for partido in games:
+
+        if not isinstance(
+            partido,
+            dict,
+        ):
+            continue
+
+        home = partido.get(
+            "home",
+            "Local",
+        )
+
+        away = partido.get(
+            "away",
+            "Visitante",
+        )
+
+        if isinstance(
+            home,
+            dict,
+        ):
+
+            home = (
+                home.get("name")
+                or home.get("shortName")
+                or home.get("id")
+                or "Local"
+            )
+
+        if isinstance(
+            away,
+            dict,
+        ):
+
+            away = (
+                away.get("name")
+                or away.get("shortName")
+                or away.get("id")
+                or "Visitante"
+            )
+
+        lineas.append(
+            f"⚽ {home} — {away}"
+        )
+
+        lineas.append("")
+
+    return "\n".join(
+        lineas
+    ).rstrip()
+
+
+def teclado_jornada():
+    return teclado_con_fijar(
+        InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "◀️ Todas las Jornadas",
+                    callback_data=(
+                        "jornadas:todas"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "📅 Menú Jornadas",
+                    callback_data=(
+                        "menu:jornadas"
+                    ),
+                )
+            ],
+        ])
+    )
+
+
 def construir_texto_ficha_jugador(
     jugador,
 ):
@@ -4533,6 +4882,27 @@ async def mercado24_jugadores_callback(
             teclado_submenu_mercado(),
         )
 
+async def mostrar_jornada(
+    query,
+    context,
+    jornada,
+):
+    texto = construir_texto_jornada(
+        jornada
+    )
+
+    guardar_mensaje_anterior(
+        query,
+        context,
+    )
+
+    await editar_mensaje(
+        query,
+        texto,
+        teclado_jornada(),
+    )
+
+
 async def mercado_hoy_callback(
     update,
     context,
@@ -4670,88 +5040,113 @@ async def jornadas_callback(
 
         accion = partes[1]
 
-        if accion == "principal":
-
-            await mostrar_submenu_jornadas(
-                update,
-                context,
-                editar=True,
-            )
-
-            return
-
         if accion == "actual":
 
-            await editar_mensaje(
+            await mostrar_jornada_actual(
                 query,
-                (
-                    "🟢 JORNADA ACTUAL\n"
-                    "━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "🚧 Esta sección se implementará "
-                    "en el siguiente paso."
-                ),
-                teclado_con_fijar(
-                    InlineKeyboardMarkup([
-                        [
-                            InlineKeyboardButton(
-                                "◀️ Volver a Jornadas",
-                                callback_data=(
-                                    "jornadas:principal"
-                                ),
-                            )
-                        ]
-                    ])
-                ),
+                context,
             )
 
             return
 
         if accion == "todas":
 
-            await editar_mensaje(
+            await mostrar_todas_jornadas(
                 query,
-                (
-                    "📚 TODAS LAS JORNADAS\n"
-                    "━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "🚧 Esta sección se implementará "
-                    "en el siguiente paso."
-                ),
-                teclado_con_fijar(
-                    InlineKeyboardMarkup([
-                        [
-                            InlineKeyboardButton(
-                                "◀️ Volver a Jornadas",
-                                callback_data=(
-                                    "jornadas:principal"
-                                ),
-                            )
-                        ]
-                    ])
-                ),
+                context,
+                0,
+            )
+
+            return
+
+        if (
+            accion == "pagina"
+            and len(partes) >= 3
+        ):
+
+            pagina = int(
+                partes[2]
+            )
+
+            await mostrar_todas_jornadas(
+                query,
+                context,
+                pagina,
             )
 
             return
 
         raise ValueError(
-            "Acción de jornadas desconocida"
+            "Acción de jornadas inválida"
         )
 
-    except Exception:
+    except Exception as exc:
 
         logger.exception(
-            "ERROR JORNADAS CALLBACK"
+            "ERROR JORNADAS CALLBACK: %s",
+            exc,
         )
 
-        try:
+        await query.answer(
+            "❌ No se pudieron cargar las jornadas.",
+            show_alert=True,
+        )
+
+
+async def jornada_callback(
+    update,
+    context,
+):
+    query = update.callback_query
+
+    await query.answer()
+
+    try:
+
+        partes = query.data.split(
+            ":",
+            1,
+        )
+
+        if len(partes) != 2:
+            raise ValueError(
+                "Callback de jornada inválido"
+            )
+
+        jornada_id = int(
+            partes[1]
+        )
+
+        jornada = obtener_jornada(
+            jornada_id
+        )
+
+        if jornada is None:
 
             await query.answer(
-                "❌ Se produjo un error.",
+                "❌ No se encontró la jornada.",
                 show_alert=True,
             )
 
-        except Exception:
-            pass
+            return
 
+        await mostrar_jornada(
+            query,
+            context,
+            jornada,
+        )
+
+    except Exception as exc:
+
+        logger.exception(
+            "ERROR JORNADA CALLBACK: %s",
+            exc,
+        )
+
+        await query.answer(
+            "❌ No se pudo cargar la jornada.",
+            show_alert=True,
+        )
 
 async def error_handler(
     update,
@@ -4918,6 +5313,20 @@ def main():
             cambiar_dia_mercado_completo,
             pattern=r"^completodia:",
         )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            jornadas_callback,
+            pattern=r"^jornadas:",
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            jornada_callback,
+            pattern=r"^jornada:",
+       )
     )
 
     app.add_handler(
