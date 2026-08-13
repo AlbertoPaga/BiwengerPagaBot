@@ -758,6 +758,76 @@ class BiwengerClient:
 
 _CLIENT = BiwengerClient()
 
+# ============================================================
+# DIAGNÓSTICO DE DESPLIEGUE
+# ============================================================
+
+import inspect
+import hashlib
+import os
+
+try:
+    _CLIENT_FILE = inspect.getfile(BiwengerClient)
+
+    with open(
+        _CLIENT_FILE,
+        "rb",
+    ) as _f:
+        _CLIENT_SHA256 = hashlib.sha256(
+            _f.read()
+        ).hexdigest()
+
+    logger.warning(
+        "========== BIWENGER CLIENT DIAGNOSTIC =========="
+    )
+
+    logger.warning(
+        "BiwengerClient class: %s",
+        BiwengerClient,
+    )
+
+    logger.warning(
+        "BiwengerClient file: %s",
+        _CLIENT_FILE,
+    )
+
+    logger.warning(
+        "BiwengerClient file exists: %s",
+        os.path.exists(_CLIENT_FILE),
+    )
+
+    logger.warning(
+        "BiwengerClient SHA256: %s",
+        _CLIENT_SHA256,
+    )
+
+    logger.warning(
+        "obtener_jornadas exists: %s",
+        hasattr(
+            BiwengerClient,
+            "obtener_jornadas",
+        ),
+    )
+
+    logger.warning(
+        "obtener_jornadas method: %s",
+        getattr(
+            BiwengerClient,
+            "obtener_jornadas",
+            None,
+        ),
+    )
+
+    logger.warning(
+        "================================================"
+    )
+
+except Exception as exc:
+    logger.exception(
+        "ERROR EN DIAGNOSTICO BIWENGER CLIENT: %s",
+        exc,
+    )
+
 
 def obtener_jornadas():
     """
