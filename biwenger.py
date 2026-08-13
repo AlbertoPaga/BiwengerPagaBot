@@ -761,9 +761,10 @@ _CLIENT = BiwengerClient()
 
 def obtener_jornadas():
     """
-    Obtiene todas las jornadas de LaLiga desde la API pública.
+    Obtiene todas las jornadas de LaLiga desde la API pública
+    de Biwenger a través de BiwengerClient.
 
-    La API actual devuelve:
+    La API devuelve:
 
         {
             "data": {
@@ -781,64 +782,22 @@ def obtener_jornadas():
             }
         }
 
-    Por tanto, las jornadas se reconstruyen agrupando los partidos
+    Las jornadas se reconstruyen agrupando los partidos
     por round.id.
     """
 
     try:
-        response = requests.get(
-            ROUNDS_URL,
-            params={
-                "score": 2,
-                "lang": "es",
-                "v": 631,
-            },
-            timeout=15,
-        )
-
-        response.raise_for_status()
-
-        response_data = response.json()
+        # IMPORTANTE:
+        # No hacemos requests.get() directamente aquí.
+        #
+        # La comunicación con Biwenger debe pasar por
+        # BiwengerClient, que centraliza sesión, headers,
+        # User-Agent, Referer, etc.
+        response_data = _CLIENT.obtener_jornadas()
 
         logger.info(
             "ROUNDS RESPONSE TYPE: %s",
             type(response_data).__name__,
-        )
-
-        if not isinstance(response_data, dict):
-            logger.error(
-                "Respuesta de jornadas inesperada: %r",
-                type(response_data).__name__,
-            )
-            return []
-
-        data = response_data.get(
-            "data",
-            {},
-        )
-
-        if not isinstance(data, dict):
-            logger.error(
-                "ROUNDS DATA inesperado: %r",
-                type(data).__name__,
-            )
-            return []
-
-        games = data.get(
-            "games",
-            [],
-        )
-
-        if not isinstance(games, list):
-            logger.error(
-                "ROUNDS GAMES inesperado: %r",
-                type(games).__name__,
-            )
-            return []
-
-        logger.info(
-            "Partidos recibidos para jornadas: %s",
-            len(games),
         )
 
     except Exception as exc:
@@ -848,11 +807,59 @@ def obtener_jornadas():
         )
         return []
 
+    if not isinstance(
+        response_data,
+        dict,
+    ):
+        logger.error(
+            "Respuesta de jornadas inesperada: %r",
+            type(response_data).__name__,
+        )
+        return []
+
+    data = response_data.get(
+        "data",
+        {},
+    )
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        logger.error(
+            "ROUNDS DATA inesperado: %r",
+            type(data).__name__,
+        )
+        return []
+
+    games = data.get(
+        "games",
+        [],
+    )
+
+    if not isinstance(
+        games,
+        list,
+    ):
+        logger.error(
+            "ROUNDS GAMES inesperado: %r",
+            type(games).__name__,
+        )
+        return []
+
+    logger.info(
+        "Partidos recibidos para jornadas: %s",
+        len(games),
+    )
+
     jornadas_por_id = {}
 
     for game in games:
 
-        if not isinstance(game, dict):
+        if not isinstance(
+            game,
+            dict,
+        ):
             continue
 
         round_data = game.get(
@@ -860,7 +867,10 @@ def obtener_jornadas():
             {},
         )
 
-        if not isinstance(round_data, dict):
+        if not isinstance(
+            round_data,
+            dict,
+        ):
             continue
 
         round_id = round_data.get(
@@ -870,11 +880,16 @@ def obtener_jornadas():
         if round_id is None:
             continue
 
-        round_id = str(round_id)
+        round_key = str(
+            round_id
+        )
 
-        if round_id not in jornadas_por_id:
-            jornadas_por_id[round_id] = {
-                "id": round_data.get("id"),
+        if round_key not in jornadas_por_id:
+
+            jornadas_por_id[round_key] = {
+                "id": round_data.get(
+                    "id"
+                ),
                 "short": round_data.get(
                     "short",
                     "",
@@ -889,33 +904,47 @@ def obtener_jornadas():
                 "games": [],
             }
 
-        jornadas_por_id[round_id][
-            "games"
-        ].append(game)
+        jornadas_por_id[
+            round_key
+        ]["games"].append(
+            game
+        )
 
     jornadas = list(
         jornadas_por_id.values()
     )
 
-    # Ordenamos por la fecha del primer partido.
-    def fecha_primera_jornada(jornada):
+    # --------------------------------------------------------
+    # Ordenar jornadas por la fecha del primer partido
+    # --------------------------------------------------------
+
+    def fecha_primera_jornada(
+        jornada,
+    ):
         fechas = []
 
         for game in jornada.get(
             "games",
             [],
         ):
+
             timestamp = _timestamp_partido(
                 game
             )
 
             if timestamp is not None:
-                fechas.append(timestamp)
+                fechas.append(
+                    timestamp
+                )
 
         if fechas:
-            return min(fechas)
+            return min(
+                fechas
+            )
 
-        return float("inf")
+        return float(
+            "inf"
+        )
 
     jornadas.sort(
         key=fecha_primera_jornada
@@ -927,6 +956,7 @@ def obtener_jornadas():
     )
 
     for jornada in jornadas:
+
         logger.info(
             "Jornada %s (%s): %s partidos",
             jornada.get("id"),
