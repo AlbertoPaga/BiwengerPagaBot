@@ -167,7 +167,7 @@ def teclado_jornadas(
             InlineKeyboardButton(
                 str(short),
                 callback_data=(
-                    f"jornada:{jornada_id}"
+                    f"jornada:{jornada_id}:todas"
                 ),
             )
         )
@@ -3544,8 +3544,13 @@ def construir_texto_jornada(
         [],
     )
 
+    indicador_aplazada = ""
+
+    if "aplazada" in str(name).lower():
+        indicador_aplazada = " ⏳"
+
     lineas = [
-        f"📅 {short}",
+        f"📅 {short}{indicador_aplazada}",
         "━━━━━━━━━━━━━━━━━━━━",
     ]
 
@@ -3615,8 +3620,63 @@ def construir_texto_jornada(
                 or "Visitante"
             )
 
+        timestamp = _timestamp_partido(
+            partido
+        )
+
+        if timestamp is not None:
+
+            fecha_partido = datetime.fromtimestamp(
+                timestamp,
+                tz=MADRID_TZ,
+            )
+
+            texto_fecha = fecha_partido.strftime(
+                "%a %d/%m · %H:%M"
+            )
+
+            traducciones_dia = {
+                "Mon": "Lun",
+                "Tue": "Mar",
+                "Wed": "Mié",
+                "Thu": "Jue",
+                "Fri": "Vie",
+                "Sat": "Sáb",
+                "Sun": "Dom",
+            }
+
+            dia_ingles = fecha_partido.strftime(
+                "%a"
+            )
+
+            dia = traducciones_dia.get(
+                dia_ingles,
+                dia_ingles,
+            )
+
+            texto_fecha = (
+                f"{dia} "
+                f"{fecha_partido.strftime('%d/%m')}"
+                f" · "
+                f"{fecha_partido.strftime('%H:%M')}"
+            )
+
+            lineas.append(
+                f"🕐 {texto_fecha}"
+            )
+
+        else:
+
+            lineas.append(
+                "🕐 Fecha pendiente"
+            )
+
         lineas.append(
             f"⚽ {home} — {away}"
+        )
+
+        lineas.append(
+            "⏳ Pendiente"
         )
 
         lineas.append("")
@@ -3626,28 +3686,47 @@ def construir_texto_jornada(
     ).rstrip()
 
 
-def teclado_jornada():
+def teclado_jornada(
+    origen="actual",
+):
+    """
+    Teclado de una jornada concreta.
+
+    origen:
+        actual -> venimos de Jornada Actual
+        todas -> venimos del selector Todas las Jornadas
+    """
+
+    if origen == "todas":
+
+        volver_callback = (
+            "jornadas:todas"
+        )
+
+        volver_texto = (
+            "◀️ Volver a Todas las Jornadas"
+        )
+
+    else:
+
+        volver_callback = (
+            "menu:jornadas"
+        )
+
+        volver_texto = (
+            "◀️ Volver a Menú Jornadas"
+        )
+
     return teclado_con_fijar(
         InlineKeyboardMarkup([
             [
                 InlineKeyboardButton(
-                    "◀️ Todas las Jornadas",
-                    callback_data=(
-                        "jornadas:todas"
-                    ),
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "📅 Menú Jornadas",
-                    callback_data=(
-                        "menu:jornadas"
-                    ),
+                    volver_texto,
+                    callback_data=volver_callback,
                 )
             ],
         ])
     )
-
 
 def construir_texto_ficha_jugador(
     jugador,
@@ -4913,6 +4992,7 @@ async def mostrar_jornada(
     query,
     context,
     jornada,
+    origen="actual",
 ):
     texto = construir_texto_jornada(
         jornada
@@ -4926,7 +5006,9 @@ async def mostrar_jornada(
     await editar_mensaje(
         query,
         texto,
-        teclado_jornada(),
+        teclado_jornada(
+            origen
+        ),
     )
 
 
@@ -5102,6 +5184,7 @@ async def mostrar_jornada_actual(
             query,
             context,
             jornada_actual,
+            origen="actual",
         )
 
     except Exception as exc:
@@ -5200,12 +5283,9 @@ async def jornada_callback(
 
     try:
 
-        partes = query.data.split(
-            ":",
-            1,
-        )
+        partes = query.data.split(":")
 
-        if len(partes) != 2:
+        if len(partes) not in (2, 3):
             raise ValueError(
                 "Callback de jornada inválido"
             )
@@ -5213,6 +5293,18 @@ async def jornada_callback(
         jornada_id = int(
             partes[1]
         )
+
+        origen = (
+            partes[2]
+            if len(partes) == 3
+            else "actual"
+        )
+
+        if origen not in (
+            "actual",
+            "todas",
+        ):
+            origen = "actual"
 
         jornada = obtener_jornada(
             jornada_id
@@ -5231,6 +5323,7 @@ async def jornada_callback(
             query,
             context,
             jornada,
+            origen=origen,
         )
 
     except Exception as exc:
