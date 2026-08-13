@@ -788,6 +788,25 @@ def obtener_jornadas():
         response.raise_for_status()
 
         data = response.json()
+        
+	logger.info(
+            "ROUNDS RESPONSE TYPE: %s",
+    	    type(data).__name__,
+        )
+
+	logger.info(
+    	    "ROUNDS RESPONSE KEYS: %s",
+    	    list(data.keys())
+    	    if isinstance(data, dict)
+    	    else None,
+	)
+
+	logger.info(
+    	    "ROUNDS DATA TYPE: %s",
+    	    type(data.get("data")).__name__
+    	    if isinstance(data, dict)
+    	    else None,
+	)
 
     except Exception as exc:
 
@@ -813,6 +832,16 @@ def obtener_jornadas():
         jornadas,
         list,
     ):
+        logger.error(
+            "FORMATO JORNADAS INESPERADO: %r",
+            type(jornadas).__name__,
+        )
+
+        logger.error(
+            "DATA RECIBIDA: %s",
+            data,
+        )
+
         return []
 
     resultado = []
