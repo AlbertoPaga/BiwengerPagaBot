@@ -1,4 +1,5 @@
 import time
+import logging
 import requests
 
 from config import (
@@ -498,40 +499,39 @@ class BiwengerClient:
     # JORNADAS - API PÚBLICA
     # =============================================================
 
-    def obtener_jornadas(self):
-
+        def obtener_jornadas(self):
         """
-        Obtiene la respuesta RAW de la API pública de jornadas.
+        Obtiene todas las jornadas de LaLiga.
 
-        IMPORTANTE:
+        Primero consulta:
 
-        La API no devuelve directamente:
+            /rounds/la-liga
 
-            [
-                {"id": ..., "name": ...}
-            ]
+        para obtener los IDs de las jornadas.
 
-        sino una estructura del tipo:
+        Después consulta cada jornada individualmente:
 
-            {
-                "data": {
-                    "games": [
-                        {
-                            ...
-                            "round": {
-                                "id": 4899,
-                                "name": "Jornada 1",
-                                "short": "J1",
-                                "part": 1
-                            }
-                        }
-                    ]
-                }
-            }
+            /rounds/la-liga/{id}
 
-        La reconstrucción de las jornadas se hace posteriormente
-        en biwenger.py.
+        Esto es necesario porque la respuesta general no contiene
+        necesariamente todos los partidos de todas las jornadas.
+
+        El campo "short" identifica la jornada deportiva (J1, J2...)
+        y el "id" identifica la instancia concreta de la jornada.
+
+        Por tanto, una jornada aplazada puede tener:
+
+            id=4899 -> short=J1
+            id=4937 -> short=J1
+
+        y deben conservarse ambas.
         """
+
+        logger = logging.getLogger(__name__)
+
+        # ---------------------------------------------------------
+        # 1. PETICIÓN GENERAL
+        # ---------------------------------------------------------
 
         response = self.public_session.get(
             ROUNDS_URL,
@@ -549,8 +549,260 @@ class BiwengerClient:
 
         if not isinstance(data, dict):
             raise ValueError(
-                "Respuesta inesperada de la API "
-                "de jornadas"
+                "Respuesta inesperada de la API de jornadas"
             )
 
-        return data
+        logger.info(
+            "JORNADAS: respuesta general recibida: tipo=%s",
+            type(data).__name__,
+        )
+
+        # ---------------------------------------------------------
+        # 2. EXTRAER LOS IDs DE LAS JORNADAS
+        # ---------------------------------------------------------
+
+        root = data.get("data", {})
+
+        if not isinstance(root, dict):
+            root = {}
+
+        games = root.get("games", [])
+
+        if not isinstance(games, list):
+            games = []
+
+        logger.warning(
+            "JORNADAS: respuesta general contiene %s games",
+            len(games),
+        )
+
+        jornadas_ids = {}
+
+        for game in games:
+
+            if not isinstance(game, dict):
+                continue
+
+            round_data = game.get("round")
+
+            if not isinstance(round_data, dict):
+                continue
+
+            round_id = round_data.get("id")
+
+            if round_id is None:
+                continue
+
+            try:
+                round_id = int(round_id)
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            jornadas_ids[round_id] = {
+                "id": round_id,
+                "name": round_data.get(
+                    "name",
+                    f"Jornada {round_id}",
+                ),
+                "short": round_data.get(
+                    "short",
+                    "?",
+                ),
+                "part": round_data.get(
+                    "part"
+                ),
+            }
+
+        logger.warning(
+            "JORNADAS: IDs encontrados en respuesta general: %s",
+            sorted(jornadas_ids.keys()),
+        )
+
+        # ---------------------------------------------------------
+        # 3. SI LA RESPUESTA GENERAL NO TRAE IDs,
+        #    NO PODEMOS CONTINUAR
+        # ---------------------------------------------------------
+
+        if not jornadas_ids:
+            logger.error(
+                "JORNADAS: no se encontraron IDs de jornadas"
+            )
+
+            return []
+
+        # ---------------------------------------------------------
+        # 4. CONSULTAR CADA JORNADA POR SU ID
+        # ---------------------------------------------------------
+
+        jornadas = []
+
+        for round_id in sorted(jornadas_ids.keys()):
+
+            meta = jornadas_ids[round_id]
+
+            logger.info(
+                "JORNADAS: consultando jornada "
+                "id=%s short=%s name=%s",
+                round_id,
+                meta.get("short"),
+                meta.get("name"),
+            )
+
+            try:
+
+                round_response = self.public_session.get(
+                    f"{ROUNDS_URL}/{round_id}",
+                    params={
+                        "score": 2,
+                        "lang": "es",
+                        "v": 631,
+                    },
+                    timeout=15,
+                )
+
+                round_response.raise_for_status()
+
+                round_data = round_response.json()
+
+            except Exception as exc:
+
+                logger.exception(
+                    "JORNADAS: error consultando "
+                    "id=%s: %s",
+                    round_id,
+                    exc,
+                )
+
+                continue
+
+            # -----------------------------------------------------
+            # 5. NORMALIZAR LA RESPUESTA
+            # -----------------------------------------------------
+
+            if not isinstance(round_data, dict):
+                logger.warning(
+                    "JORNADAS: id=%s devuelve tipo inesperado: %s",
+                    round_id,
+                    type(round_data).__name__,
+                )
+
+                continue
+
+            jornada_root = round_data.get(
+                "data",
+                {}
+            )
+
+            if not isinstance(
+                jornada_root,
+                dict,
+            ):
+                jornada_root = {}
+
+            jornada_games = jornada_root.get(
+                "games",
+                []
+            )
+
+            if not isinstance(
+                jornada_games,
+                list,
+            ):
+                jornada_games = []
+
+            # -----------------------------------------------------
+            # 6. ASEGURAR LOS DATOS DE LA JORNADA
+            # -----------------------------------------------------
+
+            jornada = dict(meta)
+
+            jornada["games"] = jornada_games
+
+            # La respuesta individual puede traer información
+            # más precisa de la jornada. La aprovechamos.
+            response_round = jornada_root.get(
+                "round"
+            )
+
+            if isinstance(
+                response_round,
+                dict,
+            ):
+
+                if response_round.get("id") is not None:
+                    try:
+                        jornada["id"] = int(
+                            response_round.get("id")
+                        )
+                    except (
+                        TypeError,
+                        ValueError,
+                    ):
+                        pass
+
+                if response_round.get("name"):
+                    jornada["name"] = (
+                        response_round.get("name")
+                    )
+
+                if response_round.get("short"):
+                    jornada["short"] = (
+                        response_round.get("short")
+                    )
+
+                if response_round.get("part") is not None:
+                    jornada["part"] = (
+                        response_round.get("part")
+                    )
+
+            jornadas.append(jornada)
+
+            logger.info(
+                "JORNADAS: id=%s short=%s -> %s partidos",
+                jornada.get("id"),
+                jornada.get("short"),
+                len(jornada_games),
+            )
+
+        # ---------------------------------------------------------
+        # 7. ORDENAR
+        # ---------------------------------------------------------
+
+        jornadas.sort(
+            key=lambda jornada: (
+                int(
+                    jornada.get(
+                        "id",
+                        0,
+                    )
+                ),
+            )
+        )
+
+        logger.warning(
+            "JORNADAS: TOTAL JORNADAS CARGADAS = %s",
+            len(jornadas),
+        )
+
+        logger.warning(
+            "JORNADAS: RESUMEN = %s",
+            [
+                (
+                    jornada.get("id"),
+                    jornada.get("name"),
+                    jornada.get("short"),
+                    len(
+                        jornada.get(
+                            "games",
+                            [],
+                        )
+                    ),
+                )
+                for jornada in jornadas
+            ],
+        )
+
+        return jornadas
