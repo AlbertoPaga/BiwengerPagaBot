@@ -5436,6 +5436,16 @@ async def jornada_callback(
             show_alert=True,
         )
 
+async def error_handler(
+    update,
+    context,
+):
+    logger.error(
+        "ERROR GLOBAL: %s",
+        context.error,
+        exc_info=context.error,
+    )
+
 def main():
 
     app = (
