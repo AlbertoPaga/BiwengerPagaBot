@@ -946,7 +946,9 @@ class BiwengerClient:
             ],
         )
 
-        return jornadas
+        return {
+            "data": jornadas
+        }
 
 
 _CLIENT = BiwengerClient()
@@ -1038,21 +1040,36 @@ def obtener_jornadas():
     try:
         response_data = _CLIENT.obtener_jornadas()
 
-        if not isinstance(response_data, dict):
+        if not isinstance(
+            response_data,
+            dict,
+        ):
             raise ValueError(
                 "Respuesta de jornadas no es un diccionario"
             )
 
-        data = response_data.get("data", {})
+        data = response_data.get(
+            "data",
+            {},
+        )
 
-        if not isinstance(data, dict):
+        if not isinstance(
+            data,
+            dict,
+        ):
             raise ValueError(
                 "Campo data de jornadas no es un diccionario"
             )
 
-        games = data.get("games", [])
+        games = data.get(
+            "games",
+            [],
+        )
 
-        if not isinstance(games, list):
+        if not isinstance(
+            games,
+            list,
+        ):
             raise ValueError(
                 "Campo games de jornadas no es una lista"
             )
@@ -1066,22 +1083,37 @@ def obtener_jornadas():
 
         for game in games:
 
-            if not isinstance(game, dict):
+            if not isinstance(
+                game,
+                dict,
+            ):
                 continue
 
-            round_data = game.get("round")
+            round_data = game.get(
+                "round"
+            )
 
-            if not isinstance(round_data, dict):
+            if not isinstance(
+                round_data,
+                dict,
+            ):
                 continue
 
-            round_id = round_data.get("id")
+            round_id = round_data.get(
+                "id"
+            )
 
             if round_id is None:
                 continue
 
             try:
-                round_id = int(round_id)
-            except (TypeError, ValueError):
+                round_id = int(
+                    round_id
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
                 continue
 
             if round_id not in jornadas_map:
@@ -1103,13 +1135,24 @@ def obtener_jornadas():
                     "games": [],
                 }
 
-            jornadas_map[round_id]["games"].append(game)
+            jornadas_map[
+                round_id
+            ]["games"].append(
+                game
+            )
 
-        jornadas = list(jornadas_map.values())
+        jornadas = list(
+            jornadas_map.values()
+        )
 
-        def numero_jornada(jornada):
+        def numero_jornada(
+            jornada,
+        ):
             short = str(
-                jornada.get("short", "")
+                jornada.get(
+                    "short",
+                    "",
+                )
             )
 
             digits = "".join(
@@ -1119,9 +1162,14 @@ def obtener_jornadas():
             )
 
             if digits:
-                return int(digits)
+                return int(
+                    digits
+                )
 
-            return jornada.get("id", 9999)
+            return jornada.get(
+                "id",
+                9999,
+            )
 
         jornadas.sort(
             key=numero_jornada
@@ -1134,7 +1182,12 @@ def obtener_jornadas():
                     jornada["id"],
                     jornada.get("name"),
                     jornada.get("short"),
-                    len(jornada.get("games", [])),
+                    len(
+                        jornada.get(
+                            "games",
+                            [],
+                        )
+                    ),
                 )
                 for jornada in jornadas
             ],
@@ -1150,171 +1203,6 @@ def obtener_jornadas():
         )
 
         return []
-
-    if not isinstance(
-        response_data,
-        dict,
-    ):
-        logger.error(
-            "Respuesta de jornadas inesperada: %r",
-            type(response_data).__name__,
-        )
-        return []
-
-    data = response_data.get(
-        "data",
-        {},
-    )
-
-    if not isinstance(
-        data,
-        dict,
-    ):
-        logger.error(
-            "ROUNDS DATA inesperado: %r",
-            type(data).__name__,
-        )
-        return []
-
-    games = data.get(
-        "games",
-        [],
-    )
-
-    if not isinstance(
-        games,
-        list,
-    ):
-        logger.error(
-            "ROUNDS GAMES inesperado: %r",
-            type(games).__name__,
-        )
-        return []
-
-    logger.info(
-        "Partidos recibidos para jornadas: %s",
-        len(games),
-    )
-
-    jornadas_por_id = {}
-
-    for game in games:
-
-        if not isinstance(
-            game,
-            dict,
-        ):
-            continue
-
-        round_data = game.get(
-            "round",
-            {},
-        )
-
-        if not isinstance(
-            round_data,
-            dict,
-        ):
-            continue
-
-        round_id = round_data.get(
-            "id"
-        )
-
-        if round_id is None:
-            continue
-
-        round_key = str(
-            round_id
-        )
-
-        if round_key not in jornadas_por_id:
-
-            jornadas_por_id[round_key] = {
-                "id": round_data.get(
-                    "id"
-                ),
-                "short": round_data.get(
-                    "short",
-                    "",
-                ),
-                "name": round_data.get(
-                    "name",
-                    "",
-                ),
-                "part": round_data.get(
-                    "part"
-                ),
-                "games": [],
-            }
-
-        jornadas_por_id[
-            round_key
-        ]["games"].append(
-            game
-        )
-
-    jornadas = list(
-        jornadas_por_id.values()
-    )
-
-    # --------------------------------------------------------
-    # Ordenar jornadas por la fecha del primer partido
-    # --------------------------------------------------------
-
-    def fecha_primera_jornada(
-        jornada,
-    ):
-        fechas = []
-
-        for game in jornada.get(
-            "games",
-            [],
-        ):
-
-            timestamp = _timestamp_partido(
-                game
-            )
-
-            if timestamp is not None:
-                fechas.append(
-                    timestamp
-                )
-
-        if fechas:
-            return min(
-                fechas
-            )
-
-        return float(
-            "inf"
-        )
-
-    jornadas.sort(
-        key=fecha_primera_jornada
-    )
-
-    logger.info(
-        "Jornadas reconstruidas: %s",
-        len(jornadas),
-    )
-
-    for jornada in jornadas:
-
-        logger.info(
-            "Jornada %s (%s): %s partidos",
-            jornada.get("id"),
-            jornada.get("name"),
-            len(
-                jornada.get(
-                    "games",
-                    [],
-                )
-            ),
-        )
-
-    return jornadas
-
 
 def obtener_jornada(
     jornada_id,
