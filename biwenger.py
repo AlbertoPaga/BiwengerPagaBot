@@ -1026,184 +1026,46 @@ except Exception as exc:
 
 def obtener_jornadas():
     """
-    Obtiene y normaliza todas las jornadas de LaLiga.
+    Obtiene todas las jornadas de LaLiga.
 
-    La API pública devuelve los partidos dentro de:
-        data.games
+    El cliente ya se encarga de recorrer los IDs de las jornadas
+    y obtener cada jornada individualmente.
 
-    Cada partido contiene:
-        game["round"]
-
-    Agrupamos todos los partidos por round.id.
+    Aquí simplemente devolvemos las jornadas normalizadas.
     """
 
     try:
-        response_data = _CLIENT.obtener_jornadas()
+        jornadas = _CLIENT.obtener_jornadas()
 
-        if not isinstance(
-            response_data,
-            dict,
-        ):
-            raise ValueError(
-                "Respuesta de jornadas no es un diccionario"
+        if not isinstance(jornadas, list):
+            logger.error(
+                "Respuesta de jornadas inesperada: %r",
+                type(jornadas).__name__,
             )
-
-        data = response_data.get(
-            "data",
-            {},
-        )
-
-        if not isinstance(
-            data,
-            dict,
-        ):
-            raise ValueError(
-                "Campo data de jornadas no es un diccionario"
-            )
-
-        games = data.get(
-            "games",
-            [],
-        )
-
-        if not isinstance(
-            games,
-            list,
-        ):
-            raise ValueError(
-                "Campo games de jornadas no es una lista"
-            )
+            return []
 
         logger.warning(
-            "JORNADAS RAW: games=%s",
-            len(games),
-        )
-
-        jornadas_map = {}
-
-        for game in games:
-
-            if not isinstance(
-                game,
-                dict,
-            ):
-                continue
-
-            round_data = game.get(
-                "round"
-            )
-
-            if not isinstance(
-                round_data,
-                dict,
-            ):
-                continue
-
-            round_id = round_data.get(
-                "id"
-            )
-
-            if round_id is None:
-                continue
-
-            try:
-                round_id = int(
-                    round_id
-                )
-            except (
-                TypeError,
-                ValueError,
-            ):
-                continue
-
-            if round_id not in jornadas_map:
-
-                jornadas_map[round_id] = {
-                    "id": round_id,
-                    "name": round_data.get(
-                        "name",
-                        f"Jornada {round_id}",
-                    ),
-                    "short": round_data.get(
-                        "short",
-                        f"J{round_id}",
-                    ),
-                    "part": round_data.get(
-                        "part",
-                        1,
-                    ),
-                    "games": [],
-                }
-
-            jornadas_map[
-                round_id
-            ]["games"].append(
-                game
-            )
-
-        jornadas = list(
-            jornadas_map.values()
-        )
-
-        def numero_jornada(
-            jornada,
-        ):
-            short = str(
-                jornada.get(
-                    "short",
-                    "",
-                )
-            )
-
-            digits = "".join(
-                char
-                for char in short
-                if char.isdigit()
-            )
-
-            if digits:
-                return int(
-                    digits
-                )
-
-            return jornada.get(
-                "id",
-                9999,
-            )
-
-        jornadas.sort(
-            key=numero_jornada
-        )
-
-        logger.warning(
-            "JORNADAS DETECTADAS: %s",
+            "JORNADAS ENCONTRADAS: %s",
             [
                 (
-                    jornada["id"],
+                    jornada.get("id"),
                     jornada.get("name"),
                     jornada.get("short"),
-                    len(
-                        jornada.get(
-                            "games",
-                            [],
-                        )
-                    ),
+                    len(jornada.get("games", [])),
                 )
                 for jornada in jornadas
+                if isinstance(jornada, dict)
             ],
         )
 
         return jornadas
 
     except Exception as exc:
-
         logger.exception(
             "Error obteniendo jornadas: %s",
             exc,
         )
-
         return []
-
 def obtener_jornada(
     jornada_id,
 ):
