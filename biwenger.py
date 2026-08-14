@@ -1034,109 +1034,23 @@ except Exception as exc:
 def obtener_jornada_actual():
     """
     Obtiene únicamente la jornada actual de Biwenger.
-
-    Usa:
-        GET /rounds/la-liga
-
-    Al no indicar ID, Biwenger devuelve la jornada actual.
     """
 
     try:
-        response = public_session.get(
-            ROUNDS_URL,
-            params={
-                "score": 2,
-                "lang": "es",
-                "v": 631,
-            },
-            timeout=15,
-        )
+        jornada = _CLIENT.obtener_jornada_actual()
 
-        response.raise_for_status()
-
-        data = response.json()
-
-        if not isinstance(data, dict):
+        if jornada is None:
             logger.warning(
-                "Respuesta inesperada para jornada actual: %s",
-                type(data).__name__,
+                "No se pudo obtener la jornada actual"
             )
             return None
-
-        root = data.get(
-            "data",
-            data,
-        )
-
-        if not isinstance(root, dict):
-            logger.warning(
-                "Datos inesperados para jornada actual"
-            )
-            return None
-
-        short = root.get(
-            "short"
-        )
-
-        name = root.get(
-            "name"
-        )
-
-        if short is None:
-            short = data.get(
-                "short"
-            )
-
-        if name is None:
-            name = data.get(
-                "name"
-            )
-
-        if not short:
-            logger.warning(
-                "La jornada actual no contiene short. Keys=%s",
-                list(root.keys()),
-            )
-            return None
-
-        short = str(
-            short
-        ).strip()
-
-        if name is None:
-            name = f"Jornada {short}"
-
-        name = str(
-            name
-        ).strip()
-
-        games = root.get(
-            "games",
-            [],
-        )
-
-        if not isinstance(
-            games,
-            list,
-        ):
-            games = []
-
-        jornada = {
-            "id": root.get(
-                "id"
-            ),
-            "short": short,
-            "name": name,
-            "games": games,
-            "data": data,
-        }
 
         logger.info(
             "Jornada actual: id=%s short=%s name=%s games=%s",
-            jornada["id"],
-            jornada["short"],
-            jornada["name"],
-            len(jornada["games"]),
+            jornada.get("id"),
+            jornada.get("short"),
+            jornada.get("name"),
+            len(jornada.get("games", [])),
         )
 
         return jornada
@@ -1148,7 +1062,6 @@ def obtener_jornada_actual():
         )
 
         return None
-
 
 def obtener_jornadas():
     """
