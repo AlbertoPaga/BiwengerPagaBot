@@ -1042,7 +1042,7 @@ def obtener_jornada_actual():
     """
 
     try:
-        response = self.public_session.get(
+        response = public_session.get(
             ROUNDS_URL,
             params={
                 "score": 2,
