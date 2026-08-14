@@ -5286,6 +5286,203 @@ async def jornadas_callback(
         )
 
 
+async def mostrar_ficha_partido(
+    query,
+    context,
+    jornada,
+    partido,
+):
+    home = partido.get(
+        "home",
+        "Local",
+    )
+
+    away = partido.get(
+        "away",
+        "Visitante",
+    )
+
+    if isinstance(home, dict):
+        home = (
+            home.get("name")
+            or home.get("shortName")
+            or "Local"
+        )
+
+    if isinstance(away, dict):
+        away = (
+            away.get("name")
+            or away.get("shortName")
+            or "Visitante"
+        )
+
+    timestamp = _timestamp_partido(
+        partido
+    )
+
+    if timestamp is not None:
+
+        fecha_partido = datetime.fromtimestamp(
+            timestamp,
+            tz=MADRID_TZ,
+        )
+
+        traducciones_dia = {
+            "Mon": "Lun",
+            "Tue": "Mar",
+            "Wed": "Mié",
+            "Thu": "Jue",
+            "Fri": "Vie",
+            "Sat": "Sáb",
+            "Sun": "Dom",
+        }
+
+        dia = traducciones_dia.get(
+            fecha_partido.strftime("%a"),
+            fecha_partido.strftime("%a"),
+        )
+
+        fecha = (
+            f"{dia} "
+            f"{fecha_partido.strftime('%d/%m')}"
+            f" · "
+            f"{fecha_partido.strftime('%H:%M')}"
+        )
+
+    else:
+        fecha = "Fecha pendiente"
+
+    texto = (
+        f"⚽ {home} — {away}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🕐 {fecha}\n\n"
+        "⏳ Pendiente"
+    )
+
+    teclado = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "◀️ Volver a Partidos",
+                callback_data=(
+                    f"jornada:partidos:"
+                    f"{jornada.get('id')}"
+                ),
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔙 Volver a Jornada",
+                callback_data=(
+                    f"jornada:"
+                    f"{jornada.get('id')}"
+                ),
+            )
+        ],
+    ])
+
+    await editar_mensaje(
+        query,
+        texto,
+        teclado_con_fijar(
+            teclado
+        ),
+    )
+
+async def mostrar_partidos_jornada(
+    query,
+    context,
+    jornada,
+):
+    games = jornada.get(
+        "games",
+        [],
+    )
+
+    numero_jornada = jornada.get(
+        "short",
+        "J?",
+    )
+
+    texto = (
+        f"⚽ PARTIDOS — {numero_jornada}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Selecciona un partido:"
+    )
+
+    botones = []
+
+    for partido in games:
+
+        if not isinstance(
+            partido,
+            dict,
+        ):
+            continue
+
+        partido_id = (
+            partido.get("id")
+            or partido.get("gameId")
+        )
+
+        if partido_id is None:
+            continue
+
+        home = partido.get(
+            "home",
+            "Local",
+        )
+
+        away = partido.get(
+            "away",
+            "Visitante",
+        )
+
+        if isinstance(home, dict):
+            home = (
+                home.get("name")
+                or home.get("shortName")
+                or "Local"
+            )
+
+        if isinstance(away, dict):
+            away = (
+                away.get("name")
+                or away.get("shortName")
+                or "Visitante"
+            )
+
+        botones.append([
+            InlineKeyboardButton(
+                f"⚽ {home} — {away}",
+                callback_data=(
+                    f"jornada:partido:"
+                    f"{jornada.get('id')}:"
+                    f"{partido_id}"
+                ),
+            )
+        ])
+
+    botones.append([
+        InlineKeyboardButton(
+            "◀️ Volver a Jornada",
+            callback_data=(
+                f"jornada:"
+                f"{jornada.get('id')}"
+            ),
+        )
+    ])
+
+    await editar_mensaje(
+        query,
+        texto,
+        teclado_con_fijar(
+            InlineKeyboardMarkup(
+                botones
+            )
+        ),
+    )
+
+
 async def jornada_callback(
     update,
     context,
@@ -5315,15 +5512,19 @@ async def jornada_callback(
             # PARTIDOS
             # ---------------------------------------------
 
-            if accion == "partidos":
+            if accion == "partido":
 
-                if len(partes) < 3:
+                if len(partes) < 4:
                     raise ValueError(
-                        "Falta el ID de la jornada"
+                        "Faltan datos del partido"
                     )
 
                 jornada_id = int(
                     partes[2]
+                )
+
+                partido_id = int(
+                    partes[3]
                 )
 
                 jornada = obtener_jornada(
@@ -5337,14 +5538,52 @@ async def jornada_callback(
                     )
                     return
 
+                partido = None
+
+                for game in jornada.get(
+                    "games",
+                    [],
+                ):
+
+                    if not isinstance(
+                        game,
+                        dict,
+                    ):
+                        continue
+
+                    game_id = (
+                        game.get("id")
+                        or game.get("gameId")
+                    )
+
+                    if (
+                        game_id is not None
+                        and int(game_id)
+                        == partido_id
+                    ):
+                        partido = game
+                        break
+
+                if partido is None:
+                    await query.answer(
+                        "❌ No se encontró el partido.",
+                        show_alert=True,
+                    )
+                    return
+
                 context.user_data[
                     "jornada_actual"
                 ] = jornada
 
-                await mostrar_partidos_jornada(
+                context.user_data[
+                    "partido_actual"
+                ] = partido
+
+                await mostrar_ficha_partido(
                     query,
                     context,
                     jornada,
+                    partido,
                 )
 
                 return
