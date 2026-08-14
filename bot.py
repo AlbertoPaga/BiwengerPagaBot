@@ -5509,7 +5509,45 @@ async def jornada_callback(
             accion = partes[1]
 
             # ---------------------------------------------
-            # PARTIDOS
+            # PARTIDOS — SUBMENÚ DE PARTIDOS
+            # ---------------------------------------------
+
+            if accion == "partidos":
+
+                if len(partes) < 3:
+                    raise ValueError(
+                        "Falta el ID de la jornada"
+                    )
+
+                jornada_id = int(
+                    partes[2]
+                )
+
+                jornada = obtener_jornada(
+                    jornada_id
+                )
+
+                if jornada is None:
+                    await query.answer(
+                        "❌ No se encontró la jornada.",
+                        show_alert=True,
+                    )
+                    return
+
+                context.user_data[
+                    "jornada_actual"
+                ] = jornada
+
+                await mostrar_partidos_jornada(
+                    query,
+                    context,
+                    jornada,
+                )
+
+                return
+
+            # ---------------------------------------------
+            # PARTIDO — FICHA DE UN PARTIDO
             # ---------------------------------------------
 
             if accion == "partido":
@@ -5587,6 +5625,7 @@ async def jornada_callback(
                 )
 
                 return
+
 
             # ---------------------------------------------
             # ONCES
