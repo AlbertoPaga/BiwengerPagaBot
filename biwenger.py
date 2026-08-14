@@ -1031,7 +1031,7 @@ except Exception as exc:
     )
 
 
-def obtener_jornada_actual(self):
+def obtener_jornada_actual():
     """
     Obtiene únicamente la jornada actual de Biwenger.
 
