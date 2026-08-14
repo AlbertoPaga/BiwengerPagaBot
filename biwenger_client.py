@@ -494,10 +494,9 @@ class BiwengerClient:
 
         return response.json()
 
-
-    # =============================================================
-    # JORNADAS - API PÚBLICA
-    # =============================================================
+# =============================================================
+# JORNADAS - API PÚBLICA
+# =============================================================
 
     def obtener_jornadas(
         self,
@@ -521,7 +520,7 @@ class BiwengerClient:
         )
 
         for offset in range(max_ids):
-    
+
             round_id = start_id + offset
 
             if round_id in ids_vistos:
@@ -567,7 +566,10 @@ class BiwengerClient:
                 )
                 continue
 
-            root = data.get("data", data)
+            root = data.get(
+                "data",
+                data,
+            )
 
             if not isinstance(root, dict):
                 continue
@@ -594,9 +596,12 @@ class BiwengerClient:
             if name is None:
                 name = f"Jornada {short}"
 
-                name = str(name).strip()
+            name = str(name).strip()
 
-                games = root.get("games", [])
+            games = root.get(
+                "games",
+                [],
+            )
 
             if not isinstance(games, list):
                 games = []
@@ -640,7 +645,6 @@ class BiwengerClient:
 
         return jornadas
 
-
     def obtener_jornada_actual(self):
         """
         Obtiene únicamente la jornada actual de Biwenger.
@@ -678,15 +682,23 @@ class BiwengerClient:
             )
             return None
 
-        short = root.get("short")
+        short = root.get(
+            "short"
+        )
 
-        name = root.get("name")
+        name = root.get(
+            "name"
+        )
 
         if short is None:
-            short = data.get("short")
+            short = data.get(
+                "short"
+            )
 
         if name is None:
-            name = data.get("name")
+            name = data.get(
+                "name"
+            )
 
         if not short:
             logger.warning(
@@ -695,23 +707,32 @@ class BiwengerClient:
             )
             return None
 
-        short = str(short).strip()
+        short = str(
+            short
+        ).strip()
 
         if name is None:
             name = f"Jornada {short}"
 
-        name = str(name).strip()
+        name = str(
+            name
+        ).strip()
 
         games = root.get(
             "games",
             [],
         )
 
-        if not isinstance(games, list):
+        if not isinstance(
+            games,
+            list,
+        ):
             games = []
 
         jornada = {
-            "id": root.get("id"),
+            "id": root.get(
+                "id"
+            ),
             "short": short,
             "name": name,
             "games": games,
