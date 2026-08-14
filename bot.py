@@ -5146,8 +5146,7 @@ async def mostrar_jornada_actual(
     context,
 ):
     try:
-        jornada_actual =
-            obtener_jornada_actual()
+        jornada_actual = obtener_jornada_actual()
 
         if jornada_actual is None:
             await editar_mensaje(
