@@ -1031,6 +1031,125 @@ except Exception as exc:
     )
 
 
+    def obtener_jornada_actual(self):
+        """
+        Obtiene únicamente la jornada actual de Biwenger.
+
+        Usa:
+            GET /rounds/la-liga
+
+        Al no indicar ID, Biwenger devuelve la jornada actual.
+        """
+
+        try:
+            response = self.public_session.get(
+                ROUNDS_URL,
+                params={
+                    "score": 2,
+                    "lang": "es",
+                    "v": 631,
+                },
+                timeout=15,
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            if not isinstance(data, dict):
+                logger.warning(
+                    "Respuesta inesperada para jornada actual: %s",
+                    type(data).__name__,
+                )
+                return None
+
+            root = data.get(
+                "data",
+                data,
+            )
+
+            if not isinstance(root, dict):
+                logger.warning(
+                    "Datos inesperados para jornada actual"
+                )
+                return None
+
+            short = root.get(
+                "short"
+            )
+
+            name = root.get(
+                "name"
+            )
+
+            if short is None:
+                short = data.get(
+                    "short"
+                )
+
+            if name is None:
+                name = data.get(
+                    "name"
+                )
+
+            if not short:
+                logger.warning(
+                    "La jornada actual no contiene short. Keys=%s",
+                    list(root.keys()),
+                )
+                return None
+
+            short = str(
+                short
+            ).strip()
+
+            if name is None:
+                name = f"Jornada {short}"
+
+            name = str(
+                name
+            ).strip()
+
+            games = root.get(
+                "games",
+                [],
+            )
+
+            if not isinstance(
+                games,
+                list,
+            ):
+                games = []
+
+            jornada = {
+                "id": root.get(
+                    "id"
+                ),
+                "short": short,
+                "name": name,
+                "games": games,
+                "data": data,
+            }
+
+            logger.info(
+                "Jornada actual: id=%s short=%s name=%s games=%s",
+                jornada["id"],
+                jornada["short"],
+                jornada["name"],
+                len(jornada["games"]),
+            )
+
+            return jornada
+
+        except Exception as exc:
+            logger.exception(
+                "Error obteniendo jornada actual: %s",
+                exc,
+            )
+
+            return None
+
+
 def obtener_jornadas():
     """
     Obtiene todas las jornadas de LaLiga.
@@ -1115,20 +1234,141 @@ def obtener_jornada(
     jornada_id,
 ):
     """
-    Obtiene una jornada concreta por su ID.
+    Obtiene una única jornada concreta directamente desde Biwenger.
+
+    Usa:
+        GET /rounds/la-liga/{jornada_id}
     """
 
-    jornadas = obtener_jornadas()
+    try:
+        jornada_id = int(
+            jornada_id
+        )
 
-    for jornada in jornadas:
+    except (
+        TypeError,
+        ValueError,
+    ):
+        logger.warning(
+            "ID de jornada inválido: %r",
+            jornada_id,
+        )
+        return None
 
-        if str(
-            jornada.get("id")
-        ) == str(jornada_id):
+    try:
+        response = _CLIENT.public_session.get(
+            f"{ROUNDS_URL}/{jornada_id}",
+            params={
+                "score": 2,
+                "lang": "es",
+                "v": 631,
+            },
+            timeout=15,
+        )
 
-            return jornada
+        if response.status_code == 404:
+            logger.info(
+                "Jornada ID %s no existe.",
+                jornada_id,
+            )
+            return None
 
-    return None
+        response.raise_for_status()
+
+        data = response.json()
+
+    except Exception as exc:
+        logger.exception(
+            "Error obteniendo jornada ID %s: %s",
+            jornada_id,
+            exc,
+        )
+        return None
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return None
+
+    root = data.get(
+        "data",
+        data,
+    )
+
+    if not isinstance(
+        root,
+        dict,
+    ):
+        return None
+
+    short = root.get(
+        "short"
+    )
+
+    name = root.get(
+        "name"
+    )
+
+    if short is None:
+        short = data.get(
+            "short"
+        )
+
+    if name is None:
+        name = data.get(
+            "name"
+        )
+
+    if not short:
+        logger.warning(
+            "Jornada ID %s sin short. Keys=%s",
+            jornada_id,
+            list(root.keys()),
+        )
+        return None
+
+    short = str(
+        short
+    ).strip()
+
+    if name is None:
+        name = f"Jornada {short}"
+
+    name = str(
+        name
+    ).strip()
+
+    games = root.get(
+        "games",
+        [],
+    )
+
+    if not isinstance(
+        games,
+        list,
+    ):
+        games = []
+
+    jornada = {
+        "id": root.get(
+            "id",
+            jornada_id,
+        ),
+        "short": short,
+        "name": name,
+        "games": games,
+        "data": data,
+    }
+
+    logger.info(
+        "Jornada obtenida directamente: id=%s short=%s games=%s",
+        jornada["id"],
+        jornada["short"],
+        len(jornada["games"]),
+    )
+
+    return jornada
 
 
 def _timestamp_partido(

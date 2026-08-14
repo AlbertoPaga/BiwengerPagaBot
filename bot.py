@@ -25,6 +25,7 @@ from biwenger import (
     obtener_ficha_jugador,
     obtener_jornadas,
     obtener_jornada,
+    obtener_jornada_actual,
     _timestamp_partido,
 )
 
@@ -5145,53 +5146,21 @@ async def mostrar_jornada_actual(
     context,
 ):
     try:
-        jornadas = obtener_jornadas()
+        jornada_actual = (
+            obtener_jornada_actual()
+        )
 
-        if not jornadas:
+        if jornada_actual is None:
             await editar_mensaje(
                 query,
                 (
                     "📅 JORNADA ACTUAL\n"
                     "━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "No se encontraron jornadas."
+                    "No se pudo encontrar la jornada actual."
                 ),
                 teclado_submenu_jornadas(),
             )
             return
-
-        ahora = datetime.now().timestamp()
-
-        jornada_actual = None
-        mejor_timestamp = None
-
-        for jornada in jornadas:
-
-            for game in jornada.get(
-                "games",
-                [],
-            ):
-                timestamp = _timestamp_partido(
-                    game
-                )
-
-                if timestamp is None:
-                    continue
-
-                # Primera jornada cuyo partido todavía
-                # no ha comenzado.
-                if timestamp >= ahora:
-
-                    if (
-                        mejor_timestamp is None
-                        or timestamp < mejor_timestamp
-                    ):
-                        mejor_timestamp = timestamp
-                        jornada_actual = jornada
-
-        # Si todos los partidos ya han pasado,
-        # utilizamos la última jornada disponible.
-        if jornada_actual is None:
-            jornada_actual = jornadas[-1]
 
         await mostrar_jornada(
             query,
