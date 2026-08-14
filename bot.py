@@ -3524,6 +3524,7 @@ async def volver_miembros(
 
 def construir_texto_jornada(
     jornada,
+    origen="actual",
 ):
     short = jornada.get(
         "short",
@@ -3555,10 +3556,19 @@ def construir_texto_jornada(
     if short.upper().startswith("J"):
         numero_jornada = short[1:]
 
-    lineas = [
-        f"🏆 Jornada {numero_jornada}{indicador_aplazada}",
-        "━━━━━━━━━━━━━━━━━━━━",
-    ]
+    if origen == "actual":
+
+        lineas = [
+            "📅 JORNADA ACTUAL",
+            "━━━━━━━━━━━━━━━━━━━━",
+        ]
+
+    else:
+
+        lineas = [
+            f"🏆 Jornada {numero_jornada}{indicador_aplazada}",
+            "━━━━━━━━━━━━━━━━━━━━",
+        ]
 
     if name:
 
@@ -3566,7 +3576,44 @@ def construir_texto_jornada(
             name
         )
 
-    lineas.append("")
+    if origen == "actual":
+
+        hora_inicio = None
+
+        for partido in games:
+
+            if not isinstance(
+                partido,
+                dict,
+            ):
+                continue
+
+            timestamp = _timestamp_partido(
+                partido
+            )
+
+            if timestamp is not None:
+
+                hora_inicio = datetime.fromtimestamp(
+                    timestamp,
+                    tz=MADRID_TZ,
+                )
+
+                break
+
+        if hora_inicio is not None:
+
+            lineas.append(
+                f"🕐 Inicio: {hora_inicio.strftime('%H:%M')}"
+            )
+
+        else:
+
+            lineas.append(
+                "🕐 Inicio: Pendiente"
+            )
+
+        lineas.append("")
 
     if not games:
 
@@ -3635,10 +3682,6 @@ def construir_texto_jornada(
             fecha_partido = datetime.fromtimestamp(
                 timestamp,
                 tz=MADRID_TZ,
-            )
-
-            texto_fecha = fecha_partido.strftime(
-                "%a %d/%m · %H:%M"
             )
 
             traducciones_dia = {
@@ -3727,8 +3770,8 @@ def teclado_jornada(
         ],
         [
             InlineKeyboardButton(
-                "🔙 Todas las jornadas",
-                callback_data="jornadas:todas",
+                "🔙 Volver a Jornadas",
+                callback_data="menu:jornadas",
             )
         ],
     ])
@@ -5005,7 +5048,8 @@ async def mostrar_jornada(
     origen="actual",
 ):
     texto = construir_texto_jornada(
-        jornada
+        jornada,
+        origen,
     )
 
     guardar_mensaje_anterior(
