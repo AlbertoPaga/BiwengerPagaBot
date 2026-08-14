@@ -499,143 +499,143 @@ class BiwengerClient:
     # JORNADAS - API PÚBLICA
     # =============================================================
 
-def obtener_jornadas(
-    self,
-    start_id=4899,
-    max_ids=100,
-):
-    """
-    Obtiene las jornadas recorriendo los IDs consecutivos
-    de Biwenger.
+    def obtener_jornadas(
+        self,
+        start_id=4899,
+        max_ids=100,
+    ):
+        """
+        Obtiene las jornadas recorriendo los IDs consecutivos
+        de Biwenger.
 
-    Las jornadas normales y aplazadas pueden tener IDs
-    diferentes, pero mantienen el mismo short.
-    """
+        Las jornadas normales y aplazadas pueden tener IDs
+        diferentes, pero mantienen el mismo short.
+        """
 
-    jornadas = []
-    ids_vistos = set()
+        jornadas = []
+        ids_vistos = set()
 
-    logger.info(
-        "Obteniendo jornadas recorriendo IDs desde %s",
-        start_id,
-    )
+        logger.info(
+            "Obteniendo jornadas recorriendo IDs desde %s",
+            start_id,
+        )
 
-    for offset in range(max_ids):
+        for offset in range(max_ids):
+    
+            round_id = start_id + offset
 
-        round_id = start_id + offset
+            if round_id in ids_vistos:
+                continue
 
-        if round_id in ids_vistos:
-            continue
+            ids_vistos.add(round_id)
 
-        ids_vistos.add(round_id)
-
-        try:
-            response = self.public_session.get(
-                f"{ROUNDS_URL}/{round_id}",
-                params={
-                    "score": 2,
-                    "lang": "es",
-                    "v": 631,
-                },
-                timeout=15,
-            )
-
-            if response.status_code == 404:
-                logger.info(
-                    "ID %s no existe. Fin de búsqueda.",
-                    round_id,
+            try:
+                response = self.public_session.get(
+                    f"{ROUNDS_URL}/{round_id}",
+                    params={
+                        "score": 2,
+                        "lang": "es",
+                        "v": 631,
+                    },
+                    timeout=15,
                 )
-                break
 
-            response.raise_for_status()
+                if response.status_code == 404:
+                    logger.info(
+                        "ID %s no existe. Fin de búsqueda.",
+                        round_id,
+                    )
+                    break
 
-            data = response.json()
+                response.raise_for_status()
 
-        except Exception as exc:
-            logger.warning(
-                "Error obteniendo jornada ID %s: %s",
-                round_id,
-                exc,
-            )
-            continue
+                data = response.json()
 
-        if not isinstance(data, dict):
-            logger.warning(
-                "Respuesta inesperada para jornada %s: %s",
-                round_id,
-                type(data).__name__,
-            )
-            continue
+            except Exception as exc:
+                logger.warning(
+                    "Error obteniendo jornada ID %s: %s",
+                    round_id,
+                    exc,
+                )
+                continue
 
-        root = data.get("data", data)
+            if not isinstance(data, dict):
+                logger.warning(
+                    "Respuesta inesperada para jornada %s: %s",
+                    round_id,
+                    type(data).__name__,
+                )
+                continue
 
-        if not isinstance(root, dict):
-            continue
+            root = data.get("data", data)
 
-        short = root.get("short")
-        name = root.get("name")
+            if not isinstance(root, dict):
+                continue
 
-        if short is None:
-            short = data.get("short")
+            short = root.get("short")
+            name = root.get("name")
 
-        if name is None:
-            name = data.get("name")
+            if short is None:
+                short = data.get("short")
 
-        if not short:
-            logger.warning(
-                "ID %s sin short. Keys=%s",
-                round_id,
-                list(root.keys()),
-            )
-            continue
+            if name is None:
+                name = data.get("name")
+
+            if not short:
+                logger.warning(
+                    "ID %s sin short. Keys=%s",
+                    round_id,
+                    list(root.keys()),
+                )
+                continue
 
         short = str(short).strip()
 
         if name is None:
             name = f"Jornada {short}"
 
-        name = str(name).strip()
+            name = str(name).strip()
 
-        games = root.get("games", [])
+            games = root.get("games", [])
 
-        if not isinstance(games, list):
-            games = []
+            if not isinstance(games, list):
+                games = []
 
-        jornada = {
-            "id": round_id,
-            "short": short,
-            "name": name,
-            "games": games,
-            "data": data,
-        }
+            jornada = {
+                "id": round_id,
+                "short": short,
+                "name": name,
+                "games": games,
+                "data": data,
+            }
 
-        jornadas.append(jornada)
+            jornadas.append(jornada)
 
-        logger.info(
-            "Jornada encontrada: id=%s short=%s name=%s games=%s",
-            round_id,
-            short,
-            name,
-            len(games),
-        )
-
-    jornadas.sort(
-        key=lambda j: (
-            j["id"],
-        )
-    )
-
-    logger.warning(
-        "JORNADAS ENCONTRADAS: %s",
-        [
-            (
-                j["id"],
-                j["name"],
-                j["short"],
-                len(j["games"]),
+            logger.info(
+                "Jornada encontrada: id=%s short=%s name=%s games=%s",
+                round_id,
+                short,
+                name,
+                len(games),
             )
-            for j in jornadas
-        ],
-    )
 
-    return jornadas
+        jornadas.sort(
+            key=lambda j: (
+                j["id"],
+            )
+        )
+
+        logger.warning(
+            "JORNADAS ENCONTRADAS: %s",
+            [
+                (
+                    j["id"],
+                    j["name"],
+                    j["short"],
+                    len(j["games"]),
+                )
+                for j in jornadas
+            ],
+        )
+
+        return jornadas

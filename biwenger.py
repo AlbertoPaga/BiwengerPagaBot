@@ -786,7 +786,7 @@ class BiwengerClient:
 
         # Necesitamos seguir buscando después de encontrar la J38,
         # porque puede haber jornadas aplazadas con IDs posteriores.
-    #
+        #
         # El límite evita hacer peticiones infinitas si Biwenger
         # devuelve errores o cambia el comportamiento.
         max_ids = 100
