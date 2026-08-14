@@ -3576,44 +3576,65 @@ def construir_texto_jornada(
             name
         )
 
-    if origen == "actual":
+    hora_inicio = None
 
-        hora_inicio = None
+    for partido in games:
 
-        for partido in games:
+        if not isinstance(
+            partido,
+            dict,
+        ):
+            continue
 
-            if not isinstance(
-                partido,
-                dict,
-            ):
-                continue
+        timestamp = _timestamp_partido(
+            partido
+        )
 
-            timestamp = _timestamp_partido(
-                partido
+        if timestamp is not None:
+
+            hora_inicio = datetime.fromtimestamp(
+                timestamp,
+                tz=MADRID_TZ,
             )
 
-            if timestamp is not None:
+            break
 
-                hora_inicio = datetime.fromtimestamp(
-                    timestamp,
-                    tz=MADRID_TZ,
-                )
+    if hora_inicio is not None:
 
-                break
+        traducciones_dia = {
+            "Monday": "Lunes",
+            "Tuesday": "Martes",
+            "Wednesday": "Miércoles",
+            "Thursday": "Jueves",
+            "Friday": "Viernes",
+            "Saturday": "Sábado",
+            "Sunday": "Domingo",
+        }
 
-        if hora_inicio is not None:
+        dia_ingles = hora_inicio.strftime(
+            "%A"
+        )
 
-            lineas.append(
-                f"🕐 Inicio: {hora_inicio.strftime('%H:%M')}"
-            )
+        dia = traducciones_dia.get(
+            dia_ingles,
+            dia_ingles,
+        )
 
-        else:
+        lineas.append(
+            "🕐 Inicio: "
+            f"{dia} "
+            f"{hora_inicio.strftime('%d/%m')}"
+            f" · "
+            f"{hora_inicio.strftime('%H:%M')}"
+        )
 
-            lineas.append(
-                "🕐 Inicio: Pendiente"
-            )
+    else:
 
-        lineas.append("")
+        lineas.append(
+            "🕐 Inicio: Pendiente"
+        )
+
+    lineas.append("")
 
     if not games:
 
@@ -3733,7 +3754,6 @@ def construir_texto_jornada(
     return "\n".join(
         lineas
     ).rstrip()
-
 
 def teclado_jornada(
     jornada_id,
