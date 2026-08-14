@@ -1031,123 +1031,123 @@ except Exception as exc:
     )
 
 
-    def obtener_jornada_actual(self):
-        """
-        Obtiene únicamente la jornada actual de Biwenger.
+def obtener_jornada_actual(self):
+    """
+    Obtiene únicamente la jornada actual de Biwenger.
 
-        Usa:
-            GET /rounds/la-liga
+    Usa:
+        GET /rounds/la-liga
 
-        Al no indicar ID, Biwenger devuelve la jornada actual.
-        """
+    Al no indicar ID, Biwenger devuelve la jornada actual.
+    """
 
-        try:
-            response = self.public_session.get(
-                ROUNDS_URL,
-                params={
-                    "score": 2,
-                    "lang": "es",
-                    "v": 631,
-                },
-                timeout=15,
+    try:
+        response = self.public_session.get(
+            ROUNDS_URL,
+            params={
+                "score": 2,
+                "lang": "es",
+                "v": 631,
+            },
+            timeout=15,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        if not isinstance(data, dict):
+            logger.warning(
+                "Respuesta inesperada para jornada actual: %s",
+                type(data).__name__,
             )
+            return None
 
-            response.raise_for_status()
+        root = data.get(
+            "data",
+            data,
+        )
 
-            data = response.json()
-
-            if not isinstance(data, dict):
-                logger.warning(
-                    "Respuesta inesperada para jornada actual: %s",
-                    type(data).__name__,
-                )
-                return None
-
-            root = data.get(
-                "data",
-                data,
+        if not isinstance(root, dict):
+            logger.warning(
+                "Datos inesperados para jornada actual"
             )
+            return None
 
-            if not isinstance(root, dict):
-                logger.warning(
-                    "Datos inesperados para jornada actual"
-                )
-                return None
+        short = root.get(
+            "short"
+        )
 
-            short = root.get(
+        name = root.get(
+            "name"
+        )
+
+        if short is None:
+            short = data.get(
                 "short"
             )
 
-            name = root.get(
+        if name is None:
+            name = data.get(
                 "name"
             )
 
-            if short is None:
-                short = data.get(
-                    "short"
-                )
-
-            if name is None:
-                name = data.get(
-                    "name"
-                )
-
-            if not short:
-                logger.warning(
-                    "La jornada actual no contiene short. Keys=%s",
-                    list(root.keys()),
-                )
-                return None
-
-            short = str(
-                short
-            ).strip()
-
-            if name is None:
-                name = f"Jornada {short}"
-
-            name = str(
-                name
-            ).strip()
-
-            games = root.get(
-                "games",
-                [],
+        if not short:
+            logger.warning(
+                "La jornada actual no contiene short. Keys=%s",
+                list(root.keys()),
             )
-
-            if not isinstance(
-                games,
-                list,
-            ):
-                games = []
-
-            jornada = {
-                "id": root.get(
-                    "id"
-                ),
-                "short": short,
-                "name": name,
-                "games": games,
-                "data": data,
-            }
-
-            logger.info(
-                "Jornada actual: id=%s short=%s name=%s games=%s",
-                jornada["id"],
-                jornada["short"],
-                jornada["name"],
-                len(jornada["games"]),
-            )
-
-            return jornada
-
-        except Exception as exc:
-            logger.exception(
-                "Error obteniendo jornada actual: %s",
-                exc,
-            )
-
             return None
+
+        short = str(
+            short
+        ).strip()
+
+        if name is None:
+            name = f"Jornada {short}"
+
+        name = str(
+            name
+        ).strip()
+
+        games = root.get(
+            "games",
+            [],
+        )
+
+        if not isinstance(
+            games,
+            list,
+        ):
+            games = []
+
+        jornada = {
+            "id": root.get(
+                "id"
+            ),
+            "short": short,
+            "name": name,
+            "games": games,
+            "data": data,
+        }
+
+        logger.info(
+            "Jornada actual: id=%s short=%s name=%s games=%s",
+            jornada["id"],
+            jornada["short"],
+            jornada["name"],
+            len(jornada["games"]),
+        )
+
+        return jornada
+
+    except Exception as exc:
+        logger.exception(
+            "Error obteniendo jornada actual: %s",
+            exc,
+        )
+
+        return None
 
 
 def obtener_jornadas():
