@@ -322,6 +322,44 @@ class BiwengerClient:
             league_id
         )
 
+
+    def user_team(
+        self,
+        user_id,
+    ):
+        """
+        Obtiene la plantilla de un usuario de la liga.
+        """
+
+        if self.league_id is None:
+            raise ValueError(
+                "No hay liga configurada en el contexto."
+            )
+
+        try:
+            user_id = int(
+                user_id
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            raise ValueError(
+                f"ID de usuario inválido: {user_id}"
+            )
+
+        return self.get(
+            f"/user/{user_id}",
+            params={
+                "fields": (
+                    "*,"
+                    "players(id,owner),"
+                    "league(id,name,competition,mode,scoreID)"
+                )
+            },
+        )
+
     def board(
         self,
         league_id,
@@ -1532,6 +1570,187 @@ def _es_jugador_api(
 
     return encontrados >= 2
 
+def _extraer_mapa_propietarios(
+    liga_id,
+    forzar=False,
+):
+    """
+    Construye un mapa:
+
+        player_id -> nombre del propietario
+
+    usando las plantillas reales de los usuarios
+    de la liga.
+    """
+
+    cache_key = f"propietarios:{liga_id}"
+
+    cache = getattr(
+        _extraer_mapa_propietarios,
+        "_cache",
+        {},
+    )
+
+    if (
+        not forzar
+        and cache_key in cache
+    ):
+        return cache[cache_key]
+
+    propietarios = {}
+
+    try:
+        league_response = _CLIENT.league(
+            liga_id
+        )
+
+        standings = _extraer_standings(
+            league_response
+        )
+
+    except Exception as exc:
+
+        logger.exception(
+            "No se pudieron obtener "
+            "los usuarios de la liga %s: %s",
+            liga_id,
+            exc,
+        )
+
+        return propietarios
+
+    for miembro in standings:
+
+        datos = _datos_standing(
+            miembro
+        )
+
+        user_id = datos.get(
+            "id"
+        )
+
+        nombre_usuario = datos.get(
+            "nombre",
+            "Desconocido",
+        )
+
+        if user_id is None:
+            continue
+
+        try:
+
+            respuesta_usuario = (
+                _CLIENT.user_team(
+                    user_id
+                )
+            )
+
+        except Exception as exc:
+
+            logger.warning(
+                "No se pudo obtener la plantilla "
+                "de %s (%s): %s",
+                nombre_usuario,
+                user_id,
+                exc,
+            )
+
+            continue
+
+        if not isinstance(
+            respuesta_usuario,
+            dict,
+        ):
+            continue
+
+        data_usuario = respuesta_usuario.get(
+            "data",
+            {}
+        )
+
+        if not isinstance(
+            data_usuario,
+            dict,
+        ):
+            continue
+
+        jugadores_usuario = data_usuario.get(
+            "players",
+            []
+        )
+
+        if not isinstance(
+            jugadores_usuario,
+            list,
+        ):
+            continue
+
+        for jugador_usuario in jugadores_usuario:
+
+            if not isinstance(
+                jugador_usuario,
+                dict,
+            ):
+                continue
+
+            player_id = jugador_usuario.get(
+                "id"
+            )
+
+            if player_id is None:
+                continue
+
+            try:
+
+                player_id = int(
+                    player_id
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                continue
+
+            propietario = (
+                jugador_usuario.get(
+                    "owner"
+                )
+            )
+
+            if isinstance(
+                propietario,
+                dict,
+            ):
+
+                propietario = (
+                    propietario.get("name")
+                    or propietario.get("username")
+                    or nombre_usuario
+                )
+
+            if not isinstance(
+                propietario,
+                str,
+            ) or not propietario.strip():
+
+                propietario = nombre_usuario
+
+            propietarios[player_id] = (
+                propietario.strip()
+            )
+
+    cache[cache_key] = propietarios
+
+    _extraer_mapa_propietarios._cache = cache
+
+    logger.info(
+        "Mapa de propietarios cargado: %s jugadores",
+        len(propietarios),
+    )
+
+    return propietarios
 
 def _extraer_mapa_jugadores(
     forzar=False,
@@ -1777,7 +1996,16 @@ def _extraer_nombre_equipo(
 
 def _extraer_propietario(
     jugador,
+    propietarios=None,
 ):
+    """
+    Obtiene el propietario de un jugador.
+
+    Primero intenta encontrarlo en el propio objeto
+    del jugador y después utiliza el mapa de propietarios
+    de la liga.
+    """
+
     if not isinstance(
         jugador,
         dict,
@@ -1789,6 +2017,7 @@ def _extraer_propietario(
         "owner_name",
         "owner",
     ):
+
         valor = jugador.get(
             key
         )
@@ -1797,6 +2026,7 @@ def _extraer_propietario(
             valor,
             dict,
         ):
+
             valor = (
                 valor.get("name")
                 or valor.get("username")
@@ -1810,6 +2040,38 @@ def _extraer_propietario(
             and valor.strip()
         ):
             return valor.strip()
+
+    if propietarios:
+
+        player_id = jugador.get(
+            "id"
+        )
+
+        try:
+            player_id = int(
+                player_id
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            player_id = None
+
+        if player_id is not None:
+
+            propietario = propietarios.get(
+                player_id
+            )
+
+            if (
+                isinstance(
+                    propietario,
+                    str,
+                )
+                and propietario.strip()
+            ):
+                return propietario.strip()
 
     return "No disponible"
 
@@ -1900,11 +2162,182 @@ def _extraer_media_puntos(
 
     return 0
 
+def _obtener_puntos_jornada(
+    player_id,
+    jornada,
+):
+    """
+    Busca los puntos de un jugador dentro de los
+    partidos de una jornada.
+
+    Devuelve None si todavía no hay puntuación.
+    """
+
+    if not isinstance(
+        jornada,
+        dict,
+    ):
+        return None
+
+    try:
+
+        player_id = int(
+            player_id
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+    games = jornada.get(
+        "games",
+        []
+    )
+
+    if not isinstance(
+        games,
+        list,
+    ):
+        return None
+
+    encontrados = []
+
+    for partido in games:
+
+        if not isinstance(
+            partido,
+            dict,
+        ):
+            continue
+
+        for lado in (
+            "home",
+            "away",
+        ):
+
+            equipo = partido.get(
+                lado
+            )
+
+            if not isinstance(
+                equipo,
+                dict,
+            ):
+                continue
+
+            reports = equipo.get(
+                "reports",
+                []
+            )
+
+            if not isinstance(
+                reports,
+                list,
+            ):
+                continue
+
+            for report in reports:
+
+                if not isinstance(
+                    report,
+                    dict,
+                ):
+                    continue
+
+                player = report.get(
+                    "player"
+                )
+
+                if not isinstance(
+                    player,
+                    dict,
+                ):
+                    continue
+
+                try:
+
+                    report_player_id = int(
+                        player.get("id")
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+
+                    continue
+
+                if report_player_id != player_id:
+                    continue
+
+                puntos = report.get(
+                    "points"
+                )
+
+                if isinstance(
+                    puntos,
+                    (int, float),
+                ):
+                    encontrados.append(
+                        puntos
+                    )
+
+    if not encontrados:
+        return None
+
+    return encontrados[-1]
 
 def obtener_ficha_jugador(
     player_id,
 ):
     jugadores = _extraer_mapa_jugadores()
+
+    try:
+        player_id = int(
+            player_id
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+    jugador = jugadores.get(
+        player_id
+    )
+
+    if not isinstance(
+        jugador,
+        dict,
+    ):
+        return None
+
+    # -------------------------------------------------
+    # Obtener propietarios reales de la liga
+    # -------------------------------------------------
+
+    propietarios = {}
+
+    try:
+
+        if _CLIENT.league_id is not None:
+
+            propietarios = (
+                _extraer_mapa_propietarios(
+                    _CLIENT.league_id
+                )
+            )
+
+    except Exception as exc:
+
+        logger.warning(
+            "No se pudo cargar el mapa "
+            "de propietarios: %s",
+            exc,
+        )
 
     try:
         player_id = int(
@@ -1991,7 +2424,8 @@ def obtener_ficha_jugador(
         "puntos_ultima_jornada": ultimo_puntos,
         "media_puntos": media_puntos,
         "propietario": _extraer_propietario(
-            jugador
+            jugador,
+            propietarios,
         ),
         "datos": jugador,
     }
