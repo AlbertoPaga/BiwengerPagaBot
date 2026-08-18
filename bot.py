@@ -96,16 +96,31 @@ def _nombre_equipo(valor, defecto):
     return str(valor or defecto)
 
 
-def _resultado_partido(partido):
-    if not isinstance(partido, dict):
+def _resultado_partido(
+    partido,
+):
+    if not isinstance(
+        partido,
+        dict,
+    ):
         return None, None, None
-
-    score = partido.get("score")
 
     local = None
     visitante = None
 
-    if isinstance(score, dict):
+    # -------------------------------------------------
+    # Formato directo:
+    # score: {"home": 3, "away": 0}
+    # -------------------------------------------------
+
+    score = partido.get(
+        "score"
+    )
+
+    if isinstance(
+        score,
+        dict,
+    ):
         local = (
             score.get("home")
             if score.get("home") is not None
@@ -119,18 +134,104 @@ def _resultado_partido(partido):
         )
 
         if local is None:
-            local = score.get("homeScore")
+            local = score.get(
+                "homeScore"
+            )
 
         if visitante is None:
-            visitante = score.get("awayScore")
+            visitante = score.get(
+                "awayScore"
+            )
 
-    elif isinstance(score, (list, tuple)) and len(score) >= 2:
+    elif isinstance(
+        score,
+        (list, tuple),
+    ) and len(score) >= 2:
         local = score[0]
         visitante = score[1]
 
-    status = partido.get("status")
+    # -------------------------------------------------
+    # Formato real de Biwenger:
+    #
+    # home: {"score": 3}
+    # away: {"score": 0}
+    # -------------------------------------------------
 
-    if isinstance(status, dict):
+    if local is None:
+        home = partido.get(
+            "home"
+        )
+
+        if isinstance(
+            home,
+            dict,
+        ):
+            local = home.get(
+                "score"
+            )
+
+            if local is None:
+                local = home.get(
+                    "goals"
+                )
+
+    if visitante is None:
+        away = partido.get(
+            "away"
+        )
+
+        if isinstance(
+            away,
+            dict,
+        ):
+            visitante = away.get(
+                "score"
+            )
+
+            if visitante is None:
+                visitante = away.get(
+                    "goals"
+                )
+
+    # -------------------------------------------------
+    # Normalizar puntuaciones numéricas
+    # -------------------------------------------------
+
+    for valor in (
+        local,
+        visitante,
+    ):
+        if valor is not None:
+            try:
+                int(valor)
+            except (
+                TypeError,
+                ValueError,
+            ):
+                break
+    else:
+        if local is not None:
+            local = int(
+                local
+            )
+
+        if visitante is not None:
+            visitante = int(
+                visitante
+            )
+
+    # -------------------------------------------------
+    # Estado del partido
+    # -------------------------------------------------
+
+    status = partido.get(
+        "status"
+    )
+
+    if isinstance(
+        status,
+        dict,
+    ):
         status = (
             status.get("name")
             or status.get("short")
@@ -144,7 +245,11 @@ def _resultado_partido(partido):
             or partido.get("estado")
         )
 
-    return local, visitante, status
+    return (
+        local,
+        visitante,
+        status,
+    )
 
 def teclado_jornadas(
     jornadas,
