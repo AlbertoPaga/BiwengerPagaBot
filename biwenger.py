@@ -2297,32 +2297,32 @@ def obtener_miembros_liga(
         liga_id
     )
 
+    logger.warning(
+        "DEBUG LEAGUE KEYS: %s",
+        (
+            list(league_response.keys())
+            if isinstance(
+                league_response,
+                dict,
+            )
+            else type(league_response).__name__
+        ),
+    )
+
+    if isinstance(
+        league_response,
+        dict,
+    ):
+        logger.warning(
+            "DEBUG LEAGUE DATA: %r",
+            league_response.get(
+                "data"
+            ),
+        )
+
     standings = _extraer_standings(
         league_response
     )
-
-    miembros = []
-
-    for miembro in standings:
-        datos = _datos_standing(
-            miembro
-        )
-
-        if datos["id"] is None:
-            continue
-
-        miembros.append({
-            "id": datos["id"],
-            "nombre": datos["nombre"],
-            "numero_jugadores": (
-                datos["numero_jugadores"]
-            ),
-            "valor_equipo": (
-                datos["valor_equipo"]
-            ),
-        })
-
-    return miembros
 
 
 def obtener_informe(
