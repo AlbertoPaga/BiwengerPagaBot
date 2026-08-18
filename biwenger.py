@@ -2076,91 +2076,204 @@ def _extraer_propietario(
     return "No disponible"
 
 
-def _extraer_ultimo_puntos(
-    jugador,
+def _numero_jornada(
+    jornada,
 ):
+    """
+    Extrae el número de jornada desde valores como:
+        J1
+        J2
+        Jornada 3
+    """
+
     if not isinstance(
-        jugador,
+        jornada,
         dict,
+    ):
+        return None
+
+    for valor in (
+        jornada.get("short"),
+        jornada.get("name"),
+    ):
+        if valor is None:
+            continue
+
+        coincidencia = re.search(
+            r"\d+",
+            str(valor),
+        )
+
+        if coincidencia:
+            try:
+                return int(
+                    coincidencia.group()
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                pass
+
+    return None
+
+
+def _obtener_jornada_anterior(
+    jornada_actual,
+):
+    """
+    Obtiene la jornada inmediatamente anterior
+    a la jornada actual.
+    """
+
+    numero_actual = _numero_jornada(
+        jornada_actual
+    )
+
+    if (
+        numero_actual is None
+        or numero_actual <= 1
+    ):
+        return None
+
+    jornadas = obtener_jornadas()
+
+    if not isinstance(
+        jornadas,
+        list,
+    ):
+        return None
+
+    numero_anterior = (
+        numero_actual - 1
+    )
+
+    for jornada in jornadas:
+
+        if not isinstance(
+            jornada,
+            dict,
+        ):
+            continue
+
+        numero = _numero_jornada(
+            jornada
+        )
+
+        if numero == numero_anterior:
+            return jornada
+
+    logger.warning(
+        "No se encontró la jornada anterior: J%s",
+        numero_anterior,
+    )
+
+    return None
+
+
+def _extraer_ultimo_puntos(
+    player_id,
+    jornada_actual=None,
+):
+    """
+    Obtiene los puntos del jugador en la jornada
+    inmediatamente anterior a la actual.
+    """
+
+    if jornada_actual is None:
+        jornada_actual = obtener_jornada_actual()
+
+    if not jornada_actual:
+        return 0
+
+    numero_actual = _numero_jornada(
+        jornada_actual
+    )
+
+    if (
+        numero_actual is None
+        or numero_actual <= 1
     ):
         return 0
 
-    for key in (
-        "pointsLastRound",
-        "pointsLastMatchday",
-        "pointsLastGameweek",
-        "lastRoundPoints",
-        "lastMatchdayPoints",
-        "pointsLast",
-    ):
-        valor = jugador.get(
-            key
+    jornada_anterior = (
+        _obtener_jornada_anterior(
+            jornada_actual
         )
+    )
 
-        if isinstance(
-            valor,
-            (int, float),
-        ):
-            return valor
+    if not jornada_anterior:
+        return 0
 
-    for contenedor_key in (
-        "lastRound",
-        "lastMatchday",
-        "lastGameweek",
-    ):
-        contenedor = jugador.get(
-            contenedor_key
-        )
+    puntos = _obtener_puntos_jornada(
+        player_id,
+        jornada_anterior,
+    )
 
-        if isinstance(
-            contenedor,
-            dict,
-        ):
-            for key in (
-                "points",
-                "score",
-                "fantasyPoints",
-            ):
-                valor = contenedor.get(
-                    key
-                )
+    if puntos is None:
+        return 0
 
-                if isinstance(
-                    valor,
-                    (int, float),
-                ):
-                    return valor
-
-    return 0
+    return puntos
 
 
 def _extraer_media_puntos(
     jugador,
+    jornada_actual=None,
 ):
+    """
+    Calcula la media según:
+
+        puntos totales / jornada actual
+
+    Ejemplo:
+        J3 y 15 puntos totales -> 5.0
+    """
+
     if not isinstance(
         jugador,
         dict,
     ):
         return 0
 
-    for key in (
-        "averagePoints",
-        "pointsAverage",
-        "avgPoints",
-        "average",
-        "media",
+    if jornada_actual is None:
+        jornada_actual = obtener_jornada_actual()
+
+    numero_actual = _numero_jornada(
+        jornada_actual
+    )
+
+    if (
+        numero_actual is None
+        or numero_actual <= 0
     ):
-        valor = jugador.get(
-            key
+        return 0
+
+    puntos_totales = jugador.get(
+        "points",
+        0,
+    )
+
+    try:
+        puntos_totales = float(
+            puntos_totales
         )
 
-        if isinstance(
-            valor,
-            (int, float),
-        ):
-            return valor
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0
 
-    return 0
+    media = (
+        puntos_totales
+        / numero_actual
+    )
+
+    return round(
+        media,
+        2,
+    )
+
 
 def _obtener_puntos_jornada(
     player_id,
@@ -2315,6 +2428,15 @@ def obtener_ficha_jugador(
     ):
         return None
 
+
+    # -------------------------------------------------
+    # Jornada actual
+    # -------------------------------------------------
+
+    jornada_actual = (
+        obtener_jornada_actual()
+    )
+
     # -------------------------------------------------
     # Obtener propietarios reales de la liga
     # -------------------------------------------------
@@ -2399,11 +2521,13 @@ def obtener_ficha_jugador(
     )
 
     ultimo_puntos = _extraer_ultimo_puntos(
-        jugador
+        player_id,
+        jornada_actual,
     )
 
     media_puntos = _extraer_media_puntos(
-        jugador
+        jugador,
+        jornada_actual,
     )
 
     return {
