@@ -111,11 +111,18 @@ def _resultado_partido(partido):
             if score.get("home") is not None
             else score.get("local")
         )
+
         visitante = (
             score.get("away")
             if score.get("away") is not None
             else score.get("visitante")
         )
+
+        if local is None:
+            local = score.get("homeScore")
+
+        if visitante is None:
+            visitante = score.get("awayScore")
 
     elif isinstance(score, (list, tuple)) and len(score) >= 2:
         local = score[0]
@@ -129,6 +136,12 @@ def _resultado_partido(partido):
             or status.get("short")
             or status.get("status")
             or status.get("value")
+        )
+
+    if status is None:
+        status = (
+            partido.get("state")
+            or partido.get("estado")
         )
 
     return local, visitante, status
@@ -220,9 +233,82 @@ def teclado_jornadas(
         if jornada_id is None:
             continue
 
+        # -------------------------------------------------
+        # Detectar jornada aplazada
+        # -------------------------------------------------
+
+        games = jornada.get(
+            "games",
+            [],
+        )
+
+        if not isinstance(games, list):
+            games = []
+
+        texto_jornada = " ".join(
+            str(
+                jornada.get(
+                    clave,
+                    "",
+                )
+            )
+            for clave in (
+                "short",
+                "name",
+                "status",
+                "state",
+                "estado",
+            )
+        ).lower()
+
+        jornada_aplazada = any(
+            palabra in texto_jornada
+            for palabra in (
+                "aplaz",
+                "postpon",
+                "suspend",
+            )
+        )
+
+        if not jornada_aplazada:
+
+            for partido in games:
+
+                if not isinstance(
+                    partido,
+                    dict,
+                ):
+                    continue
+
+                texto_partido = " ".join(
+                    str(partido.get(clave, ""))
+                    for clave in (
+                        "status",
+                        "state",
+                        "estado",
+                    )
+                ).lower()
+
+                if any(
+                    palabra in texto_partido
+                    for palabra in (
+                        "aplaz",
+                        "postpon",
+                        "suspend",
+                    )
+                ):
+                    jornada_aplazada = True
+                    break
+
+        texto_boton = (
+            f"⏳ {short}"
+            if jornada_aplazada
+            else str(short)
+        )
+
         fila.append(
             InlineKeyboardButton(
-                str(short),
+                texto_boton,
                 callback_data=(
                     f"jornada:{jornada_id}:todas"
                 ),
@@ -328,6 +414,16 @@ async def mostrar_todas_jornadas(
     pagina=0,
 ):
     try:
+
+        await editar_mensaje(
+            query,
+            (
+                "⏳ CARGANDO JORNADAS...\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Consultando los datos de Biwenger..."
+            ),
+            None,
+        )
 
         jornadas = obtener_jornadas()
 
@@ -3821,10 +3917,56 @@ def construir_texto_jornada(
             f"⚽ {home} — {away}{marcador}{estado_texto}",
         )
 
-        lineas.append(
-            "⏳ Pendiente"
-        )
+        if local_score is not None and visitante_score is not None:
 
+            if status:
+
+                estado_normalizado = (
+                    str(status)
+                    .strip()
+                    .lower()
+                )
+
+            else:
+
+                estado_normalizado = ""
+
+            if estado_normalizado in (
+                "finished",
+                "finishedgame",
+                "finalizado",
+                "ended",
+                "completed",
+            ):
+
+                lineas.append(
+                    "✅ Finalizado"
+                )
+
+            elif estado_normalizado in (
+                "started",
+                "live",
+                "playing",
+                "inprogress",
+                "in_progress",
+                "en juego",
+            ):
+
+                lineas.append(
+                    "🔴 En directo"
+                )
+
+            else:
+
+                lineas.append(
+                    "📊 Resultado"
+                )
+
+        else:
+
+            lineas.append(
+                "⏳ Pendiente"
+            )
         lineas.append("")
 
     return "\n".join(
@@ -5439,10 +5581,64 @@ async def mostrar_ficha_partido(
     else:
         fecha = "Fecha pendiente"
 
+    local_score, away_score, status = (
+        _resultado_partido(partido)
+    )
+
+    status_text = (
+        str(status).strip().lower()
+        if status is not None
+        else ""
+    )
+
+    if (
+        local_score is not None
+        and away_score is not None
+    ):
+        resultado = (
+            f"🏆 {local_score} — {away_score}"
+        )
+    else:
+        resultado = "🏆 — —"
+
+    if status_text in (
+        "finished",
+        "final",
+        "ended",
+        "completed",
+        "closed",
+        "finished_game",
+    ):
+        estado_partido = "✅ Finalizado"
+
+    elif status_text in (
+        "live",
+        "playing",
+        "inprogress",
+        "in_progress",
+        "started",
+    ):
+        estado_partido = "🔴 En directo"
+
+    elif timestamp is not None:
+        ahora = datetime.now(
+            tz=MADRID_TZ
+        ).timestamp()
+
+        if timestamp <= ahora:
+            estado_partido = "🟡 En juego / esperando actualización"
+        else:
+            estado_partido = "⏳ Pendiente"
+
+    else:
+        estado_partido = "⏳ Pendiente"
+
     lineas = [
         f"⚽ {home_name} — {away_name}",
         "━━━━━━━━━━━━━━━━━━━━",
         f"🕐 {fecha}",
+        f"{resultado}",
+        f"📌 {estado_partido}",
         "",
     ]
 
@@ -5609,71 +5805,72 @@ async def mostrar_partidos_jornada(
         if partido_id is None:
             continue
 
-        home_raw = partido.get(
-            "home",
-            "Local",
-        )
-
-        away_raw = partido.get(
-            "away",
-            "Visitante",
-        )
-
         home = _nombre_equipo(
-            home_raw,
+            partido.get("home"),
             "Local",
         )
 
         away = _nombre_equipo(
-            away_raw,
+            partido.get("away"),
             "Visitante",
         )
 
-        local_score, visitante_score, status = (
+        local_score, away_score, status = (
             _resultado_partido(partido)
+        )
+
+        # -------------------------------------------------
+        # Estado del partido
+        # -------------------------------------------------
+
+        estado = ""
+
+        status_text = (
+            str(status).strip().lower()
+            if status is not None
+            else ""
+        )
+
+        finalizado = status_text in (
+            "finished",
+            "final",
+            "ended",
+            "completed",
+            "closed",
+            "finished_game",
         )
 
         if (
             local_score is not None
-            and visitante_score is not None
+            and away_score is not None
         ):
             marcador = (
-                f" {local_score}-{visitante_score}"
+                f"{local_score}-{away_score}"
             )
+
+            prefijo = "✅"
+
+            if finalizado:
+                estado = (
+                    f" {prefijo} {marcador}"
+                )
+            else:
+                estado = (
+                    f" ⚽ {marcador}"
+                )
+
+        elif finalizado:
+            estado = " ✅"
+
         else:
-            marcador = ""
-
-        estado_texto = ""
-
-        if status is not None:
-            estado_normalizado = (
-                str(status)
-                .strip()
-                .lower()
-            )
-
-            if estado_normalizado in (
-                "finished",
-                "finalizado",
-                "ended",
-                "completed",
-            ):
-                estado_texto = " ✅"
-
-            elif estado_normalizado in (
-                "started",
-                "live",
-                "playing",
-                "inprogress",
-                "in_progress",
-            ):
-                estado_texto = " 🔴"
+            estado = " ⏳"
 
         botones.append([
             InlineKeyboardButton(
-                f"⚽ {home} — {away}"
-                f"{marcador}"
-                f"{estado_texto}",
+                (
+                    f"{home} — {away}"
+                    f"{estado}"
+                ),
                 callback_data=(
                     f"jornada:partido:"
                     f"{jornada.get('id')}:"
