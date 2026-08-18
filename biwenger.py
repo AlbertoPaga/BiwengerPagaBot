@@ -1027,6 +1027,7 @@ class BiwengerClient:
 
         name = str(name).strip()
 
+
         games = root.get(
             "games",
             [],
@@ -1034,6 +1035,12 @@ class BiwengerClient:
 
         if not isinstance(games, list):
             games = []
+
+        if games:
+            logger.warning(
+                "DEBUG JORNADA ACTUAL GAME: %r",
+                games[0],
+            )
 
         jornada = {
             "id": root.get("id"),
