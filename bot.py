@@ -3127,6 +3127,8 @@ async def mostrar_dia_miembro(
                 orden,
                 timestamps,
                 movimientos,
+                mostrar_jugadores,
+                pagina_jugadores,
             )
         )
 
