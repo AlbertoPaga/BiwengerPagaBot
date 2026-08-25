@@ -932,6 +932,29 @@ class BiwengerClient:
                     "numero_compras"
                 ] += 1
 
+                user_id = buyer.get(
+                    "id"
+                )
+
+                try:
+                    user_id = int(
+                        user_id
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    user_id = None
+
+                if user_id is not None:
+                    report[nombre][
+                        "premios"
+                    ] = premios.get(
+                        user_id,
+                        0,
+                    )
+
             if isinstance(
                 seller,
                 dict,
@@ -958,6 +981,29 @@ class BiwengerClient:
                 report[nombre][
                     "numero_ventas"
                 ] += 1
+
+                user_id = seller.get(
+                    "id"
+                )
+
+                try:
+                    user_id = int(
+                        user_id
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    user_id = None
+
+                if user_id is not None:
+                    report[nombre][
+                        "premios"
+                    ] = premios.get(
+                        user_id,
+                        0,
+                    )
 
         return report
 
@@ -2894,11 +2940,13 @@ def _numero(
 def _calcular_saldo_actual(
     compras,
     ventas,
+    premios=0,
 ):
     return (
         SALDO_INICIAL
         + ventas
         - compras
+        + premios
     )
 
 
@@ -3094,15 +3142,42 @@ def obtener_informe(
 
         market_report = {}
 
+    # -------------------------------------------------
+    # Premios acumulados de jornadas terminadas
+    # -------------------------------------------------
+
+    try:
+
+        premios = (
+            _CLIENT.get_round_rewards(
+                liga_id
+            )
+        )
+
+    except Exception as exc:
+
+        logger.warning(
+            "No se pudieron obtener "
+            "los premios de jornadas: %s",
+            exc,
+        )
+
+        premios = {}
+
     resultado = {}
 
     for miembro in standings:
+
         datos_standing = _datos_standing(
             miembro
         )
 
         nombre = datos_standing[
             "nombre"
+        ]
+
+        user_id = datos_standing[
+            "id"
         ]
 
         numero_jugadores = (
@@ -3148,10 +3223,49 @@ def obtener_informe(
             )
         )
 
+        # -------------------------------------------------
+        # Premio acumulado del usuario
+        #
+        # Los premios vienen indexados por ID de usuario.
+        # -------------------------------------------------
+
+        try:
+
+            user_id_int = int(
+                user_id
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            user_id_int = None
+
+        premios_usuario = (
+            premios.get(
+                user_id_int,
+                0,
+            )
+            if user_id_int is not None
+            else 0
+        )
+
+        # -------------------------------------------------
+        # Saldo actual
+        #
+        # Saldo inicial
+        # + ventas
+        # - compras
+        # + premios
+        # -------------------------------------------------
+
         saldo_actual = (
-            SALDO_INICIAL
-            + ventas
-            - compras
+            _calcular_saldo_actual(
+                compras,
+                ventas,
+                premios_usuario,
+            )
         )
 
         puja_maxima = (
@@ -3162,9 +3276,7 @@ def obtener_informe(
         )
 
         resultado[nombre] = {
-            "user_id": datos_standing[
-                "id"
-            ],
+            "user_id": user_id,
             "compras": (
                 datos_movimientos.get(
                     "compras",
@@ -3191,6 +3303,9 @@ def obtener_informe(
             "valor_equipo": (
                 valor_equipo
             ),
+            "premios": (
+                premios_usuario
+            ),
             "saldo_actual": (
                 saldo_actual
             ),
@@ -3198,6 +3313,11 @@ def obtener_informe(
                 puja_maxima
             ),
         }
+
+    # -------------------------------------------------
+    # Usuarios que aparecen en movimientos pero no
+    # están actualmente en standings
+    # -------------------------------------------------
 
     for nombre, datos in market_report.items():
 
@@ -3214,10 +3334,17 @@ def obtener_informe(
             0,
         )
 
+        premios_usuario = datos.get(
+            "premios",
+            0,
+        )
+
         saldo_actual = (
-            SALDO_INICIAL
-            + ventas
-            - compras
+            _calcular_saldo_actual(
+                compras,
+                ventas,
+                premios_usuario,
+            )
         )
 
         resultado[nombre] = {
@@ -3242,6 +3369,7 @@ def obtener_informe(
             ),
             "numero_jugadores": 0,
             "valor_equipo": 0,
+            "premios": premios_usuario,
             "saldo_actual": saldo_actual,
             "puja_maxima": saldo_actual,
         }
