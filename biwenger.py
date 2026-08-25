@@ -417,7 +417,6 @@ class BiwengerClient:
         )
 
 
-```python
     def get_round_rewards(
         self,
         league_id,
