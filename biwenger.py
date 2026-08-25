@@ -416,6 +416,151 @@ class BiwengerClient:
             params=params,
         )
 
+
+```python
+    def get_round_rewards(
+        self,
+        league_id,
+    ):
+        """
+        Obtiene los premios económicos de todas las jornadas
+        terminadas de una liga.
+
+        Biwenger publica estos datos en el tablón mediante
+        eventos de tipo "roundFinished".
+
+        Devuelve un mapa:
+
+            {
+                user_id: bonus_acumulado
+            }
+
+        Solo se utiliza el campo "bonus", que ya representa
+        la suma de los diferentes conceptos del premio.
+        """
+
+        self.prepare_context(
+            league_id
+        )
+
+        response = self.get(
+            f"/league/{self.league_id}/board",
+            params={
+                "type": "roundFinished",
+            },
+        )
+
+        data = (
+            response.get("data", [])
+            if isinstance(response, dict)
+            else []
+        )
+
+        premios = defaultdict(
+            int
+        )
+
+        jornadas = 0
+
+        for event in data:
+
+            if not isinstance(
+                event,
+                dict,
+            ):
+                continue
+
+            if event.get(
+                "type"
+            ) != "roundFinished":
+                continue
+
+            content = event.get(
+                "content"
+            )
+
+            if not isinstance(
+                content,
+                dict,
+            ):
+                continue
+
+            resultados = content.get(
+                "results",
+                []
+            )
+
+            if not isinstance(
+                resultados,
+                list,
+            ):
+                continue
+
+            jornadas += 1
+
+            for resultado in resultados:
+
+                if not isinstance(
+                    resultado,
+                    dict,
+                ):
+                    continue
+
+                usuario = resultado.get(
+                    "user"
+                )
+
+                if not isinstance(
+                    usuario,
+                    dict,
+                ):
+                    continue
+
+                user_id = usuario.get(
+                    "id"
+                )
+
+                try:
+                    user_id = int(
+                        user_id
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                bonus = resultado.get(
+                    "bonus",
+                    0,
+                )
+
+                try:
+                    bonus = int(
+                        bonus
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    bonus = 0
+
+                premios[user_id] += bonus
+
+        logger.info(
+            "Premios de jornadas obtenidos: "
+            "liga=%s jornadas=%s usuarios=%s",
+            league_id,
+            jornadas,
+            len(premios),
+        )
+
+        return dict(
+            premios
+        )
+
     def get_full_market_history(
         self,
         league_id,
@@ -509,6 +654,7 @@ class BiwengerClient:
             "status": 200,
             "data": all_events,
         }
+
 
     def get_market_history_last_24h(
         self,
@@ -701,6 +847,28 @@ class BiwengerClient:
             history
         )
 
+        premios = {}
+
+        if self.league_id is not None:
+
+            try:
+
+                premios = (
+                    self.get_round_rewards(
+                        self.league_id
+                    )
+                )
+
+            except Exception as exc:
+
+                logger.warning(
+                    "No se pudieron obtener "
+                    "los premios de jornadas: %s",
+                    exc,
+                )
+
+                premios = {}
+
         report = defaultdict(
             lambda: {
                 "compras": [],
@@ -709,6 +877,7 @@ class BiwengerClient:
                 "total_ventas": 0,
                 "numero_compras": 0,
                 "numero_ventas": 0,
+                "premios": 0,
             }
         )
 

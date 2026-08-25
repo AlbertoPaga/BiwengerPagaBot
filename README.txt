@@ -1,2191 +1,1327 @@
-# DOCUMENTACIÓN TÉCNICA — BiwengerPagaBot
+# BiwengerPagaBot
 
-1. DESCRIPCIÓN GENERAL DEL PROYECTO
+Bot de Telegram para consultar y analizar una liga de Biwenger, con información de mercado, jugadores, jornadas, resultados y alineaciones.
+
+> **Rama documentada:** `alineaciones-mejoras`
 
 ---
 
-BiwengerPagaBot es un bot de Telegram conectado con la API de Biwenger.
+## 1. Objetivo del proyecto
 
-Su objetivo actual es permitir desde Telegram:
+BiwengerPagaBot conecta Telegram con Biwenger para consultar información de una liga de fantasy y presentarla de forma cómoda mediante botones, mensajes e imágenes.
 
-* Seleccionar una liga de Biwenger.
-* Consultar los usuarios de una liga.
-* Consultar los movimientos del mercado.
-* Traducir los IDs de jugadores de Biwenger a nombres reales.
-* Preparar la base para generar informes económicos de los participantes.
-* Preparar posteriormente cálculos de compras, ventas, dinero disponible, valor de plantilla y patrimonio.
+El proyecto utiliza dos fuentes principales de datos:
 
-La arquitectura está separada en varias capas:
+1. **API privada de Biwenger**
 
-Telegram
-↓
-bot.py
-↓
-biwenger.py
-↓
-biwenger_client.py
-↓
-API de Biwenger
+   * Autenticación mediante usuario y contraseña.
+   * Ligas.
+   * Usuarios.
+   * Plantillas.
+   * Mercado.
+   * Historial de movimientos.
+   * Propietarios.
 
-Y, paralelamente:
+2. **API pública de Biwenger**
 
-biwenger.py
-↓
+   * Jugadores.
+   * Información de jugadores.
+   * Jornadas.
+   * Partidos.
+   * Resultados.
+   * Reports de jugadores.
+   * Puntuaciones.
+   * Información de alineaciones.
+
+La interfaz de usuario se realiza mediante `python-telegram-bot`.
+
+---
+
+# 2. Arquitectura actual
+
+La arquitectura real de la aplicación es aproximadamente:
+
+```text
+                         TELEGRAM
+                            │
+                            ▼
+                         bot.py
+                            │
+              ┌─────────────┼──────────────┐
+              ▼             ▼              ▼
+          Mercado       Jornadas       Jugadores
+              │             │              │
+              └─────────────┼──────────────┘
+                            ▼
+                       biwenger.py
+                            │
+                  ┌─────────┴─────────┐
+                  ▼                   ▼
+          API privada            API pública
+          Biwenger               Biwenger
+                  │                   │
+                  ▼                   ▼
+          Liga / usuarios       Jugadores / rounds
+          mercado / board       partidos / reports
+          plantillas
+```
+
+Existe además una segunda implementación de cliente:
+
+```text
 player_cache.py
-↓
-API pública de jugadores
-↓
-players.json
+       │
+       ▼
+biwenger_client.py
+       │
+       ▼
+API de Biwenger
+```
 
-2. ARCHIVOS DEL PROYECTO
-
----
-
-Actualmente se han proporcionado estos archivos:
-
-* bot.py
-* config.py
-* biwenger.py
-* biwenger_client.py
-* player_cache.py
-* test.py
-* requirements.txt
-
-Además, existe una configuración prevista para:
-
-* data/players.json
-* data/market.json
-
-aunque actualmente el código de player_cache.py utiliza una ruta diferente:
-
-/app/players.json
-
-Esto es importante y se explica más adelante.
-
-3. bot.py
+Esto es actualmente una duplicación arquitectónica que conviene solucionar.
 
 ---
 
-## RESPONSABILIDAD
+# 3. Archivos del proyecto
 
-bot.py es la capa de interfaz con Telegram.
+Actualmente la rama contiene:
 
-No debería encargarse directamente de hablar con la API de Biwenger.
-
-Su función es:
-
-1. Recibir comandos de Telegram.
-2. Comprobar qué liga ha seleccionado el usuario.
-3. Llamar a las funciones de biwenger.py.
-4. Formatear los datos recibidos.
-5. Enviar la respuesta al usuario.
-
-## IMPORTACIONES
-
-import logging
-
-Se utiliza para registrar errores y problemas del bot.
-
-De telegram se importan:
-
-InlineKeyboardButton
-InlineKeyboardMarkup
-
-Sirven para crear el menú de selección de liga mediante botones.
-
-De telegram.ext se importan:
-
-Application
-CommandHandler
-CallbackQueryHandler
-ContextTypes
-
-Application:
-Crea y ejecuta la aplicación de Telegram.
-
-CommandHandler:
-Asocia comandos como /liga o /informe a funciones.
-
-CallbackQueryHandler:
-Permite reaccionar cuando el usuario pulsa un botón.
-
-ContextTypes:
-Está importado pero actualmente no se utiliza explícitamente en las funciones.
-
-También se importa:
-
-TELEGRAM_TOKEN
-
-desde config.py.
-
-Finalmente:
-
-obtener_ligas
-cargar_liga
-
-desde biwenger.py.
-
-4. MAX_TELEGRAM
-
----
-
-MAX_TELEGRAM = 4000
-
-Telegram limita la longitud de los mensajes.
-
-El bot utiliza 4000 caracteres como límite interno para evitar enviar mensajes demasiado largos.
-
-5. enviar_largo()
-
----
-
-Firma:
-
-async def enviar_largo(update, texto)
-
-Función auxiliar para enviar textos largos.
-
-Funcionamiento:
-
-1. Comprueba si el texto está vacío.
-
-2. Si está vacío, utiliza:
-
-   "Sin datos"
-
-3. Divide el texto en bloques de 4000 caracteres.
-
-4. Envía cada bloque mediante:
-
-   update.message.reply_text()
-
-Esto permite que informes o listados largos no fallen por superar el límite de Telegram.
-
-6. start()
-
----
-
-Función asociada al comando:
-
-/start
-
-Muestra al usuario un mensaje indicando que el bot está activo.
-
-Actualmente muestra:
-
-/liga
-/informe
-/movimientos
-/ayuda
-
-No realiza ninguna llamada a Biwenger.
-
-7. liga()
-
----
-
-Función asociada al comando:
-
-/liga
-
-Su objetivo es permitir al usuario seleccionar una liga.
-
-Funcionamiento:
-
-1. Llama a:
-
-   obtener_ligas()
-
-2. Recibe las ligas disponibles para la cuenta de Biwenger.
-
-3. Crea un botón de Telegram para cada liga.
-
-Cada botón contiene:
-
-* nombre de la liga
-* ID de la liga como callback_data
-
-4. Envía los botones al usuario.
-
-Si ocurre una excepción:
-
-* se registra mediante logging.exception()
-* se informa al usuario mediante Telegram.
-
-8. elegir_liga()
-
----
-
-Es el callback que se ejecuta cuando el usuario pulsa uno de los botones creados por /liga.
-
-Obtiene:
-
-query.data
-
-que contiene el ID de la liga.
-
-Lo convierte a entero:
-
-liga_id = int(query.data)
-
-Después guarda la liga seleccionada en:
-
-context.user_data["liga"]
-
-Esto es importante.
-
-La liga seleccionada queda asociada a la conversación/usuario de Telegram.
-
-A partir de ese momento /informe y /movimientos pueden saber qué liga utilizar.
-
-Finalmente edita el mensaje original y muestra:
-
-"✅ Liga seleccionada"
-
-9. informe()
-
----
-
-Función asociada al comando:
-
-/informe
-
-Primero intenta recuperar:
-
-context.user_data["liga"]
-
-Si no existe:
-
-"Usa primero /liga"
-
-y termina.
-
-Si existe:
-
-1. Llama a:
-
-   cargar_liga(liga_id)
-
-2. Recibe:
-
-   usuarios, movimientos
-
-3. Genera un texto:
-
-   🏆 USUARIOS LIGA
-
-4. Recorre los usuarios.
-
-Actualmente solamente muestra:
-
-• nombre
-
-Por tanto, aunque la función se llama /informe, el informe económico todavía no está implementado aquí.
-
-Actualmente NO calcula:
-
-* compras
-* ventas
-* dinero
-* valor de plantilla
-* patrimonio
-* ranking económico
-
-La estructura actual es únicamente un listado de usuarios.
-
-Este es precisamente uno de los puntos que posteriormente se puede mejorar sin tocar la selección de liga ni el funcionamiento del mercado.
-
-10. movimientos()
-
----
-
-Función asociada al comando:
-
-/movimientos
-
-Primero comprueba que exista una liga seleccionada.
-
-Después llama a:
-
-cargar_liga(liga_id)
-
-Recibe:
-
-usuarios, movs
-
-Ignora los usuarios y utiliza únicamente:
-
-movs
-
-Genera:
-
-🔄 MOVIMIENTOS
-
-y añade cada movimiento recibido.
-
-Por tanto, actualmente el procesamiento visual de los movimientos está delegado en:
-
+```text
+.gitignore
+README.txt
 biwenger.py
-
-11. ayuda()
-
----
-
-Función asociada a:
-
-/ayuda
-
-Muestra la lista de comandos disponibles.
-
-No realiza ninguna llamada a Biwenger.
-
-12. error_handler()
+biwenger_client.py
+bot.py
+config.py
+lineup_image.py
+partido_alineaciones.py
+player_cache.py
+requirements.txt
+test.py
+test_alineaciones.py
+test_client.py
+```
 
 ---
 
-Es el manejador global de errores de Telegram.
+# 4. `bot.py`
 
-Recibe:
+Es la capa principal de Telegram.
 
-update
-context
+Su responsabilidad es:
 
-y registra:
+* recibir callbacks;
+* mostrar menús;
+* gestionar la liga seleccionada;
+* solicitar información a `biwenger.py`;
+* transformar los datos en mensajes;
+* crear botones;
+* gestionar paginación;
+* mostrar fichas;
+* mostrar jornadas;
+* mostrar mercados;
+* enviar imágenes de alineaciones.
 
-context.error
+No debería contener la lógica de acceso a la API de Biwenger.
 
-mediante logging.
+## Menú principal de una liga
 
-Actualmente no envía un mensaje al usuario.
+Una vez seleccionada una liga aparecen:
 
-13. main()
+* Informe
+* Mercado
+* Jornadas
+* Cambiar liga
 
----
+La liga seleccionada se guarda en:
 
-Es el punto de entrada del bot.
+```text
+context.user_data["liga"]
+```
 
-Crea:
+y su nombre en:
 
-Application.builder().token(TELEGRAM_TOKEN).build()
-
-Después registra:
-
-/start
-/liga
-/informe
-/movimientos
-/ayuda
-
-También registra:
-
-CallbackQueryHandler(elegir_liga)
-
-y:
-
-app.add_error_handler(error_handler)
-
-Finalmente ejecuta:
-
-app.run_polling(drop_pending_updates=True)
-
-Por tanto, el bot funciona mediante polling.
-
-14. config.py
+```text
+context.user_data["liga_nombre"]
+```
 
 ---
 
-## RESPONSABILIDAD
+# 5. Selección de liga
 
-config.py centraliza la configuración y las variables de entorno.
+El bot obtiene las ligas mediante:
 
-15. dotenv
-
----
-
-Se utiliza:
-
-from dotenv import load_dotenv
-
-load_dotenv()
-
-Esto permite cargar las variables desde un archivo .env.
-
-16. obtener_variable()
-
----
-
-Función:
-
-obtener_variable(nombre)
-
-Busca una variable de entorno mediante:
-
-os.getenv(nombre)
-
-Si no existe o está vacía:
-
-raise RuntimeError(...)
-
-Esto evita que el programa arranque sin las credenciales necesarias.
-
-17. VARIABLES DE TELEGRAM
-
----
-
-TELEGRAM_TOKEN
-
-Contiene el token del bot de Telegram.
-
-No debe guardarse directamente en el código fuente.
-
-18. VARIABLES DE BIWENGER
-
----
-
-BIWENGER_USERNAME
-BIWENGER_PASSWORD
-
-Contienen las credenciales utilizadas para autenticarse contra Biwenger.
-
-Deben mantenerse fuera del código y nunca publicarse.
-
-19. CONFIGURACIÓN DE CACHÉ
-
----
-
-El archivo define:
-
-PLAYERS_CACHE_FILE = "data/players.json"
-
-MARKET_CACHE_FILE = "data/market.json"
-
-PLAYERS_CACHE_HOURS = 24
-
-La intención es:
-
-* guardar jugadores en caché
-* guardar mercado en caché
-* considerar válida la caché de jugadores durante 24 horas
-
-IMPORTANTE:
-
-En el código actual de player_cache.py NO se utilizan estas variables.
-
-player_cache.py utiliza directamente:
-
-/app/players.json
-
-Por tanto existe una discrepancia entre la configuración y la implementación.
-
-20. biwenger.py
-
----
-
-## RESPONSABILIDAD
-
-biwenger.py es la capa de lógica de negocio entre el bot y Biwenger.
-
-El bot no debería conocer detalles de URLs, headers o autenticación.
-
-En cambio, bot.py llama a:
-
+```text
 obtener_ligas()
-cargar_liga()
+```
 
-y biwenger.py se encarga de obtener y preparar los datos.
+Después crea un botón por liga.
 
-21. obtener_ligas()
+El callback tiene la forma:
 
----
+```text
+liga:<liga_id>
+```
 
-Crea un BiwengerClient:
-
-client = BiwengerClient()
-
-Hace login:
-
-client.login()
-
-Y devuelve:
-
-client.leagues()
-
-Por tanto, su finalidad es obtener las ligas disponibles para la cuenta autenticada.
-
-22. cargar_liga()
+La selección queda asociada al usuario de Telegram.
 
 ---
 
-Actualmente recibe:
+# 6. Sistema de mercado
 
-liga_id
+El menú de mercado actualmente tiene cuatro opciones:
 
-Crea un BiwengerClient.
+```text
+Mercado completo
+Mercado de hoy
+Mercado 24h
+Mercado por miembro
+```
 
-Hace login.
-
-Obtiene la información básica de la liga mediante:
-
-client.league(liga_id)
-
-Después imprime por consola información de depuración.
-
-Entre otras cosas muestra:
-
-* contenido completo de la liga
-* claves existentes en data
-* tipo de cada campo
-* cantidad de elementos si es una lista
-* número de claves si es un diccionario
-
-Esto se utilizó durante la fase de investigación de la API.
-
-Después busca los usuarios.
-
-Primero:
-
-if "users" in data
-
-Después contempla:
-
-members
-managers
-
-Esto proporciona cierta tolerancia ante posibles estructuras diferentes de respuesta.
-
-Finalmente llama a:
-
-cargar_movimientos(client, liga_id)
-
-y devuelve:
-
-(
-usuarios,
-movimientos
-)
-
-IMPORTANTE:
-
-Actualmente cargar_liga() NO carga las plantillas.
-
-Tampoco calcula todavía compras, ventas ni patrimonio.
-
-Esto es lo que debe ampliarse para construir el informe económico.
-
-23. cargar_movimientos()
+El código de `bot.py` gestiona los diferentes menús y filtros. También existe paginación para las listas grandes.
 
 ---
 
-Recibe:
+# 7. Mercado completo
 
-client
-liga_id
+El mercado completo utiliza el historial de movimientos de Biwenger.
 
-Llama a:
+El cliente recorre las páginas del endpoint `/board` utilizando fechas para retroceder en el historial.
 
-client.board(liga_id)
+Los eventos se deduplican mediante:
 
-Obtiene:
-
-board["data"]
-
-Comprueba que sea una lista.
-
-Durante la fase de desarrollo imprime:
-
-* tipo de data
-* número de elementos
-* primeros movimientos
-* type
-* content
-
-Después llama a:
-
-formatear_movimientos(data)
-
-24. formatear_movimientos()
-
----
-
-Esta función transforma los eventos RAW de Biwenger en textos legibles para Telegram.
-
-Recibe una lista de movimientos.
-
-Para cada evento obtiene:
-
+```text
+date
 type
-content
-
-Los tipos actualmente tratados son:
-
-* market
-* transfer
-* playerMovements
-
-25. MOVIMIENTOS "market" Y "transfer"
-
----
-
-Para cada movimiento obtiene:
-
-player
-
-amount
-
-to
-
-from
-
-El ID del jugador se transforma en nombre mediante:
-
-get_player_name(player_id)
-
-de player_cache.py.
-
-26. COMPRA
-
----
-
-Si existe:
-
-item["to"]
-
-se considera que existe comprador.
-
-Se genera:
-
-🟢 [comprador] ficha a [jugador] por [cantidad]€
-
-Ejemplo conceptual:
-
-🟢 BertetePorro ficha a X por 500.000€
-
-27. VENTA
-
----
-
-Si existe:
-
-item["from"]
-
-se considera que existe vendedor.
-
-Se genera:
-
-🔴 [vendedor] vende a [jugador] por [cantidad]€
-
-28. MOVIMIENTO SIN COMPRADOR/VENDEDOR
-
----
-
-Si no existe ninguno de los anteriores:
-
-⚽ Movimiento de [jugador] ([cantidad]€)
-
-29. playerMovements
-
----
-
-Este tipo representa movimientos relacionados con cambios de plantilla.
-
-Actualmente genera:
-
-🔄 Cambio de [jugador]
-
-No realiza cálculos económicos.
-
-30. LÍMITE DE MOVIMIENTOS
-
----
-
-formatear_movimientos() devuelve:
-
-resultado[:30]
-
-Por tanto, como máximo se muestran 30 movimientos.
-
-31. patrimonio()
-
----
-
-Actualmente recibe un usuario.
-
-Obtiene:
-
-balance
-teamValue
-
-y devuelve:
-
-dinero
-valor
-dinero + valor
-
-Es decir:
-
-dinero = balance
-
-valor = teamValue
-
-patrimonio = balance + teamValue
-
-IMPORTANTE:
-
-Esta función existe, pero todavía no está integrada en el informe de Telegram.
-
-32. biwenger_client.py
-
----
-
-En los archivos proporcionados, biwenger_client.py contiene el método:
-
-league_players()
-
-Este método es especialmente importante para la futura generación del informe.
-
-33. league_players()
-
----
-
-Firma:
-
-def league_players(self, league_id)
-
-Su objetivo es obtener las plantillas de todos los usuarios de una liga.
-
-Primero obtiene el usuario asociado a la liga:
-
-user_id = self.find_league_user(league_id)
-
-Después establece el contexto:
-
-self.set_context(
-league_id,
-user_id
-)
-
-Después hace login.
-
-Construye manualmente los headers:
-
-Authorization
-Accept
-X-League
-X-User
-
-Esto es importante porque durante las pruebas de la API se descubrió que la petición:
-
-/league/{liga_id}?fields=users(players)
-
-sin los headers:
-
-X-League
-X-User
-
-devuelve:
-
-400
-X-League and X-User headers required
-
-34. IMPORTANCIA DE X-LEAGUE Y X-USER
-
----
-
-Este fue uno de los descubrimientos importantes durante el desarrollo.
-
-Una petición directa como:
-
-/league/2158595?fields=users(players)
-
-sin contexto produce:
-
-HTTP 400
-
-con:
-
-X-League and X-User headers required
-
-Cuando se añaden:
-
-X-League
-X-User
-Authorization
-
-la petición funciona y devuelve:
-
-users -> players -> id
-
-35. RESPUESTA DE league_players()
-
----
-
-La respuesta obtenida tiene una estructura similar a:
-
-data
-users
-players
-id
-
-Cada usuario aparece en el mismo orden que los usuarios de la liga.
-
-Ejemplo conceptual:
-
-data:
-users:
-usuario 1:
-players:
-id 1876
-id 8747
-...
-
-```
-    usuario 2:
-        players:
-            id 1721
-            id 2184
-            ...
+title
 ```
 
-## 36. PROBLEMA IMPORTANTE CON LA RESPUESTA
+y posteriormente se ordenan de más reciente a más antiguo.
 
-La respuesta de:
+El resultado se transforma en operaciones:
 
-league_players()
-
-no proporciona directamente el nombre del usuario dentro de cada elemento.
-
-La relación se realiza mediante el orden de los usuarios.
-
-Por tanto, para asociar:
-
-usuario -> jugadores
-
-hay que tener previamente la lista de usuarios de:
-
-client.league(liga_id)
-
-y utilizar el mismo orden.
-
-Esto es similar a la implementación del proyecto anterior que utilizaba:
-
-ids = list(usuarios.keys())
-
-y posteriormente:
-
-uid = ids[i]
-
-37. player_cache.py
+* comprador;
+* vendedor;
+* jugador;
+* importe;
+* fecha;
+* tipo de evento.
 
 ---
 
-## RESPONSABILIDAD
+# 8. Mercado de hoy
 
-player_cache.py se encarga de traducir IDs numéricos de jugadores a nombres reales.
+El mercado de hoy consulta:
 
-Esto es necesario porque los movimientos del board de Biwenger contienen:
+```text
+/market
+```
 
-player: 27929
+y clasifica los jugadores en:
 
-en lugar de:
+* jugadores puestos por el sistema;
+* jugadores puestos por otros managers;
+* jugadores propios.
 
-player: "Nombre del jugador"
+También calcula:
 
-38. PLAYERS_FILE
+* precio de venta;
+* precio de compra conocido;
+* valor actual;
+* puntos;
+* posición;
+* ofertas;
+* número de ofertas;
+* mejor oferta.
 
----
+Los jugadores pueden filtrarse por:
 
-Actualmente está definido como:
+```text
+DEL
+MC
+DF
+PT
+TODAS
+```
 
-Path("/app/players.json")
-
-Esto significa que el código intenta guardar y leer la caché desde:
-
-/app/players.json
-
-En desarrollo local en Mac esto provoca un problema porque:
-
-/app
-
-no es un directorio normal de escritura.
-
-Durante las pruebas se produjo:
-
-FileNotFoundError:
-No such file or directory: '/app/players.json'
-
-y posteriormente:
-
-mkdir: /app: Read-only file system
-
-39. cargar_jugadores()
+También existe la posibilidad de mostrar u ocultar jugadores y paginarlos.
 
 ---
 
-Esta función descarga los jugadores desde Biwenger mediante:
+# 9. Mercado por miembro
 
-client.players()
+Permite seleccionar un manager de la liga.
 
-Después intenta obtener:
+Después muestra sus movimientos agrupados por día.
 
-data["players"]
+La información se obtiene mediante:
 
-La API puede devolver los jugadores como:
+```text
+obtener_mercado_miembro_datos()
+```
 
-* diccionario
-* lista
-
-El código contempla ambos formatos.
-
-40. ESTRUCTURA DE LA CACHÉ
+y puede navegarse por los diferentes días.
 
 ---
 
-Cada jugador se almacena conceptualmente como:
+# 10. Jugadores
 
-{
-"12345": {
-"name": "Nombre",
-"team": {...}
-}
-}
+La API pública proporciona el mapa completo de jugadores.
 
-Finalmente se escribe:
+El proyecto actualmente carga aproximadamente cientos de jugadores y los indexa por ID.
 
-{
-"players": jugadores
-}
+El mapa permite transformar:
+
+```text
+player_id
+```
 
 en:
 
+```text
+nombre
+equipo
+posición
+precio
+puntos
+```
+
+---
+
+# 11. Caché de jugadores
+
+Existen dos sistemas relacionados con jugadores.
+
+## Caché de `biwenger.py`
+
+`biwenger.py` mantiene un caché en memoria:
+
+```text
+_PLAYERS_CACHE
+_PLAYERS_CACHE_TIME
+PLAYERS_CACHE_TTL = 3600
+```
+
+Por tanto, mientras el proceso siga vivo, los jugadores se reutilizan durante aproximadamente una hora.
+
+## `player_cache.py`
+
+También existe un sistema separado que guarda jugadores en:
+
+```text
 /app/players.json
+```
 
-41. cargar_cache()
+Esto introduce actualmente una duplicación de mecanismos.
+
+Además, `config.py` define:
+
+```text
+data/players.json
+data/market.json
+```
+
+pero `player_cache.py` no utiliza esas rutas.
+
+Esto debe unificarse.
 
 ---
 
-Comprueba primero si existe:
+# 12. Ficha de jugador
 
-PLAYERS_FILE
+La ficha de jugador se construye mediante:
 
-Si no existe:
+```text
+obtener_ficha_jugador(player_id)
+```
 
-llama a:
+Actualmente incluye:
 
-cargar_jugadores()
+* nombre;
+* equipo;
+* posición;
+* valor actual;
+* propietario;
+* puntos totales;
+* puntos de la última jornada;
+* media de puntos.
 
-Si existe:
+El formato actual es:
 
-abre el JSON y devuelve:
+```text
+⚽ Jugador [EQUIPO] (POSICIÓN)
 
-datos["players"]
+━━━━━━━━━━━━━━━━━━━━
 
-42. actualizar_cache()
+👤 Nombre
+🏟️ Equipo
+📍 Posición
+💰 Valor actual
+👤 Propietario
+⭐ Puntos totales
+📅 Puntos última jornada
+📊 Media de puntos
+```
 
 ---
 
-Es simplemente un alias práctico para:
+# 13. Propietarios
 
-cargar_jugadores()
+El propietario real se obtiene a partir de las plantillas de los managers de la liga.
 
-Su objetivo es forzar una actualización de la caché.
+El proceso es:
 
-43. get_player_name()
+```text
+liga
+  ↓
+standings
+  ↓
+usuarios
+  ↓
+/user/{user_id}
+  ↓
+players
+  ↓
+player_id -> propietario
+```
+
+Se construye un mapa:
+
+```text
+player_id -> nombre propietario
+```
+
+Este mapa se almacena en una caché interna.
+
+Esto permite mostrar el propietario real aunque el objeto público del jugador no contenga directamente esa información.
 
 ---
 
-Recibe:
+# 14. Jornadas
 
-player_id
+El proyecto dispone de dos mecanismos.
 
-Carga la caché.
+## Jornada actual
 
-Busca:
+Se utiliza:
 
-str(player_id)
-
-Si existe:
-
-devuelve el campo:
-
-name
-
-Si no existe:
-
-devuelve:
-
-Jugador [ID]
-
-Por eso actualmente los movimientos pueden mostrar nombres reales cuando la caché está disponible y "Jugador 27929" cuando no lo está.
-
-44. DESCUBRIMIENTO SOBRE LOS NOMBRES
-
----
-
-Durante las pruebas se comprobó que la lógica de nombres estaba funcionando.
-
-Los movimientos recibidos tenían IDs como:
-
-27929
-8555
-10182
-31267
-...
-
-y el código intentaba resolverlos mediante:
-
-get_player_name()
-
-La intención correcta es mantener esta funcionalidad separada de la lógica de informes.
-
-45. test.py
-
----
-
-El test.py actual es:
-
-import pybiwenger
-
-from pybiwenger import LeagueAPI
-
-from config import BIWENGER_USER, BIWENGER_PASSWORD
-
-...
-
-Este archivo pertenece a una versión anterior del proyecto.
-
-Utiliza:
-
-pybiwenger
-
-y las variables:
-
-BIWENGER_USER
-BIWENGER_PASSWORD
-
-Pero la configuración actual utiliza:
-
-BIWENGER_USERNAME
-BIWENGER_PASSWORD
-
-Por tanto, test.py NO está alineado con la arquitectura actual.
-
-46. CONSECUENCIA DE test.py
-
----
-
-El proyecto actual utiliza un cliente propio:
-
-BiwengerClient
-
-mientras que test.py utiliza:
-
-pybiwenger
-
-Por tanto test.py debería considerarse:
-
-TEST ANTIGUO / LEGACY
-
-No debería utilizarse como referencia para modificar la arquitectura actual.
-
-47. requirements.txt
-
----
-
-Actualmente contiene:
-
-python-telegram-bot
-requests
-python-dotenv
-
-Estas son las dependencias principales de la arquitectura actual.
-
-48. python-telegram-bot
-
----
-
-Se utiliza para:
-
-* crear el bot
-* recibir comandos
-* crear botones
-* gestionar callbacks
-* enviar mensajes
-* ejecutar polling
-
-49. requests
-
----
-
-Se utiliza para realizar peticiones HTTP a Biwenger.
-
-El cliente propio utiliza:
-
-requests.Session()
-
-50. python-dotenv
-
----
-
-Permite cargar las variables del archivo:
-
-.env
-
-mediante:
-
-load_dotenv()
-
-51. ARQUITECTURA ACTUAL
-
----
-
-La arquitectura lógica actual es:
-
-```
-                TELEGRAM
-                   │
-                   ▼
-                bot.py
-                   │
-         ┌─────────┴─────────┐
-         │                   │
-         ▼                   ▼
-  obtener_ligas()       cargar_liga()
-                              │
-                              ▼
-                     BiwengerClient
-                              │
-                ┌─────────────┴─────────────┐
-                │                           │
-                ▼                           ▼
-          API privada                 API jugadores
-                │                           │
-                ▼                           ▼
-          Liga / Board               player_cache
-                │                           │
-                ▼                           ▼
-         movimientos                  players.json
-                │
-                ▼
-       formatear_movimientos()
-                │
-                ▼
-             bot.py
-                │
-                ▼
-            Telegram
+```text
+GET /rounds/la-liga
 ```
 
-## 52. FLUJO DE /LIGA
+y se interpreta la respuesta como la jornada actual.
 
-Usuario:
+## Todas las jornadas
 
-/liga
+Se recorren IDs consecutivos empezando actualmente en:
 
-```
-    ↓
-```
-
-bot.py
-
-```
-    ↓
+```text
+4899
 ```
 
-obtener_ligas()
+hasta encontrar jornadas o llegar al límite configurado.
 
-```
-    ↓
-```
-
-BiwengerClient.login()
-
-```
-    ↓
-```
-
-BiwengerClient.leagues()
-
-```
-    ↓
-```
-
-API /account
-
-```
-    ↓
-```
-
-lista de ligas
-
-```
-    ↓
-```
-
-bot.py
-
-```
-    ↓
-```
-
-botones de Telegram
-
-```
-    ↓
-```
-
-usuario selecciona una liga
-
-```
-    ↓
-```
-
-elegir_liga()
-
-```
-    ↓
-```
-
-context.user_data["liga"] = liga_id
-
-53. FLUJO DE /MOVIMIENTOS
-
----
-
-Usuario:
-
-/movimientos
-
-```
-    ↓
-```
-
-bot.py
-
-```
-    ↓
-```
-
-comprueba liga seleccionada
-
-```
-    ↓
-```
-
-cargar_liga(liga_id)
-
-```
-    ↓
-```
-
-client.league(liga_id)
-
-```
-    ↓
-```
-
-obtención de usuarios
-
-```
-    ↓
-```
-
-client.board(liga_id)
-
-```
-    ↓
-```
-
-obtención del tablón
-
-```
-    ↓
-```
-
-formatear_movimientos()
-
-```
-    ↓
-```
-
-get_player_name()
-
-```
-    ↓
-```
-
-player_cache
-
-```
-    ↓
-```
-
-texto final
-
-```
-    ↓
-```
-
-Telegram
-
-54. FLUJO DE /INFORME ACTUAL
-
----
-
-Usuario:
-
-/informe
-
-```
-    ↓
-```
-
-bot.py
-
-```
-    ↓
-```
-
-cargar_liga(liga_id)
-
-```
-    ↓
-```
-
-obtención de usuarios
-
-```
-    ↓
-```
-
-obtención de movimientos
-
-```
-    ↓
-```
-
-bot.py
-
-```
-    ↓
-```
-
-muestra solamente:
-
-🏆 USUARIOS LIGA
-
-• Usuario 1
-• Usuario 2
-• Usuario 3
-...
-
-55. LO QUE EL INFORME TODAVÍA NO HACE
-
----
-
-Actualmente /informe NO realiza el informe económico completo.
-
-No calcula todavía:
-
-* total comprado por usuario
-* total vendido por usuario
-* número de operaciones
-* lista de jugadores comprados
-* lista de jugadores vendidos
-* dinero disponible calculado
-* valor real de plantilla
-* patrimonio total
-* posición económica
-* ranking
-* diferencia respecto al resto
-* estadísticas del mercado
-
-56. INFORME QUE SE PREPARABA EN EL PROYECTO ANTERIOR
-
----
-
-En el proyecto anterior existía una estructura mucho más orientada al informe.
-
-Cada usuario tenía:
-
-{
-"nombre": ...,
-"compras": 0,
-"ventas": 0,
-"comprados": [],
-"vendidos": []
-}
-
-Esto permitía acumular todas las operaciones.
+Las jornadas pueden tener IDs diferentes aunque compartan el mismo `short`.
 
 Ejemplo:
 
-usuario["compras"] += cantidad
+```text
+4899 -> J1
+4900 -> J2
+4901 -> J3
+...
+4937 -> J1 aplazada
+```
 
-usuario["ventas"] += cantidad
-
-y además:
-
-usuario["comprados"].append(
-(nombre, cantidad)
-)
-
-usuario["vendidos"].append(
-(nombre, cantidad)
-)
-
-57. CÁLCULO DE DINERO DEL PROYECTO ANTERIOR
+Por eso el ID de Biwenger y el número de jornada no deben confundirse.
 
 ---
 
-El proyecto anterior utilizaba:
+# 15. Problema actual de la jornada
 
-dinero =
+Esta es una de las zonas que necesita especial atención.
+
+El código tiene actualmente:
+
+```text
+obtener_jornada_actual()
+```
+
+y también:
+
+```text
+obtener_jornadas()
+```
+
+La primera consulta el endpoint general de rounds.
+
+La segunda recorre IDs concretos.
+
+El problema detectado durante las pruebas es que el endpoint consultado como "jornada actual" puede devolver una jornada que no coincide con la jornada que nosotros conceptualmente consideramos actual.
+
+Por tanto, para los cálculos de estadísticas debemos definir claramente qué significa:
+
+```text
+jornada actual
+```
+
+y no asumir que:
+
+```text
+GET /rounds/la-liga
+```
+
+siempre proporciona la jornada que necesitamos.
+
+---
+
+# 16. Puntos de última jornada
+
+La lógica actual intenta hacer:
+
+```text
+Jornada actual = Jn
+
+Jornada anterior = J(n-1)
+
+Buscar player_id
+    ↓
+games
+    ↓
+home / away
+    ↓
+reports
+    ↓
+player.id
+    ↓
+report.points
+```
+
+Si no existe un report del jugador, devuelve:
+
+```text
+0
+```
+
+Actualmente la función utilizada es:
+
+```text
+_obtener_puntos_jornada()
+```
+
+y la búsqueda de la jornada anterior:
+
+```text
+_obtener_jornada_anterior()
+```
+
+---
+
+# 17. Media de puntos
+
+La lógica actual es:
+
+```text
+puntos totales / número de jornada actual
+```
+
+Ejemplo:
+
+```text
+J3
+15 puntos totales
+
+15 / 3 = 5.00
+```
+
+La función responsable es:
+
+```text
+_extraer_media_puntos()
+```
+
+Esto es diferente de calcular una media basada únicamente en jornadas disputadas.
+
+Por tanto, hay que mantener claro que actualmente la definición del proyecto es:
+
+```text
+media = puntos_totales / jornada_actual
+```
+
+---
+
+# 18. Partidos
+
+Cada jornada contiene:
+
+```text
+games
+```
+
+Cada partido puede contener:
+
+```text
+home
+away
+status
+date
+```
+
+El helper:
+
+```text
+_resultado_partido()
+```
+
+admite varias estructuras posibles para el marcador.
+
+Actualmente soporta:
+
+```text
+score.home
+score.away
+```
+
+y también la estructura real observada:
+
+```text
+home.score
+away.score
+```
+
+También intenta detectar:
+
+```text
+goals
+homeScore
+awayScore
+```
+
+---
+
+# 19. Información de partidos
+
+Las jornadas muestran:
+
+* fecha;
+* hora;
+* equipo local;
+* equipo visitante;
+* marcador;
+* estado;
+* partido pendiente;
+* partido en directo;
+* partido finalizado.
+
+Los estados se traducen a indicadores visuales como:
+
+```text
+✅ Finalizado
+🔴 En directo
+⏳ Pendiente
+```
+
+---
+
+# 20. Alineaciones
+
+La rama actual incluye una funcionalidad específica para alineaciones.
+
+Está separada principalmente en:
+
+```text
+lineup_image.py
+partido_alineaciones.py
+```
+
+Esto es una buena separación respecto a `bot.py`.
+
+---
+
+# 21. Alineación posible vs inicial
+
+El sistema distingue entre:
+
+```text
+11 POSIBLE
+```
+
+y:
+
+```text
+11 INICIAL
+```
+
+Antes del partido utiliza los datos disponibles en:
+
+```text
+reports
+```
+
+Cuando el partido está confirmado, intenta utilizar estructuras explícitas como:
+
+```text
+initialLineup
+initialLineups
+lineup
+lineups
+starters
+startingXI
+```
+
+También contempla:
+
+```text
+initialLineups = True
+```
+
+como indicador de confirmación.
+
+---
+
+# 22. Imágenes de alineaciones
+
+`lineup_image.py` genera imágenes PNG mediante Pillow.
+
+Las imágenes incluyen:
+
+* nombre del equipo;
+* rival;
+* campo;
+* jugadores;
+* posición;
+* puntos cuando la alineación está confirmada;
+* indicación de alineación probable/confirmada.
+
+El módulo también busca fuentes de letra disponibles en el sistema.
+
+---
+
+# 23. `partido_alineaciones.py`
+
+Este módulo actúa como capa específica para la ficha de partido.
+
+Permite:
+
+* construir texto de alineaciones;
+* generar imagen del local;
+* generar imagen del visitante;
+* generar una imagen combinada.
+
+Utiliza las funciones de `lineup_image.py` en lugar de duplicar la lógica.
+
+---
+
+# 24. Informe económico
+
+El proyecto tiene una base importante para el informe económico.
+
+Se obtiene:
+
+```text
+standings
+```
+
+y:
+
+```text
+historial completo del mercado
+```
+
+Después se calculan:
+
+```text
+compras
+ventas
+número de compras
+número de ventas
+valor de equipo
+saldo actual
+puja máxima
+```
+
+El saldo se calcula actualmente como:
+
+```text
 20.000.000
 + ventas
 - compras
-
-Esto supone una lógica basada en un presupuesto inicial de:
-
-20.000.000 €
-
-Por tanto:
-
-Dinero disponible =
-presupuesto inicial
-
-* dinero obtenido por ventas
-
-- dinero gastado en compras
-
-58. VALOR DE PLANTILLA DEL PROYECTO ANTERIOR
-
----
-
-Se calculaba sumando el precio de todos los jugadores:
-
-valor = sum(
-jugador.price
-for jugador in plantilla
-)
-
-Después:
-
-patrimonio =
-dinero
-+ valor de plantilla
-
-59. DIFERENCIA CON EL CÓDIGO ACTUAL
-
----
-
-El código actual tiene:
-
-patrimonio(usuario)
-
-que utiliza:
-
-usuario["balance"]
-usuario["teamValue"]
-
-Pero todavía no se está utilizando:
-
-league_players()
-
-para construir el valor de cada plantilla.
-
-Por tanto hay dos posibles fuentes de información:
-
-1. Datos económicos que proporciona directamente Biwenger.
-2. Cálculo propio a partir de compras, ventas y jugadores actuales.
-
-La elección debe hacerse antes de implementar definitivamente el informe.
-
-60. DESCUBRIMIENTO CLAVE PARA LAS PLANTILLAS
-
----
-
-Actualmente sabemos que funciona una petición como:
-
-GET:
-
-/api/v2/league/{liga_id}
-
-con:
-
-fields=users(players)
-
-y headers:
-
-Authorization: Bearer TOKEN
-Accept: application/json
-X-League: liga_id
-X-User: user_id
-
-61. RESULTADO DE PLANTILLAS
-
----
-
-El resultado contiene:
-
-users
-└── players
-├── id
-├── id
-├── id
-└── ...
-
-Esto permite saber qué jugadores tiene actualmente cada participante.
-
-62. QUÉ FALTA PARA COMPLETAR EL INFORME
-
----
-
-La información necesaria ya está prácticamente disponible.
-
-Tenemos:
-
-A) Usuarios de la liga
-→ client.league()
-
-B) Movimientos del mercado
-→ client.board()
-
-C) IDs de jugadores
-→ board y league_players()
-
-D) Nombres de jugadores
-→ player_cache
-
-E) Plantillas actuales
-→ league_players()
-
-F) Datos económicos potenciales
-→ balance / teamValue si vienen disponibles
-
-Por tanto, el siguiente paso natural es una función de lógica de negocio que combine estos datos.
-
-63. POSIBLE ESTRUCTURA DEL INFORME FUTURO
-
----
-
-Para cada usuario:
-
-NOMBRE
-
-💰 Dinero:
-X €
-
-👥 Valor plantilla:
-X €
-
-🏦 Patrimonio:
-X €
-
-📈 Compras:
-X €
-
-📉 Ventas:
-X €
-
-⚽ Jugadores:
-
-* Jugador 1
-* Jugador 2
-* Jugador 3
-
-🟢 Compras realizadas:
-
-* Jugador X — 500.000 €
-* Jugador Y — 1.200.000 €
-
-🔴 Ventas realizadas:
-
-* Jugador Z — 800.000 €
-
-64. PUNTOS QUE NO SE DEBEN TOCAR SIN NECESIDAD
-
----
-
-Hay varias piezas que ya han sido probadas y funcionan.
-
-Especialmente:
-
-1. Login de Biwenger.
-
-2. Obtención de ligas.
-
-3. Selección de liga en Telegram.
-
-4. Obtención del board.
-
-5. Lectura de movimientos.
-
-6. Resolución de nombres mediante player_cache.
-
-7. Petición de plantillas utilizando:
-   fields=users(players)
-
-8. Headers:
-   X-League
-   X-User
-   Authorization
-
-9. ERROR 401 DESCUBIERTO
-
----
-
-Durante las pruebas se produjo:
-
-401 Unauthorized
-
-cuando se utilizaron credenciales incorrectas.
-
-Después, con las credenciales correctas, el login funcionó.
-
-Por tanto, un error 401 durante pruebas puede ser simplemente un problema de credenciales.
-
-66. ERROR 400 DESCUBIERTO
-
----
-
-Se produjo:
-
-400 Client Error
-
-con:
-
-X-League and X-User headers required
-
-cuando se intentó:
-
-/league/{liga_id}?fields=users(players)
-
-sin enviar el contexto necesario.
-
-La solución descubierta fue proporcionar:
-
-X-League
-X-User
-Authorization
-
-67. ERROR DE CACHE /app
-
----
-
-El sistema local produjo:
-
-FileNotFoundError:
-
-/app/players.json
-
-y posteriormente:
-
-Read-only file system
-
-Esto indica que la ruta:
-
-/app/players.json
-
-no es adecuada para desarrollo local en Mac.
-
-La configuración ya contiene:
-
-PLAYERS_CACHE_FILE = "data/players.json"
-
-pero player_cache.py no utiliza todavía esta variable.
-
-La futura solución lógica sería centralizar la ruta en config.py y utilizarla desde player_cache.py.
-
-68. ESTADO DEL CACHE DE JUGADORES
-
----
-
-El cache es útil y debe mantenerse.
-
-No es necesario eliminarlo.
-
-Su función es simplemente evitar tener que consultar la API pública de jugadores cada vez que se procesa un movimiento.
-
-La arquitectura correcta debería ser:
-
-Movimiento:
-player_id = 27929
-
-```
-    ↓
 ```
 
-get_player_name(27929)
+La puja máxima se calcula como:
 
-```
-    ↓
-```
-
-cache
-
-```
-    ↓
+```text
+saldo + valor_equipo / 4
 ```
 
-"Nombre real"
+---
 
-69. PROBLEMA DE CARGAR_CACHE()
+# 25. Limitación del informe económico
+
+Aunque la lógica existe en `biwenger.py`, la arquitectura todavía no está completamente limpia.
+
+Hay que distinguir entre:
+
+* datos reales actuales de Biwenger;
+* datos reconstruidos mediante historial;
+* datos derivados;
+* datos que pueden faltar por movimientos antiguos.
+
+Especialmente importante es el cálculo de saldo y precio de adquisición.
+
+No debemos asumir que el historial disponible siempre contiene toda la información necesaria para reconstruir perfectamente el patrimonio histórico.
 
 ---
 
-Actualmente cada llamada a:
+# 26. `biwenger.py`
 
-get_player_name()
+Es actualmente el módulo más importante del proyecto.
 
-llama a:
+Contiene:
 
-cargar_cache()
+* cliente de Biwenger;
+* autenticación;
+* contexto de liga;
+* jugadores;
+* propietarios;
+* mercado;
+* historial;
+* jornadas;
+* partidos;
+* puntos;
+* fichas;
+* informes;
+* cálculos económicos;
+* formateo de datos.
 
-Si hay muchos movimientos, esto puede implicar abrir el JSON repetidamente.
+Actualmente concentra demasiadas responsabilidades.
 
-No necesariamente es un problema con pocos movimientos, pero puede optimizarse manteniendo la caché en memoria.
-
-No es prioritario mientras el sistema funcione.
-
-70. ESTADO DE BIWENGER.PY
-
----
-
-biwenger.py funciona actualmente como una capa de procesamiento básica.
-
-Está en una fase intermedia:
-
-* login: funciona
-* ligas: funciona
-* usuarios: funciona
-* board: funciona
-* movimientos: funciona
-* nombres: funciona si cache está disponible
-* plantillas: el cliente ya tiene preparado el método
-* informe económico: pendiente
-
-71. ESTADO DE BIWENGER_CLIENT.PY
+Es funcional, pero es el principal candidato a refactorización futura.
 
 ---
 
-El código proporcionado de este archivo contiene específicamente:
+# 27. `biwenger_client.py`
 
-league_players()
+Es una segunda implementación del cliente de Biwenger.
 
-No se ha incluido en este último volcado el resto de la clase BiwengerClient.
+Incluye:
 
-Por tanto, esta documentación solo puede afirmar con certeza sobre el método proporcionado.
+* login;
+* account;
+* leagues;
+* búsqueda de usuario de liga;
+* contexto;
+* league;
+* board;
+* historial;
+* plantillas;
+* jugadores;
+* jornadas.
 
-Según las pruebas realizadas anteriormente, la clase actual dispone de métodos para:
+El problema es que existe mucha funcionalidad duplicada respecto al cliente implementado dentro de `biwenger.py`.
 
-* login
-* get
-* account
-* leagues
-* find_league_user
-* league
-* board
-* players
-* league_players
-
-La responsabilidad del cliente es encapsular la comunicación HTTP con Biwenger.
-
-72. SEPARACIÓN API PRIVADA / API PÚBLICA
+La arquitectura objetivo debería tener **un único cliente de Biwenger**.
 
 ---
 
-El diseño utiliza dos sesiones HTTP.
+# 28. `config.py`
 
-API privada:
+Gestiona variables de entorno mediante `python-dotenv`.
 
-self.session
+Variables necesarias:
 
-Se utiliza para:
+```text
+TELEGRAM_TOKEN
+BIWENGER_USERNAME
+BIWENGER_PASSWORD
+```
 
-* login
-* cuenta
-* ligas
-* liga
-* board
-* plantillas
+El programa falla al arrancar si alguna no existe.
 
-Esta sesión utiliza autenticación.
+Esto es correcto desde el punto de vista de seguridad.
 
-API pública:
-
-self.public_session
-
-Se utiliza para:
-
-* obtener datos públicos de jugadores.
-
-No debe utilizarse el token privado innecesariamente para la API pública.
-
-73. SEGURIDAD
+Nunca deben almacenarse credenciales directamente en el repositorio.
 
 ---
 
-Las credenciales deben mantenerse exclusivamente en variables de entorno.
+# 29. `requirements.txt`
 
-Nunca guardar en el código:
+Dependencias actuales:
 
-BIWENGER_USERNAME = "..."
-BIWENGER_PASSWORD = "..."
-TELEGRAM_TOKEN = "..."
-
-El archivo .env tampoco debería subirse al repositorio.
-
-También debe evitarse imprimir tokens en logs.
-
-74. TEST.PY — ESTADO
-
----
-
-test.py es antiguo.
-
-Está basado en:
-
-pybiwenger
-
-y:
-
-LeagueAPI
-
-Actualmente la aplicación principal utiliza:
-
-BiwengerClient
-
-Por tanto, test.py debería actualizarse o sustituirse si se quiere mantener una suite de pruebas coherente.
-
-75. REQUIREMENTS.TXT
-
----
-
-Las dependencias actuales son suficientes para la arquitectura propia:
-
+```text
 python-telegram-bot
 requests
 python-dotenv
+Pillow
+```
 
-pybiwenger NO aparece en requirements.txt.
-
-Esto confirma que el código principal ya no debería depender de pybiwenger.
-
-76. FLUJO COMPLETO DEL PROYECTO
+Son suficientes para la arquitectura actual.
 
 ---
 
-1. Arranca bot.py.
+# 30. Tests
 
-2. config.py carga .env.
+Actualmente existen tres archivos relacionados con pruebas:
 
-3. Se obtiene TELEGRAM_TOKEN.
+```text
+test.py
+test_client.py
+test_alineaciones.py
+```
 
-4. Se crea Application.
+## `test_alineaciones.py`
 
-5. El bot empieza polling.
+Es el test más útil actualmente.
 
-6. Usuario ejecuta /liga.
+Comprueba:
 
-7. bot.py llama obtener_ligas().
+* alineación antes del partido;
+* transición a alineación confirmada;
+* uso de `initialLineups`.
 
-8. biwenger.py crea BiwengerClient.
+## `test_client.py`
 
-9. BiwengerClient realiza login.
+Está desactualizado respecto al cliente actual.
 
-10. Se obtiene la cuenta de Biwenger.
+Utiliza métodos como:
 
-11. Se devuelven las ligas.
+```text
+get_league_by_name()
+league_by_secret()
+```
 
-12. Telegram muestra botones.
+que no corresponden a la implementación actual del cliente.
 
-13. Usuario selecciona una liga.
+## `test.py`
 
-14. El ID se guarda en:
-    context.user_data["liga"]
+También está desactualizado.
 
-15. Usuario ejecuta /movimientos o /informe.
+Utiliza:
 
-16. bot.py recupera el ID.
+```text
+pybiwenger
+```
 
-17. Llama a cargar_liga().
+y variables:
 
-18. cargar_liga() obtiene información de la liga.
+```text
+BIWENGER_USER
+BIWENGER_PASSWORD
+```
 
-19. Obtiene usuarios.
+mientras que el proyecto actual utiliza `requests` y:
 
-20. Obtiene el board.
+```text
+BIWENGER_USERNAME
+BIWENGER_PASSWORD
+```
 
-21. Procesa los movimientos.
-
-22. Para cada jugador se consulta el cache.
-
-23. Se obtiene el nombre.
-
-24. Se genera texto.
-
-25. bot.py envía el resultado a Telegram.
-
-26. ARQUITECTURA DE RESPONSABILIDADES
-
----
-
-## bot.py
-
-Interfaz Telegram.
-
-## config.py
-
-Configuración y secretos.
-
-## biwenger_client.py
-
-Comunicación HTTP con Biwenger.
-
-## biwenger.py
-
-Lógica de negocio y transformación de datos.
-
-## player_cache.py
-
-Resolución/cache de jugadores.
-
-## test.py
-
-Prueba antigua basada en pybiwenger.
-
-## requirements.txt
-
-Dependencias Python.
-
-78. PRINCIPIO IMPORTANTE PARA FUTURAS MODIFICACIONES
+Por tanto, estos tests no representan actualmente una suite fiable.
 
 ---
 
-No conviene meter toda la lógica en bot.py.
+# 31. Problemas técnicos detectados
 
-La arquitectura debería mantenerse:
+## 31.1 Dos clientes Biwenger
 
-bot.py
-↓
+Tenemos:
+
+```text
 biwenger.py
-↓
-biwenger_client.py
+    └── BiwengerClient
+```
 
 y:
 
+```text
+biwenger_client.py
+    └── BiwengerClient
+```
+
+Esto debe terminar unificándose.
+
+---
+
+## 31.2 Dos sistemas de caché
+
+Tenemos:
+
+```text
 biwenger.py
-↓
+    └── caché en memoria
+```
+
+y:
+
+```text
 player_cache.py
+    └── /app/players.json
+```
 
-79. PRÓXIMO PASO RECOMENDADO
+Además `config.py` define:
 
----
+```text
+data/players.json
+```
 
-El siguiente trabajo debería centrarse exclusivamente en el INFORME.
-
-No es necesario modificar:
-
-* selección de liga
-* autenticación
-* board
-* nombres
-* funcionamiento general del bot
-* API pública de jugadores
-
-La mejora debería consistir en:
-
-1. Obtener usuarios.
-
-2. Obtener movimientos.
-
-3. Obtener plantillas.
-
-4. Crear un catálogo de jugadores.
-
-5. Asociar cada plantilla con su usuario.
-
-6. Calcular compras.
-
-7. Calcular ventas.
-
-8. Calcular dinero.
-
-9. Calcular valor de plantilla.
-
-10. Calcular patrimonio.
-
-11. Ordenar los usuarios.
-
-12. Formatear el informe para Telegram.
-
-13. OBJETIVO FINAL
+pero esa ruta no coincide con la implementación.
 
 ---
 
-El bot debería terminar produciendo algo similar a:
+## 31.3 `biwenger.py` es demasiado grande
 
-🏆 INFORME DE LA LIGA
+El módulo contiene acceso a API, transformación, cálculos, jornadas, mercado y presentación.
 
-1️⃣ Usuario A
-💰 Dinero: 5.200.000 €
-👥 Plantilla: 17.400.000 €
-🏦 Patrimonio: 22.600.000 €
-📈 Compras: 8.300.000 €
-📉 Ventas: 4.500.000 €
+Funciona, pero dificulta:
 
-2️⃣ Usuario B
-💰 Dinero: 3.100.000 €
-👥 Plantilla: 19.200.000 €
-🏦 Patrimonio: 22.300.000 €
-📈 Compras: 10.100.000 €
-📉 Ventas: 6.200.000 €
-
-etc.
-
-81. RESUMEN DEL ESTADO ACTUAL
+* probar;
+* depurar;
+* modificar;
+* detectar regresiones.
 
 ---
 
-🟢 FUNCIONANDO / COMPROBADO
+## 31.4 Determinación de jornada actual
 
-* Autenticación contra Biwenger.
-* Obtención de ligas.
-* Selección de liga desde Telegram.
-* Obtención de información de liga.
-* Obtención del board.
-* Lectura de movimientos.
-* Identificación de comprador/vendedor.
-* Resolución de nombres de jugadores cuando la caché está disponible.
-* API pública de jugadores.
-* Petición de usuarios con jugadores mediante:
-  fields=users(players)
-* Uso correcto de X-League.
-* Uso correcto de X-User.
-* Bot de Telegram.
-* Comandos básicos.
+Es una dependencia crítica para:
 
-🟡 PARCIAL / PENDIENTE
+* puntos última jornada;
+* media;
+* jornadas;
+* alineaciones;
+* estadísticas.
 
-* Informe económico.
-* Cálculo de compras.
-* Cálculo de ventas.
-* Asociación completa usuario → plantilla.
-* Cálculo de valor de plantilla.
-* Ranking por patrimonio.
-* Informe detallado.
-* Caché configurable mediante config.py.
-* Optimización de lectura del cache.
+Debe existir una única función fiable que determine:
 
-🔴 OBSERVACIONES / PROBLEMAS CONOCIDOS
-
-* player_cache.py utiliza /app/players.json.
-* config.py define otra ruta: data/players.json.
-* test.py utiliza la arquitectura antigua pybiwenger.
-* test.py utiliza nombres de variables que ya no coinciden con config.py.
-* biwenger.py todavía tiene mucho código de depuración mediante print().
-* /informe actualmente solo lista nombres.
-* El método league_players() está preparado pero todavía no está integrado en cargar_liga().
-
-82. CONCLUSIÓN
+```text
+número de jornada actual
+ID de la jornada actual
+jornada anterior
+```
 
 ---
 
-El proyecto ya tiene construida la parte más delicada de comunicación con Biwenger.
+## 31.5 Tests insuficientes
 
-La autenticación, selección de liga, lectura del mercado y resolución de nombres están separadas correctamente.
+Necesitamos tests para:
 
-El descubrimiento más importante para continuar es que Biwenger permite obtener las plantillas mediante:
-
-/league/{liga_id}?fields=users(players)
-
-pero exige los headers:
-
-X-League
-X-User
-
-además de la autorización.
-
-Esto ya está resuelto en league_players().
-
-Por tanto, el siguiente objetivo no debería ser modificar clientes ni rehacer la comunicación con Biwenger.
-
-El siguiente objetivo debería ser exclusivamente construir la capa de INFORME en biwenger.py utilizando los datos que ya tenemos.
-
-La idea es:
-
-DATOS DE LIGA
-+
-MOVIMIENTOS
-+
-PLANTILLAS
-+
-NOMBRES DE JUGADORES
-↓
-PROCESAMIENTO
-↓
-COMPRAS / VENTAS / DINERO / VALOR PLANTILLA
-↓
-PATRIMONIO
-↓
-RANKING
-↓
-INFORME TELEGRAM
-
-83. NOTA SOBRE EL PROYECTO ANTERIOR
+* puntos por jornada;
+* jornadas aplazadas;
+* marcador;
+* propietarios;
+* mercado;
+* caché;
+* jornada actual;
+* media;
+* ausencia de report;
+* partidos en directo;
+* alineaciones.
 
 ---
 
-El proyecto anterior es especialmente útil como referencia para la lógica de negocio.
+# 32. Problema de despliegue conocido
 
-Su estructura:
+El bot utiliza Telegram mediante polling.
 
-usuarios
-compras
-ventas
-comprados
-vendidos
+Esto significa que solo puede existir una instancia haciendo:
 
-plantillas
+```text
+getUpdates
+```
 
-patrimonio()
+con el mismo token.
 
-es una buena base conceptual para reconstruir el informe actual.
+Si hay dos instancias activas aparece:
 
-Sin embargo, no debe copiarse directamente la comunicación API del proyecto antiguo porque actualmente existe un cliente propio:
+```text
+409 Conflict
+terminated by other getUpdates request
+```
 
-BiwengerClient
-
-y ya se ha comprobado cómo funciona la API actual.
-
-La estrategia correcta es conservar:
-
-* la arquitectura HTTP actual
-* el cliente actual
-* el cache actual
-
-y recuperar del proyecto anterior únicamente la lógica de cálculo del informe.
-
-84. REGLA DE ORO PARA CONTINUAR
+Por tanto, en Railway debe mantenerse una única instancia activa del bot.
 
 ---
 
-NO TOCAR lo que ya está funcionando para obtener:
+# 33. Seguridad
 
-* login
-* ligas
-* usuarios
-* mercado
-* nombres
+Las credenciales de:
 
-salvo que sea estrictamente necesario.
+```text
+TELEGRAM_TOKEN
+BIWENGER_USERNAME
+BIWENGER_PASSWORD
+```
 
-Construir encima de eso la lógica de:
+deben estar únicamente en variables de entorno.
 
-* plantillas
-* compras
-* ventas
-* patrimonio
-* informe.
+El `.gitignore` ya excluye:
 
-De esta manera se reduce muchísimo el riesgo de romper la parte funcional del bot.
+```text
+.env
+__pycache__/
+*.pyc
+.DS_Store
+```
+
+Nunca deben introducirse tokens o contraseñas en commits, logs o mensajes de diagnóstico.
+
+---
+
+# 34. Diagnóstico actualmente incorporado
+
+`biwenger.py` contiene diagnóstico del cliente que registra:
+
+* clase utilizada;
+* archivo desde el que se carga;
+* existencia del archivo;
+* SHA256;
+* existencia de `obtener_jornadas`.
+
+Esto fue útil para comprobar qué versión estaba ejecutando Railway.
+
+Una vez estabilizado el proyecto, este diagnóstico debería reducirse o convertirse en logging de depuración.
+
+---
+
+# 35. Flujo general de una consulta
+
+Ejemplo: usuario pulsa un jugador.
+
+```text
+Telegram
+   ↓
+callback jugador:<id>
+   ↓
+bot.py
+   ↓
+obtener_ficha_jugador(id)
+   ↓
+mapa público de jugadores
+   ↓
+mapa de propietarios
+   ↓
+jornada actual
+   ↓
+jornada anterior
+   ↓
+reports
+   ↓
+cálculo de puntos
+   ↓
+cálculo de media
+   ↓
+texto de ficha
+   ↓
+Telegram
+```
+
+---
+
+# 36. Arquitectura objetivo
+
+La evolución recomendada sería separar:
+
+```text
+bot.py
+```
+
+Interfaz Telegram.
+
+```text
+services/
+```
+
+Lógica de negocio.
+
+```text
+clients/
+```
+
+Comunicación con Biwenger.
+
+```text
+repositories/
+```
+
+Cachés y almacenamiento.
+
+```text
+models/
+```
+
+Modelos normalizados.
+
+```text
+presentation/
+```
+
+Textos e imágenes.
+
+Una arquitectura futura podría ser:
+
+```text
+bot.py
+ │
+ ├── services/
+ │      ├── jugadores.py
+ │      ├── mercado.py
+ │      ├── jornadas.py
+ │      ├── alineaciones.py
+ │      └── informes.py
+ │
+ ├── clients/
+ │      └── biwenger.py
+ │
+ ├── repositories/
+ │      └── cache.py
+ │
+ └── presentation/
+        ├── telegram.py
+        └── alineaciones.py
+```
+
+No es necesario hacer esta refactorización inmediatamente.
+
+Primero debemos estabilizar la lógica actual.
+
+---
+
+# 37. Orden recomendado de mejoras
+
+## Fase 1 — Estabilizar datos
+
+1. Definir correctamente la jornada actual.
+2. Definir jornada anterior.
+3. Validar puntos de última jornada.
+4. Validar media.
+5. Validar marcadores.
+6. Validar propietarios.
+7. Validar alineaciones.
+
+## Fase 2 — Tests
+
+Crear tests para todas las funciones críticas.
+
+Especialmente:
+
+```text
+J1
+J2
+J3
+jornadas aplazadas
+partido terminado
+partido en directo
+partido pendiente
+jugador sin report
+jugador con report
+```
+
+## Fase 3 — Unificar cliente
+
+Eliminar la duplicación:
+
+```text
+biwenger.py
+biwenger_client.py
+```
+
+y dejar una única implementación.
+
+## Fase 4 — Unificar caché
+
+Decidir una única estrategia para:
+
+```text
+players
+market
+owners
+rounds
+```
+
+## Fase 5 — Separar responsabilidades
+
+Reducir el tamaño de `biwenger.py`.
+
+## Fase 6 — Mejorar funcionalidad
+
+Una vez estable la base:
+
+* estadísticas;
+* historial por jugador;
+* evolución de precios;
+* evolución de puntos;
+* análisis de plantilla;
+* comparativas;
+* recomendaciones;
+* informes económicos más precisos.
+
+---
+
+# 38. Regla importante para futuras modificaciones
+
+Antes de modificar una función relacionada con Biwenger debemos comprobar:
+
+1. Qué endpoint proporciona el dato.
+2. Qué estructura real devuelve.
+3. Si el dato pertenece a la API privada o pública.
+4. Si el dato es actual o histórico.
+5. Si existe caché.
+6. Si existe una segunda implementación de la misma función.
+7. Qué otras funciones dependen de ella.
+
+Esto evitará continuar acumulando parches sobre lógica duplicada.
+
+---
+
+# 39. Estado actual
+
+El proyecto **funciona y ya tiene una base funcional considerable**, especialmente en:
+
+* Telegram;
+* mercado;
+* jugadores;
+* propietarios;
+* jornadas;
+* resultados;
+* alineaciones;
+* imágenes.
+
+La principal deuda técnica no es que falte funcionalidad, sino que parte de ella ha ido creciendo sobre una arquitectura que todavía no se ha consolidado.
+
+El objetivo inmediato debe ser:
+
+```text
+DATOS CORRECTOS
+      ↓
+LÓGICA CORRECTA
+      ↓
+TESTS
+      ↓
+REFACTORIZACIÓN
+      ↓
+NUEVAS FUNCIONALIDADES
+```
+
+No al revés.
+
+---
+
+## 40. Próximo objetivo
+
+Antes de añadir otra funcionalidad, debemos dejar completamente fiable este núcleo:
+
+```text
+jornada actual
+       ↓
+jornada anterior
+       ↓
+puntos del jugador
+       ↓
+puntos totales
+       ↓
+media
+       ↓
+ficha del jugador
+```
+
+Una vez este flujo sea fiable, podremos usarlo como base para todas las futuras estadísticas del bot.
