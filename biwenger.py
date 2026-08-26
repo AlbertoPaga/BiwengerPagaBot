@@ -2763,7 +2763,6 @@ def obtener_ficha_jugador(
     ):
         return None
 
-
     # -------------------------------------------------
     # Jornada actual
     # -------------------------------------------------
@@ -2773,7 +2772,7 @@ def obtener_ficha_jugador(
     )
 
     # -------------------------------------------------
-    # Obtener propietarios reales de la liga
+    # Propietarios reales de la liga
     # -------------------------------------------------
 
     propietarios = {}
@@ -2796,26 +2795,9 @@ def obtener_ficha_jugador(
             exc,
         )
 
-    try:
-        player_id = int(
-            player_id
-        )
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return None
-
-    jugador = jugadores.get(
-        player_id
-    )
-
-    if not isinstance(
-        jugador,
-        dict,
-    ):
-        return None
+    # -------------------------------------------------
+    # Datos básicos
+    # -------------------------------------------------
 
     team_id = _extraer_team_id_jugador(
         jugador
@@ -2842,28 +2824,283 @@ def obtener_ficha_jugador(
     else:
         nombre = nombre.strip()
 
+    # -------------------------------------------------
+    # Precio
+    # -------------------------------------------------
+
     precio = jugador.get(
         "price",
-        jugador.get(
-            "fantasyPrice",
-            0,
-        ),
+        0,
     )
+
+    try:
+        precio = int(
+            precio
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        precio = 0
+
+    incremento_precio = jugador.get(
+        "priceIncrement",
+        0,
+    )
+
+    try:
+        incremento_precio = int(
+            incremento_precio
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        incremento_precio = 0
+
+    # -------------------------------------------------
+    # Puntos
+    # -------------------------------------------------
 
     puntos = jugador.get(
         "points",
         0,
     )
 
+    try:
+        puntos = float(
+            puntos
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        puntos = 0
+
+    # Si es un número entero, no mostrar .0
+    if puntos.is_integer():
+        puntos = int(
+            puntos
+        )
+
     ultimo_puntos = _extraer_ultimo_puntos(
         player_id,
         jornada_actual,
     )
 
-    media_puntos = _extraer_media_puntos(
-        jugador,
-        jornada_actual,
+    # -------------------------------------------------
+    # Media
+    #
+    # La media debe basarse en los partidos realmente
+    # jugados, no en la jornada actual.
+    #
+    # Primero intentamos obtener los partidos jugados
+    # de la temporada actual desde scoreStats.
+    # -------------------------------------------------
+
+    media_puntos = 0
+
+    score_stats = jugador.get(
+        "scoreStats",
+        {}
     )
+
+    if isinstance(
+        score_stats,
+        dict,
+    ):
+
+        puntos_por_sistema = []
+
+        for datos_sistema in score_stats.values():
+
+            if not isinstance(
+                datos_sistema,
+                dict,
+            ):
+                continue
+
+            valor = datos_sistema.get(
+                "points"
+            )
+
+            if isinstance(
+                valor,
+                (int, float),
+            ):
+                puntos_por_sistema.append(
+                    float(valor)
+                )
+
+        if puntos_por_sistema:
+
+            # Biwenger devuelve los puntos acumulados
+            # por cada sistema de puntuación.
+            #
+            # El sistema de la liga se obtiene de
+            # la puntuación disponible para el jugador.
+            #
+            # Si hay datos de la temporada seleccionada,
+            # usamos el primero disponible.
+            puntos_sistema = (
+                puntos_por_sistema[0]
+            )
+
+            temporadas = jugador.get(
+                "seasons",
+                []
+            )
+
+            partidos_jugados = 0
+
+            if isinstance(
+                temporadas,
+                list,
+            ):
+
+                for temporada in temporadas:
+
+                    if not isinstance(
+                        temporada,
+                        dict,
+                    ):
+                        continue
+
+                    if temporada.get(
+                        "selected"
+                    ) is True:
+
+                        try:
+                            partidos_jugados = int(
+                                temporada.get(
+                                    "games",
+                                    0,
+                                )
+                            )
+
+                        except (
+                            TypeError,
+                            ValueError,
+                        ):
+                            partidos_jugados = 0
+
+                        # Los puntos de la temporada
+                        # seleccionada son más fiables
+                        # para calcular la media.
+                        puntos_temporada = temporada.get(
+                            "points"
+                        )
+
+                        if isinstance(
+                            puntos_temporada,
+                            dict,
+                        ):
+
+                            puntos_temporada_validos = [
+                                valor
+                                for valor in puntos_temporada.values()
+                                if isinstance(
+                                    valor,
+                                    (int, float),
+                                )
+                            ]
+
+                            if puntos_temporada_validos:
+
+                                puntos_sistema = float(
+                                    puntos_temporada_validos[0]
+                                )
+
+                        break
+
+            if partidos_jugados > 0:
+
+                media_puntos = round(
+                    puntos_sistema
+                    / partidos_jugados,
+                    2,
+                )
+
+    # -------------------------------------------------
+    # Propietario
+    # -------------------------------------------------
+
+    propietario = _extraer_propietario(
+        jugador,
+        propietarios,
+    )
+
+    if propietario == "No disponible":
+        propietario = None
+
+    # -------------------------------------------------
+    # Próximos partidos
+    # -------------------------------------------------
+
+    proximo_partido = []
+
+    equipo = jugador.get(
+        "team",
+        {}
+    )
+
+    if isinstance(
+        equipo,
+        dict,
+    ):
+
+        proximo_partido = equipo.get(
+            "nextGames",
+            []
+        )
+
+        if not isinstance(
+            proximo_partido,
+            list,
+        ):
+            proximo_partido = []
+
+    # -------------------------------------------------
+    # Estado
+    # -------------------------------------------------
+
+    estado = jugador.get(
+        "status"
+    )
+
+    if (
+        not isinstance(
+            estado,
+            str,
+        )
+        or not estado.strip()
+    ):
+        estado = "ok"
+
+    else:
+        estado = estado.strip().lower()
+
+    # -------------------------------------------------
+    # Probable titular / disponible
+    #
+    # probableIn contiene los IDs de los partidos en
+    # los que Biwenger considera que el jugador puede
+    # aparecer.
+    # -------------------------------------------------
+
+    probable_en = jugador.get(
+        "probableIn",
+        []
+    )
+
+    if not isinstance(
+        probable_en,
+        list,
+    ):
+        probable_en = []
 
     return {
         "id": player_id,
@@ -2886,15 +3123,7 @@ def obtener_ficha_jugador(
 
         "precio": precio,
 
-        "precio_fantasy": jugador.get(
-            "fantasyPrice",
-            0,
-        ),
-
-        "incremento_precio": jugador.get(
-            "priceIncrement",
-            0,
-        ),
+        "incremento_precio": incremento_precio,
 
         "puntos": puntos,
 
@@ -2902,63 +3131,44 @@ def obtener_ficha_jugador(
 
         "media_puntos": media_puntos,
 
-        "propietario": _extraer_propietario(
-            jugador,
-            propietarios,
-        ),
-
-        "numero": jugador.get(
-            "number"
-        ),
-
-        "pais": jugador.get(
-            "country"
-        ),
-
-        "cumpleanos": jugador.get(
-            "birthday"
-        ),
-
-        "estado": jugador.get(
-            "status"
-        ),
-
-        "probable_en": jugador.get(
-            "probableIn",
-            [],
-        ),
-
-        "ranking": (
-            jugador.get(
-                "analysis",
-                {}
+        "partidos_jugados": (
+            next(
+                (
+                    temporada.get(
+                        "games",
+                        0,
+                    )
+                    for temporada in jugador.get(
+                        "seasons",
+                        []
+                    )
+                    if isinstance(
+                        temporada,
+                        dict,
+                    )
+                    and temporada.get(
+                        "selected"
+                    ) is True
+                ),
+                0,
             )
             if isinstance(
-                jugador.get("analysis"),
-                dict,
+                jugador.get(
+                    "seasons",
+                    []
+                ),
+                list,
             )
-            else {}
+            else 0
         ),
 
-        "analisis": jugador.get(
-            "analysis",
-            {}
-        ),
+        "propietario": propietario,
 
-        "proximo_partido": (
-            jugador.get(
-                "team",
-                {}
-            ).get(
-                "nextGames",
-                []
-            )
-            if isinstance(
-                jugador.get("team"),
-                dict,
-            )
-            else []
-        ),
+        "estado": estado,
+
+        "probable_en": probable_en,
+
+        "proximo_partido": proximo_partido,
 
         "score_stats": jugador.get(
             "scoreStats",
@@ -2992,6 +3202,9 @@ def obtener_ficha_jugador(
 
         "datos": jugador,
     }
+
+
+
 
 
 def _extraer_team_id_jugador(

@@ -4153,18 +4153,8 @@ def construir_texto_ficha_jugador(
         "Posición desconocida",
     )
 
-    propietario = jugador.get(
-        "propietario",
-        "No disponible",
-    )
-
     precio = jugador.get(
         "precio",
-        0,
-    )
-
-    fantasy_price = jugador.get(
-        "precio_fantasy",
         0,
     )
 
@@ -4188,49 +4178,178 @@ def construir_texto_ficha_jugador(
         0,
     )
 
-    analisis = jugador.get(
-        "analisis",
-        {}
-    )
-
-    if not isinstance(
-        analisis,
-        dict,
-    ):
-        analisis = {}
-
-    compras = analisis.get(
-        "purchases",
+    partidos_jugados = jugador.get(
+        "partidos_jugados",
         0,
     )
 
-    ventas = analisis.get(
-        "sales",
-        0,
+    propietario = jugador.get(
+        "propietario"
     )
 
-    ranking = analisis.get(
-        "ranking",
-        {}
+    estado = jugador.get(
+        "estado",
+        "ok",
     )
 
-    if not isinstance(
-        ranking,
-        dict,
+    probable_en = jugador.get(
+        "probable_en",
+        []
+    )
+
+    proximo_partido = jugador.get(
+        "proximo_partido",
+        []
+    )
+
+    # -------------------------------------------------
+    # Formatear variación
+    # -------------------------------------------------
+
+    try:
+        incremento = float(
+            incremento
+        )
+    except (
+        TypeError,
+        ValueError,
     ):
-        ranking = {}
+        incremento = 0
 
-    ranking_global = ranking.get(
-        "global"
+    signo = "+"
+
+    if incremento < 0:
+        signo = ""
+
+    variacion = (
+        f"{signo}"
+        f"{formatear_dinero(incremento)}"
     )
 
-    ranking_posicion = ranking.get(
-        "position"
+    # Porcentaje respecto al precio anterior
+    porcentaje = 0
+
+    precio_anterior = (
+        precio - incremento
     )
 
-    owned = analisis.get(
-        "owned"
+    if precio_anterior > 0:
+
+        porcentaje = (
+            incremento
+            / precio_anterior
+        ) * 100
+
+    signo_porcentaje = "+"
+
+    if porcentaje < 0:
+        signo_porcentaje = ""
+
+    variacion += (
+        f" ({signo_porcentaje}"
+        f"{porcentaje:.1f}%)"
     )
+
+    # -------------------------------------------------
+    # Estado
+    # -------------------------------------------------
+
+    estados = {
+        "ok": "🟢 OK",
+        "injured": "🔴 LESIONADO",
+        "lesionado": "🔴 LESIONADO",
+        "out": "🔴 FUERA",
+        "suspended": "🟠 SANCIONADO",
+        "sancionado": "🟠 SANCIONADO",
+        "doubt": "🟡 DUDA",
+        "doubtful": "🟡 DUDA",
+    }
+
+    estado_texto = estados.get(
+        str(
+            estado
+        ).lower(),
+        str(
+            estado
+        ).upper(),
+    )
+
+    # -------------------------------------------------
+    # Próximo partido
+    # -------------------------------------------------
+
+    partido_texto = None
+    titular_texto = None
+
+    if isinstance(
+        proximo_partido,
+        list,
+    ) and proximo_partido:
+
+        partido = proximo_partido[0]
+
+        if isinstance(
+            partido,
+            dict,
+        ):
+
+            home = partido.get(
+                "home",
+                {}
+            )
+
+            away = partido.get(
+                "away",
+                {}
+            )
+
+            if (
+                isinstance(home, dict)
+                and isinstance(away, dict)
+            ):
+
+                home_name = home.get(
+                    "name",
+                    "Local",
+                )
+
+                away_name = away.get(
+                    "name",
+                    "Visitante",
+                )
+
+                partido_texto = (
+                    f"{home_name} - "
+                    f"{away_name}"
+                )
+
+                # -----------------------------------------
+                # probableIn
+                #
+                # Si el ID del próximo partido aparece en
+                # probableIn, Biwenger considera al jugador
+                # probable para ese encuentro.
+                # -----------------------------------------
+
+                partido_id = partido.get(
+                    "id"
+                )
+
+                if partido_id in probable_en:
+
+                    titular_texto = (
+                        "🟢 Posible titular"
+                    )
+
+                else:
+
+                    titular_texto = (
+                        "⚪ No indicado como titular"
+                    )
+
+    # -------------------------------------------------
+    # Construcción
+    # -------------------------------------------------
 
     titulo = (
         f"⚽ {nombre} "
@@ -4238,39 +4357,72 @@ def construir_texto_ficha_jugador(
         f"({posicion})"
     )
 
-    return (
-        f"{titulo}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-
-        f"👤 Nombre: {nombre}\n"
-        f"🏟️ Equipo: {equipo_nombre}\n"
-        f"📍 Posición: {posicion_nombre}\n\n"
-
+    lineas = [
+        titulo,
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+        f"👤 {nombre}",
+        f"🏟️ {equipo_nombre}",
+        f"📍 {posicion_nombre}",
+        "",
         f"💰 Valor actual: "
-        f"{formatear_dinero(precio)}\n"
-
-        f"💎 Valor fantasy: "
-        f"{formatear_dinero(fantasy_price)}\n"
-
+        f"{formatear_dinero(precio)}",
         f"📈 Variación diaria: "
-        f"{formatear_dinero(incremento)}\n\n"
+        f"{variacion}",
+    ]
 
-        f"👤 Propietario: {propietario}\n\n"
+    # -------------------------------------------------
+    # Propietario
+    # -------------------------------------------------
 
-        f"⭐ Puntos totales: {puntos}\n"
-        f"📅 Última jornada: {ultimo}\n"
-        f"📊 Media de puntos: {media}\n\n"
+    if propietario:
 
-        f"🛒 Compras: {compras}\n"
-        f"💸 Ventas: {ventas}\n"
-        f"👥 Propietarios: {owned}\n"
+        lineas.extend([
+            "",
+            f"👤 Propietario: "
+            f"{propietario}",
+        ])
 
-        f"🏆 Ranking global: "
-        f"{ranking_global if ranking_global is not None else '—'}\n"
+    # -------------------------------------------------
+    # Rendimiento
+    # -------------------------------------------------
 
-        f"📊 Ranking posición: "
-        f"{ranking_posicion if ranking_posicion is not None else '—'}\n"
+    lineas.extend([
+        "",
+        f"⭐ Puntos totales: "
+        f"{puntos}",
+        f"📅 Última jornada: "
+        f"{ultimo}",
+        f"📊 Media de puntos: "
+        f"{media}",
+        f"🏟️ Partidos jugados: "
+        f"{partidos_jugados}",
+    ])
+
+    # -------------------------------------------------
+    # Próximo partido
+    # -------------------------------------------------
+
+    if partido_texto:
+
+        lineas.extend([
+            "",
+            "🔜 Próximo partido",
+            "",
+            partido_texto,
+        ])
+
+        if titular_texto:
+
+            lineas.append(
+                titular_texto
+            )
+
+    return "\n".join(
+        lineas
     )
+
+
 
 
 def teclado_ficha_jugador(
