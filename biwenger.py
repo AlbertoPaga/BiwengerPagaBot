@@ -1,6 +1,8 @@
 import requests
 import time
 import logging
+import re
+
 from collections import defaultdict
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -2390,45 +2392,164 @@ def _extraer_ultimo_puntos(
     jornada_actual=None,
 ):
     """
-    Obtiene los puntos del jugador en la jornada
-    inmediatamente anterior a la actual.
+    Obtiene los puntos del jugador en su último partido
+    terminado disponible en el historial de jornadas.
+
+    No depende de que la jornada actual sea consecutiva,
+    por lo que funciona correctamente con jornadas aplazadas.
     """
 
-    if jornada_actual is None:
-        jornada_actual = obtener_jornada_actual()
+    try:
+        player_id = int(player_id)
 
-    if not jornada_actual:
-        return 0
-
-    numero_actual = _numero_jornada(
-        jornada_actual
-    )
-
-    if (
-        numero_actual is None
-        or numero_actual <= 1
+    except (
+        TypeError,
+        ValueError,
     ):
         return 0
 
-    jornada_anterior = (
-        _obtener_jornada_anterior(
-            jornada_actual
+    jornadas = obtener_jornadas()
+
+    if not isinstance(
+        jornadas,
+        list,
+    ):
+        return 0
+
+    candidatos = []
+
+    for jornada in jornadas:
+
+        if not isinstance(
+            jornada,
+            dict,
+        ):
+            continue
+
+        games = jornada.get(
+            "games",
+            []
         )
-    )
 
-    if not jornada_anterior:
+        if not isinstance(
+            games,
+            list,
+        ):
+            continue
+
+        for partido in games:
+
+            if not isinstance(
+                partido,
+                dict,
+            ):
+                continue
+
+            estado = partido.get(
+                "status"
+            )
+
+            if estado != "finished":
+                continue
+
+            fecha = partido.get(
+                "date",
+                0,
+            )
+
+            try:
+                fecha = float(fecha)
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                fecha = 0
+
+            for lado in (
+                "home",
+                "away",
+            ):
+
+                equipo = partido.get(
+                    lado
+                )
+
+                if not isinstance(
+                    equipo,
+                    dict,
+                ):
+                    continue
+
+                reports = equipo.get(
+                    "reports",
+                    []
+                )
+
+                if not isinstance(
+                    reports,
+                    list,
+                ):
+                    continue
+
+                for report in reports:
+
+                    if not isinstance(
+                        report,
+                        dict,
+                    ):
+                        continue
+
+                    player = report.get(
+                        "player"
+                    )
+
+                    if not isinstance(
+                        player,
+                        dict,
+                    ):
+                        continue
+
+                    try:
+                        report_player_id = int(
+                            player.get("id")
+                        )
+
+                    except (
+                        TypeError,
+                        ValueError,
+                    ):
+                        continue
+
+                    if report_player_id != player_id:
+                        continue
+
+                    puntos = report.get(
+                        "points"
+                    )
+
+                    if not isinstance(
+                        puntos,
+                        (int, float),
+                    ):
+                        continue
+
+                    candidatos.append(
+                        (
+                            fecha,
+                            puntos,
+                        )
+                    )
+
+    if not candidatos:
         return 0
 
-    puntos = _obtener_puntos_jornada(
-        player_id,
-        jornada_anterior,
+    candidatos.sort(
+        key=lambda item: item[0],
+        reverse=True,
     )
 
-    if puntos is None:
-        return 0
-
-    return puntos
-
+    return candidatos[0][1]
 
 def _extraer_media_puntos(
     jugador,
@@ -2746,25 +2867,129 @@ def obtener_ficha_jugador(
 
     return {
         "id": player_id,
+
         "nombre": nombre,
+
         "equipo": _abreviar_equipo_id(
             team_id
         ),
+
         "equipo_nombre": _extraer_nombre_equipo(
             jugador
         ),
+
         "posicion": posicion,
+
         "posicion_nombre": _nombre_posicion(
             posicion
         ),
+
         "precio": precio,
+
+        "precio_fantasy": jugador.get(
+            "fantasyPrice",
+            0,
+        ),
+
+        "incremento_precio": jugador.get(
+            "priceIncrement",
+            0,
+        ),
+
         "puntos": puntos,
+
         "puntos_ultima_jornada": ultimo_puntos,
+
         "media_puntos": media_puntos,
+
         "propietario": _extraer_propietario(
             jugador,
             propietarios,
         ),
+
+        "numero": jugador.get(
+            "number"
+        ),
+
+        "pais": jugador.get(
+            "country"
+        ),
+
+        "cumpleanos": jugador.get(
+            "birthday"
+        ),
+
+        "estado": jugador.get(
+            "status"
+        ),
+
+        "probable_en": jugador.get(
+            "probableIn",
+            [],
+        ),
+
+        "ranking": (
+            jugador.get(
+                "analysis",
+                {}
+            )
+            if isinstance(
+                jugador.get("analysis"),
+                dict,
+            )
+            else {}
+        ),
+
+        "analisis": jugador.get(
+            "analysis",
+            {}
+        ),
+
+        "proximo_partido": (
+            jugador.get(
+                "team",
+                {}
+            ).get(
+                "nextGames",
+                []
+            )
+            if isinstance(
+                jugador.get("team"),
+                dict,
+            )
+            else []
+        ),
+
+        "score_stats": jugador.get(
+            "scoreStats",
+            {}
+        ),
+
+        "temporadas": jugador.get(
+            "seasons",
+            []
+        ),
+
+        "precios": jugador.get(
+            "prices",
+            []
+        ),
+
+        "noticias": jugador.get(
+            "news",
+            []
+        ),
+
+        "hilos": jugador.get(
+            "threads",
+            []
+        ),
+
+        "reportes": jugador.get(
+            "reports",
+            []
+        ),
+
         "datos": jugador,
     }
 

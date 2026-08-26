@@ -4163,6 +4163,16 @@ def construir_texto_ficha_jugador(
         0,
     )
 
+    fantasy_price = jugador.get(
+        "precio_fantasy",
+        0,
+    )
+
+    incremento = jugador.get(
+        "incremento_precio",
+        0,
+    )
+
     puntos = jugador.get(
         "puntos",
         0,
@@ -4178,6 +4188,50 @@ def construir_texto_ficha_jugador(
         0,
     )
 
+    analisis = jugador.get(
+        "analisis",
+        {}
+    )
+
+    if not isinstance(
+        analisis,
+        dict,
+    ):
+        analisis = {}
+
+    compras = analisis.get(
+        "purchases",
+        0,
+    )
+
+    ventas = analisis.get(
+        "sales",
+        0,
+    )
+
+    ranking = analisis.get(
+        "ranking",
+        {}
+    )
+
+    if not isinstance(
+        ranking,
+        dict,
+    ):
+        ranking = {}
+
+    ranking_global = ranking.get(
+        "global"
+    )
+
+    ranking_posicion = ranking.get(
+        "position"
+    )
+
+    owned = analisis.get(
+        "owned"
+    )
+
     titulo = (
         f"⚽ {nombre} "
         f"[{equipo}] "
@@ -4187,15 +4241,35 @@ def construir_texto_ficha_jugador(
     return (
         f"{titulo}\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
+
         f"👤 Nombre: {nombre}\n"
         f"🏟️ Equipo: {equipo_nombre}\n"
-        f"📍 Posición: {posicion_nombre}\n"
+        f"📍 Posición: {posicion_nombre}\n\n"
+
         f"💰 Valor actual: "
         f"{formatear_dinero(precio)}\n"
-        f"👤 Propietario: {propietario}\n"
+
+        f"💎 Valor fantasy: "
+        f"{formatear_dinero(fantasy_price)}\n"
+
+        f"📈 Variación diaria: "
+        f"{formatear_dinero(incremento)}\n\n"
+
+        f"👤 Propietario: {propietario}\n\n"
+
         f"⭐ Puntos totales: {puntos}\n"
-        f"📅 Puntos última jornada: {ultimo}\n"
-        f"📊 Media de puntos: {media}\n"
+        f"📅 Última jornada: {ultimo}\n"
+        f"📊 Media de puntos: {media}\n\n"
+
+        f"🛒 Compras: {compras}\n"
+        f"💸 Ventas: {ventas}\n"
+        f"👥 Propietarios: {owned}\n"
+
+        f"🏆 Ranking global: "
+        f"{ranking_global if ranking_global is not None else '—'}\n"
+
+        f"📊 Ranking posición: "
+        f"{ranking_posicion if ranking_posicion is not None else '—'}\n"
     )
 
 
