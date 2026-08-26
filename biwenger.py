@@ -2556,12 +2556,16 @@ def _extraer_media_puntos(
     jornada_actual=None,
 ):
     """
-    Calcula la media según:
+    Calcula la media real de puntos Biwenger:
 
-        puntos totales / jornada actual
+        puntos de la temporada / partidos jugados
 
-    Ejemplo:
-        J3 y 15 puntos totales -> 5.0
+    La información se obtiene de `seasons`, que contiene
+    tanto los partidos jugados como los puntos acumulados
+    para cada sistema de puntuación.
+
+    No utiliza la jornada actual como divisor.
+    No utiliza el precio ni scoreStats para calcular la media.
     """
 
     if not isinstance(
@@ -2570,45 +2574,237 @@ def _extraer_media_puntos(
     ):
         return 0
 
-    if jornada_actual is None:
-        jornada_actual = obtener_jornada_actual()
-
-    numero_actual = _numero_jornada(
-        jornada_actual
+    temporadas = jugador.get(
+        "seasons",
+        []
     )
 
-    if (
-        numero_actual is None
-        or numero_actual <= 0
+    if not isinstance(
+        temporadas,
+        list,
     ):
         return 0
 
-    puntos_totales = jugador.get(
-        "points",
-        0,
-    )
+    # -------------------------------------------------
+    # Buscar la temporada actual
+    # -------------------------------------------------
+
+    temporada_actual = None
+
+    for temporada in temporadas:
+
+        if not isinstance(
+            temporada,
+            dict,
+        ):
+            continue
+
+        if temporada.get(
+            "selected"
+        ) is True:
+
+            temporada_actual = temporada
+            break
+
+    if temporada_actual is None:
+        return 0
+
+    # -------------------------------------------------
+    # Partidos jugados
+    # -------------------------------------------------
 
     try:
-        puntos_totales = float(
-            puntos_totales
+        partidos_jugados = int(
+            temporada_actual.get(
+                "games",
+                0,
+            )
         )
 
     except (
         TypeError,
         ValueError,
     ):
+        partidos_jugados = 0
+
+    if partidos_jugados <= 0:
         return 0
 
-    media = (
-        puntos_totales
-        / numero_actual
+    # -------------------------------------------------
+    # Puntos de la temporada
+    # -------------------------------------------------
+
+    puntos = temporada_actual.get(
+        "points",
+        {}
     )
 
-    return round(
-        media,
-        2,
-    )
+    if not isinstance(
+        puntos,
+        dict,
+    ):
+        return 0
 
+    # -------------------------------------------------
+    # Determinar el sistema de puntuación
+    #
+    # La ficha de jugador puede contener varios
+    # sistemas de puntuación simultáneamente.
+    #
+    # Intentamos identificar primero el sistema
+    # configurado en la liga.
+    # -------------------------------------------------
+
+    sistema_liga = None
+
+    try:
+
+        if _CLIENT is not None:
+
+            # Dependiendo de la respuesta de la API,
+            # el sistema puede estar disponible en
+            # distintos lugares.
+
+            league = getattr(
+                _CLIENT,
+                "league",
+                None,
+            )
+
+            if isinstance(
+                league,
+                dict,
+            ):
+
+                sistema_liga = (
+                    league.get(
+                        "scoring"
+                    )
+                    or league.get(
+                        "scoringSystem"
+                    )
+                    or league.get(
+                        "scoreSystem"
+                    )
+                )
+
+    except Exception:
+        sistema_liga = None
+
+    # -------------------------------------------------
+    # Normalizar identificador del sistema
+    # -------------------------------------------------
+
+    if sistema_liga is not None:
+
+        sistema_liga = str(
+            sistema_liga
+        ).strip()
+
+    # -------------------------------------------------
+    # Intentar utilizar el sistema de la liga
+    # -------------------------------------------------
+
+    if (
+        sistema_liga
+        and sistema_liga in puntos
+    ):
+
+        try:
+
+            puntos_totales = float(
+                puntos[
+                    sistema_liga
+                ]
+            )
+
+            return round(
+                puntos_totales
+                / partidos_jugados,
+                2,
+            )
+
+        except (
+            TypeError,
+            ValueError,
+            ZeroDivisionError,
+        ):
+            pass
+
+    # -------------------------------------------------
+    # Fallback:
+    #
+    # En la respuesta de Biwenger el sistema SofaScore
+    # corresponde normalmente al identificador "7".
+    #
+    # Lo usamos antes de recurrir a cualquier otro
+    # sistema porque es el que utiliza esta liga.
+    # -------------------------------------------------
+
+    for sistema in (
+        "7",
+        7,
+    ):
+
+        if sistema not in puntos:
+            continue
+
+        try:
+
+            puntos_totales = float(
+                puntos[
+                    sistema
+                ]
+            )
+
+            return round(
+                puntos_totales
+                / partidos_jugados,
+                2,
+            )
+
+        except (
+            TypeError,
+            ValueError,
+            ZeroDivisionError,
+        ):
+            continue
+
+    # -------------------------------------------------
+    # Último fallback
+    #
+    # Si Biwenger cambia el identificador del sistema,
+    # utilizamos el primer valor numérico disponible.
+    # -------------------------------------------------
+
+    for valor in puntos.values():
+
+        if not isinstance(
+            valor,
+            (int, float),
+        ):
+            continue
+
+        try:
+
+            puntos_totales = float(
+                valor
+            )
+
+            return round(
+                puntos_totales
+                / partidos_jugados,
+                2,
+            )
+
+        except (
+            TypeError,
+            ValueError,
+            ZeroDivisionError,
+        ):
+            continue
+
+    return 0
 
 def _obtener_puntos_jornada(
     player_id,
@@ -3134,9 +3330,11 @@ def obtener_ficha_jugador(
         "partidos_jugados": (
             next(
                 (
-                    temporada.get(
-                        "games",
-                        0,
+                    int(
+                        temporada.get(
+                            "games",
+                            0,
+                        )
                     )
                     for temporada in jugador.get(
                         "seasons",
