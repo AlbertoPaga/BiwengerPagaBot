@@ -2259,6 +2259,7 @@ def _extraer_mapa_jugadores(
 ):
     global _PLAYERS_CACHE
     global _PLAYERS_CACHE_TIME
+    
 
     ahora = time.time()
 
@@ -2341,6 +2342,13 @@ def _extraer_mapa_jugadores(
         respuesta
     )
 
+    # -------------------------------------------------
+    # CACHE DEL INFORME
+    # -------------------------------------------------
+
+    _REPORT_CACHE = {}
+    _REPORT_CACHE_TIME = {}
+    REPORT_CACHE_TTL = 90
     _PLAYERS_CACHE = jugadores
     _PLAYERS_CACHE_TIME = time.time()
 
@@ -4024,280 +4032,246 @@ def obtener_miembros_liga(
 def obtener_informe(
     liga_id,
 ):
+    import time
+
+    # -------------------------------------------------
+    # CACHE
+    # -------------------------------------------------
+
+    ahora = time.time()
+
+    cache_time = _REPORT_CACHE_TIME.get(
+        liga_id
+    )
+
+    if (
+        liga_id in _REPORT_CACHE
+        and cache_time is not None
+        and (
+            ahora - cache_time
+        ) < REPORT_CACHE_TTL
+    ):
+        logger.info(
+            "Informe servido desde cache: "
+            "liga=%s edad=%.1fs",
+            liga_id,
+            ahora - cache_time,
+        )
+
+        return _REPORT_CACHE[
+            liga_id
+        ]
+
+    # -------------------------------------------------
+    # GENERACIÓN DEL INFORME
+    # -------------------------------------------------
+
+    logger.info(
+        "Generando informe: liga=%s",
+        liga_id,
+    )
+
     try:
         league_response = _CLIENT.league(
             liga_id
         )
 
-    except Exception as exc:
-        logger.exception(
-            "Error obteniendo datos de la liga %s",
-            liga_id,
-        )
-
-        raise exc
-
-    standings = _extraer_standings(
-        league_response
-    )
-
-    try:
-        history = (
-            _CLIENT.get_full_market_history(
-                liga_id
-            )
-        )
-
-        market_report = (
-            _CLIENT.calculate_market_report(
-                history
-            )
-        )
-
-    except Exception as exc:
-        logger.warning(
-            "No se pudo obtener el historial "
-            "de la liga %s: %s",
-            liga_id,
-            exc,
-        )
-
-        market_report = {}
-
-    # -------------------------------------------------
-    # Premios acumulados de jornadas terminadas
-    # -------------------------------------------------
-
-    try:
-
-        premios = (
-            _CLIENT.get_round_rewards(
-                liga_id
-            )
-        )
-
-    except Exception as exc:
-
-        logger.warning(
-            "No se pudieron obtener "
-            "los premios de jornadas: %s",
-            exc,
-        )
-
-        premios = {}
-
-    resultado = {}
-
-    for miembro in standings:
-
-        datos_standing = _datos_standing(
-            miembro
-        )
-
-        nombre = datos_standing[
-            "nombre"
-        ]
-
-        user_id = datos_standing[
-            "id"
-        ]
-
-        numero_jugadores = (
-            datos_standing[
-                "numero_jugadores"
-            ]
-        )
-
-        valor_equipo = (
-            datos_standing[
-                "valor_equipo"
-            ]
-        )
-
-        datos_movimientos = (
-            market_report.get(
-                nombre,
-                {},
-            )
-        )
-
-        compras = datos_movimientos.get(
-            "total_compras",
-            0,
-        )
-
-        ventas = datos_movimientos.get(
-            "total_ventas",
-            0,
-        )
-
-        numero_compras = (
-            datos_movimientos.get(
-                "numero_compras",
-                0,
-            )
-        )
-
-        numero_ventas = (
-            datos_movimientos.get(
-                "numero_ventas",
-                0,
-            )
+        standings = _extraer_standings(
+            league_response
         )
 
         # -------------------------------------------------
-        # Premio acumulado del usuario
-        #
-        # Los premios vienen indexados por ID de usuario.
+        # Historial completo de mercado
         # -------------------------------------------------
 
         try:
-
-            user_id_int = int(
-                user_id
+            history = (
+                _CLIENT.get_full_market_history(
+                    liga_id
+                )
             )
 
-        except (
-            TypeError,
-            ValueError,
-        ):
-
-            user_id_int = None
-
-        premios_usuario = (
-            premios.get(
-                user_id_int,
-                0,
+            market_report = (
+                _CLIENT.calculate_market_report(
+                    history
+                )
             )
-            if user_id_int is not None
-            else 0
-        )
+
+        except Exception as exc:
+            logger.exception(
+                "Error calculando movimientos "
+                "de la liga %s: %s",
+                liga_id,
+                exc,
+            )
+
+            market_report = {}
 
         # -------------------------------------------------
-        # Saldo actual
-        #
-        # Saldo inicial
-        # + ventas
-        # - compras
-        # + premios
+        # Premios acumulados de jornadas terminadas
         # -------------------------------------------------
 
-        saldo_actual = (
-            _calcular_saldo_actual(
-                compras,
-                ventas,
-                premios_usuario,
+        try:
+            round_rewards = (
+                _CLIENT.get_round_rewards(
+                    liga_id
+                )
             )
-        )
 
-        puja_maxima = (
-            _calcular_puja_maxima(
-                saldo_actual,
-                valor_equipo,
+        except Exception as exc:
+            logger.exception(
+                "Error obteniendo premios de "
+                "jornadas de la liga %s: %s",
+                liga_id,
+                exc,
             )
-        )
 
-        resultado[nombre] = {
-            "user_id": user_id,
-            "compras": (
-                datos_movimientos.get(
+            round_rewards = {}
+
+        # -------------------------------------------------
+        # Construcción del resultado
+        # -------------------------------------------------
+
+        resultado = {}
+
+        for nombre, datos in standings.items():
+
+            if not isinstance(
+                datos,
+                dict,
+            ):
+                datos = {}
+
+            datos_movimientos = (
+                market_report.get(
+                    nombre,
+                    {},
+                )
+            )
+
+            if not isinstance(
+                datos_movimientos,
+                dict,
+            ):
+                datos_movimientos = {}
+
+            user_id = datos.get(
+                "user_id"
+            )
+
+            try:
+                user_id_int = int(
+                    user_id
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                user_id_int = None
+
+            premio_jornadas = 0
+
+            if user_id_int is not None:
+                premio_jornadas = int(
+                    round_rewards.get(
+                        user_id_int,
+                        0,
+                    )
+                )
+
+            resultado[nombre] = {
+                **datos,
+                "compras": datos_movimientos.get(
                     "compras",
-                    [],
-                )
-            ),
-            "ventas": (
-                datos_movimientos.get(
+                    0,
+                ),
+                "ventas": datos_movimientos.get(
                     "ventas",
-                    [],
-                )
-            ),
-            "total_compras": compras,
-            "total_ventas": ventas,
-            "numero_compras": (
-                numero_compras
-            ),
-            "numero_ventas": (
-                numero_ventas
-            ),
-            "numero_jugadores": (
-                numero_jugadores
-            ),
-            "valor_equipo": (
-                valor_equipo
-            ),
-            "premios": (
-                premios_usuario
-            ),
-            "saldo_actual": (
-                saldo_actual
-            ),
-            "puja_maxima": (
-                puja_maxima
-            ),
-        }
+                    0,
+                ),
+                "balance_mercado": datos_movimientos.get(
+                    "balance",
+                    0,
+                ),
+                "valor_equipo": datos_movimientos.get(
+                    "valor_equipo",
+                    datos.get(
+                        "valor_equipo",
+                        0,
+                    ),
+                ),
+                "premios_jornadas": premio_jornadas,
+            }
 
-    # -------------------------------------------------
-    # Usuarios que aparecen en movimientos pero no
-    # están actualmente en standings
-    # -------------------------------------------------
+        # -------------------------------------------------
+        # Usuarios que aparecen en movimientos pero no
+        # están actualmente en standings
+        # -------------------------------------------------
 
-    for nombre, datos in market_report.items():
+        for nombre, datos in market_report.items():
 
-        if nombre in resultado:
-            continue
+            if nombre in resultado:
+                continue
 
-        compras = datos.get(
-            "total_compras",
-            0,
+            if not isinstance(
+                datos,
+                dict,
+            ):
+                datos = {}
+
+            resultado[nombre] = {
+                "user_id": datos.get(
+                    "user_id"
+                ),
+                "saldo": 0,
+                "valor_equipo": datos.get(
+                    "valor_equipo",
+                    0,
+                ),
+                "compras": datos.get(
+                    "compras",
+                    0,
+                ),
+                "ventas": datos.get(
+                    "ventas",
+                    0,
+                ),
+                "balance_mercado": datos.get(
+                    "balance",
+                    0,
+                ),
+                "premios_jornadas": 0,
+            }
+
+        # -------------------------------------------------
+        # CACHEAR RESULTADO
+        # -------------------------------------------------
+
+        _REPORT_CACHE[
+            liga_id
+        ] = resultado
+
+        _REPORT_CACHE_TIME[
+            liga_id
+        ] = time.time()
+
+        logger.info(
+            "Informe cacheado: liga=%s usuarios=%s",
+            liga_id,
+            len(resultado),
         )
 
-        ventas = datos.get(
-            "total_ventas",
-            0,
+        return resultado
+
+    except Exception as exc:
+        logger.exception(
+            "Error generando informe de "
+            "la liga %s: %s",
+            liga_id,
+            exc,
         )
 
-        premios_usuario = datos.get(
-            "premios",
-            0,
-        )
-
-        saldo_actual = (
-            _calcular_saldo_actual(
-                compras,
-                ventas,
-                premios_usuario,
-            )
-        )
-
-        resultado[nombre] = {
-            "user_id": None,
-            "compras": datos.get(
-                "compras",
-                [],
-            ),
-            "ventas": datos.get(
-                "ventas",
-                [],
-            ),
-            "total_compras": compras,
-            "total_ventas": ventas,
-            "numero_compras": datos.get(
-                "numero_compras",
-                0,
-            ),
-            "numero_ventas": datos.get(
-                "numero_ventas",
-                0,
-            ),
-            "numero_jugadores": 0,
-            "valor_equipo": 0,
-            "premios": premios_usuario,
-            "saldo_actual": saldo_actual,
-            "puja_maxima": saldo_actual,
-        }
-
-    return resultado
-
+        return {}
 
 def obtener_informe_detallado(
     liga_id,

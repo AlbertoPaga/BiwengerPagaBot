@@ -4766,6 +4766,29 @@ async def menu_callback(
 
                 return
 
+            # -------------------------------------------------
+            # AVISO INMEDIATO AL USUARIO
+            #
+            # obtener_informe() puede tardar bastante porque
+            # realiza las consultas necesarias a Biwenger.
+            # Mostramos primero el estado de carga para que
+            # Telegram no parezca bloqueado.
+            # -------------------------------------------------
+
+            await editar_mensaje(
+                query,
+                (
+                    "📊 INFORME DE MANAGERS\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "⏳ Calculando informe...\n\n"
+                    "Estoy consultando los datos de la liga."
+                ),
+            )
+
+            # -------------------------------------------------
+            # GENERAR INFORME
+            # -------------------------------------------------
+
             report = obtener_informe(
                 int(liga_id)
             )
@@ -4773,6 +4796,10 @@ async def menu_callback(
             texto = construir_texto_informe(
                 report
             )
+
+            # -------------------------------------------------
+            # MOSTRAR INFORME
+            # -------------------------------------------------
 
             if len(texto) <= MAX_TELEGRAM:
 
@@ -4873,7 +4900,6 @@ async def menu_callback(
 
         except Exception:
             pass
-
 
 def construir_mensaje_dia_mercado_completo(
     datos,
