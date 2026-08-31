@@ -418,6 +418,7 @@ class BiwengerClient:
             params=params,
         )
 
+
     def get_round_rewards(
         self,
         league_id,
@@ -425,24 +426,33 @@ class BiwengerClient:
         """
         Obtiene los abonos definitivos de las jornadas.
 
-        Biwenger puede publicar una jornada más de una vez:
+        IMPORTANTE:
 
-        - primero como cierre provisional si existen partidos
-          aplazados o pendientes;
-        - posteriormente como cierre definitivo/rectificado
-          cuando todos los partidos de la jornada han terminado.
+        Biwenger puede publicar una misma jornada varias veces.
 
-        Para cada jornada se conserva únicamente el último
-        roundFinished publicado por Biwenger.
+        Ejemplo:
 
-        Devuelve:
+            Jornada 1
+            Jornada 1 (aplazada)
 
-            {
-                user_id: bonus_total
-            }
+        Aunque tengan IDs diferentes, ambas pertenecen a la
+        MISMA jornada fantasy.
 
-        donde bonus_total es la suma de los abonos definitivos
-        de todas las jornadas.
+        La primera publicación puede ser provisional y contener
+        únicamente los partidos disputados hasta ese momento.
+
+        Cuando se disputa el partido aplazado, Biwenger publica
+        una nueva versión de la jornada con los puntos y abonos
+        rectificados.
+
+        Por tanto:
+
+        - No se deben sumar las distintas publicaciones de una
+          misma jornada.
+        - Se debe conservar únicamente el último roundFinished
+          publicado para cada jornada lógica.
+        - El campo "bonus" ya contiene el total del abono de esa
+          jornada: fijo + puntos + posición.
         """
 
         self.prepare_context(
@@ -457,10 +467,27 @@ class BiwengerClient:
         )
 
         data = (
-            response.get("data", [])
-            if isinstance(response, dict)
+            response.get(
+                "data",
+                [],
+            )
+            if isinstance(
+                response,
+                dict,
+            )
             else []
         )
+
+        # -------------------------------------------------
+        # Agrupamos por JORNADA LÓGICA, no por ID de Biwenger.
+        #
+        # Esto es fundamental porque:
+        #
+        #   Jornada 1          -> id 4899
+        #   Jornada 1 (aplazada) -> id 4937
+        #
+        # son la misma jornada fantasy.
+        # -------------------------------------------------
 
         cierres_por_jornada = {}
 
@@ -499,7 +526,7 @@ class BiwengerClient:
                 continue
 
             # -------------------------------------------------
-            # Identificar la jornada.
+            # Información de la jornada.
             # -------------------------------------------------
 
             jornada = content.get(
@@ -516,10 +543,15 @@ class BiwengerClient:
                     "round_id"
                 )
 
+            jornada_id = None
+            jornada_nombre = None
+            jornada_part = None
+
             if isinstance(
                 jornada,
                 dict,
             ):
+
                 jornada_id = jornada.get(
                     "id"
                 )
@@ -543,9 +575,8 @@ class BiwengerClient:
                 )
 
             else:
+
                 jornada_id = jornada
-                jornada_nombre = None
-                jornada_part = None
 
             if jornada_id is None:
                 jornada_id = event.get(
@@ -555,14 +586,90 @@ class BiwengerClient:
             if jornada_id is None:
                 continue
 
-            jornada_id = str(
-                jornada_id
+            # -------------------------------------------------
+            # Crear una clave lógica para la jornada.
+            #
+            # Queremos que:
+            #
+            #   "Jornada 1"
+            #   "Jornada 1 (aplazada)"
+            #   "Jornada 1 (postponed)"
+            #
+            # terminen agrupadas bajo:
+            #
+            #   "1"
+            #
+            # El ID NO sirve como clave porque Biwenger crea
+            # un ID diferente para la parte aplazada.
+            # -------------------------------------------------
+
+            texto_jornada = str(
+                jornada_nombre
+                or ""
+            ).strip()
+
+            jornada_logica = None
+
+            match = re.search(
+                r"(?:jornada|round)\s*(\d+)",
+                texto_jornada,
+                flags=re.IGNORECASE,
             )
 
+            if match:
+                jornada_logica = (
+                    f"jornada:{match.group(1)}"
+                )
+
             # -------------------------------------------------
-            # Fecha del cierre.
-            # El último evento publicado para esa jornada
-            # sustituye al anterior.
+            # Si no hemos podido obtener el número desde el
+            # nombre, intentamos utilizar otros campos.
+            # -------------------------------------------------
+
+            if jornada_logica is None:
+
+                for campo in (
+                    "number",
+                    "roundNumber",
+                    "round_number",
+                ):
+
+                    valor = content.get(
+                        campo
+                    )
+
+                    if valor is not None:
+
+                        try:
+                            jornada_logica = (
+                                f"jornada:{int(valor)}"
+                            )
+                            break
+
+                        except (
+                            TypeError,
+                            ValueError,
+                        ):
+                            pass
+
+            # -------------------------------------------------
+            # Último recurso:
+            # utilizar el ID original.
+            #
+            # Esto evita perder eventos extraños que no tengan
+            # nombre ni número de jornada.
+            # -------------------------------------------------
+
+            if jornada_logica is None:
+
+                jornada_logica = (
+                    f"id:{jornada_id}"
+                )
+
+            # -------------------------------------------------
+            # Fecha de publicación del cierre.
+            #
+            # El último roundFinished es el que debe prevalecer.
             # -------------------------------------------------
 
             fecha = event.get(
@@ -571,17 +678,20 @@ class BiwengerClient:
             )
 
             try:
+
                 fecha = float(
                     fecha
                 )
+
             except (
                 TypeError,
                 ValueError,
             ):
+
                 fecha = 0
 
             actual = cierres_por_jornada.get(
-                jornada_id
+                jornada_logica
             )
 
             if (
@@ -590,25 +700,39 @@ class BiwengerClient:
             ):
                 continue
 
-            cierres_por_jornada[jornada_id] = {
+            cierres_por_jornada[
+                jornada_logica
+            ] = {
                 "date": fecha,
                 "results": resultados,
+                "id": jornada_id,
                 "name": jornada_nombre,
                 "part": jornada_part,
             }
 
+            logger.info(
+                "Cierre seleccionado para jornada lógica: "
+                "clave=%s jornada_id=%s nombre=%s part=%s fecha=%s",
+                jornada_logica,
+                jornada_id,
+                jornada_nombre,
+                jornada_part,
+                fecha,
+            )
+
         # -------------------------------------------------
-        # Sumamos únicamente el último cierre de cada
-        # jornada.
+        # Una vez deduplicadas las jornadas, sumamos SOLO
+        # el bonus del último cierre de cada jornada lógica.
         # -------------------------------------------------
 
         premios = defaultdict(
             int
         )
 
-        for jornada_id, cierre in (
-            cierres_por_jornada.items()
-        ):
+        for (
+            jornada_logica,
+            cierre,
+        ) in cierres_por_jornada.items():
 
             resultados = cierre.get(
                 "results",
@@ -616,9 +740,10 @@ class BiwengerClient:
             )
 
             logger.info(
-                "Cierre definitivo seleccionado: "
-                "jornada_id=%s nombre=%s part=%s fecha=%s",
-                jornada_id,
+                "Cierre DEFINITIVO usado: "
+                "jornada=%s id=%s nombre=%s part=%s fecha=%s",
+                jornada_logica,
+                cierre.get("id"),
                 cierre.get("name"),
                 cierre.get("part"),
                 cierre.get("date"),
@@ -647,14 +772,31 @@ class BiwengerClient:
                 )
 
                 try:
+
                     user_id = int(
                         user_id
                     )
+
                 except (
                     TypeError,
                     ValueError,
                 ):
+
                     continue
+
+                # -------------------------------------------------
+                # "bonus" YA ES el dinero total de la jornada.
+                #
+                # Ejemplo:
+                #
+                # bonusPoint = 380.000
+                # bonusFixed = 3.000.000
+                # bonusRoundPosition = 800.000
+                #
+                # bonus = 4.180.000
+                #
+                # NO debemos volver a sumar los campos de "reason".
+                # -------------------------------------------------
 
                 bonus = resultado.get(
                     "bonus",
@@ -662,22 +804,26 @@ class BiwengerClient:
                 )
 
                 try:
+
                     bonus = int(
                         bonus
                     )
+
                 except (
                     TypeError,
                     ValueError,
                 ):
+
                     bonus = 0
 
                 premios[user_id] += bonus
 
                 logger.info(
                     "Premio jornada: "
-                    "jornada_id=%s usuario=%s bonus=%s "
-                    "acumulado=%s",
-                    jornada_id,
+                    "jornada=%s id=%s usuario=%s "
+                    "bonus=%s acumulado=%s",
+                    jornada_logica,
+                    cierre.get("id"),
                     user_id,
                     bonus,
                     premios[user_id],
@@ -685,18 +831,22 @@ class BiwengerClient:
 
         logger.info(
             "Premios de jornadas obtenidos: "
-            "liga=%s cierres=%s usuarios=%s premios=%s",
+            "liga=%s jornadas_logicas=%s usuarios=%s premios=%s",
             league_id,
-            len(cierres_por_jornada),
-            len(premios),
-            dict(premios),
+            len(
+                cierres_por_jornada
+            ),
+            len(
+                premios
+            ),
+            dict(
+                premios
+            ),
         )
 
         return dict(
             premios
-        
         )
-
 
     def get_full_market_history(
         self,
