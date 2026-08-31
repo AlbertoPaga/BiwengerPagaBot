@@ -6275,32 +6275,45 @@ async def mostrar_onces_elegidos(
         return
 
     try:
-        jornada_id = int(
-            jornada_id
-        )
+        jornada_id = int(jornada_id)
+        liga_id = int(liga_id)
 
-        datos = obtener_jornada(
-            jornada_id
+        # -------------------------------------------------
+        # La jornada pública contiene los partidos.
+        # Los ONCES de los managers están en:
+        #
+        # league -> standings -> lineup
+        #
+        # Por eso NO usamos obtener_jornada() para buscar
+        # los managers.
+        # -------------------------------------------------
+
+        from biwenger import _CLIENT
+
+        respuesta_liga = _CLIENT.league(
+            liga_id
         )
 
         if not isinstance(
-            datos,
+            respuesta_liga,
             dict,
         ):
             raise ValueError(
-                "Respuesta de jornada inválida"
+                "Respuesta de liga inválida"
             )
 
-        league = datos.get(
-            "league",
-            {},
+        league = respuesta_liga.get(
+            "data",
+            respuesta_liga,
         )
 
         if not isinstance(
             league,
             dict,
         ):
-            league = {}
+            raise ValueError(
+                "Datos de liga inválidos"
+            )
 
         standings = league.get(
             "standings",
@@ -6323,6 +6336,7 @@ async def mostrar_onces_elegidos(
         botones = []
 
         for manager in standings:
+
             if not isinstance(
                 manager,
                 dict,
@@ -6338,7 +6352,8 @@ async def mostrar_onces_elegidos(
 
             nombre = (
                 manager.get("name")
-                or "Manager"
+                or manager.get("username")
+                or f"Manager {manager_id}"
             )
 
             lineup = manager.get(
@@ -6352,29 +6367,37 @@ async def mostrar_onces_elegidos(
             ):
                 lineup = {}
 
-            jugadores = lineup.get(
+            player_ids = lineup.get(
                 "players",
                 [],
             )
 
             if not isinstance(
-                jugadores,
+                player_ids,
                 list,
             ):
-                jugadores = []
+                player_ids = []
+
+            # Solo mostramos managers que realmente tienen
+            # un once disponible.
+            numero_jugadores = len(
+                player_ids
+            )
 
             formacion = (
                 lineup.get("type")
                 or "—"
             )
 
+            texto_boton = (
+                f"👤 {nombre}"
+                f" · {formacion}"
+                f" · {numero_jugadores}/11"
+            )
+
             botones.append([
                 InlineKeyboardButton(
-                    (
-                        f"👤 {nombre} "
-                        f"· {formacion} "
-                        f"· {len(jugadores)}"
-                    ),
+                    texto_boton,
                     callback_data=(
                         f"jornada:once:"
                         f"{jornada_id}:"
@@ -6382,6 +6405,19 @@ async def mostrar_onces_elegidos(
                     ),
                 )
             ])
+
+        # -------------------------------------------------
+        # Si por algún motivo la API no devuelve standings,
+        # lo dejamos visible en vez de mostrar una pantalla
+        # vacía.
+        # -------------------------------------------------
+
+        if not botones:
+            texto += (
+                "\n\n"
+                "⚠️ No se encontraron alineaciones "
+                "de los managers para esta jornada."
+            )
 
         botones.append([
             InlineKeyboardButton(
@@ -6403,6 +6439,7 @@ async def mostrar_onces_elegidos(
         )
 
     except Exception as exc:
+
         logger.exception(
             "ERROR MOSTRANDO ONCES: %s",
             exc,
@@ -6413,8 +6450,6 @@ async def mostrar_onces_elegidos(
             show_alert=True,
         )
 
-# 3) AÑADE ESTA FUNCIÓN JUSTO DEBAJO
-#    DE mostrar_onces_elegidos(...)
 
 async def mostrar_once_manager(
     query,
@@ -6423,31 +6458,72 @@ async def mostrar_once_manager(
     manager_id,
 ):
     try:
-        jornada_id = int(
-            jornada_id
+        jornada_id = int(jornada_id)
+        manager_id = int(manager_id)
+
+        liga_id = context.user_data.get(
+            "liga"
         )
 
-        manager_id = int(
-            manager_id
+        if not liga_id:
+            await query.answer(
+                "❌ No se pudo identificar la liga.",
+                show_alert=True,
+            )
+            return
+
+        liga_id = int(liga_id)
+
+        # -------------------------------------------------
+        # OBTENER LIGA
+        # -------------------------------------------------
+
+        from biwenger import _CLIENT
+
+        respuesta_liga = _CLIENT.league(
+            liga_id
         )
 
-        datos = obtener_jornada(
-            jornada_id
+        if not isinstance(
+            respuesta_liga,
+            dict,
+        ):
+            raise ValueError(
+                "Respuesta de liga inválida"
+            )
+
+        league = respuesta_liga.get(
+            "data",
+            respuesta_liga,
         )
 
-        league = datos.get(
-            "league",
-            {},
-        )
+        if not isinstance(
+            league,
+            dict,
+        ):
+            raise ValueError(
+                "Datos de liga inválidos"
+            )
 
         standings = league.get(
             "standings",
             [],
         )
 
+        if not isinstance(
+            standings,
+            list,
+        ):
+            standings = []
+
+        # -------------------------------------------------
+        # BUSCAR MANAGER
+        # -------------------------------------------------
+
         manager = None
 
         for item in standings:
+
             if not isinstance(
                 item,
                 dict,
@@ -6477,8 +6553,13 @@ async def mostrar_once_manager(
 
         nombre_manager = (
             manager.get("name")
-            or "Manager"
+            or manager.get("username")
+            or f"Manager {manager_id}"
         )
+
+        # -------------------------------------------------
+        # LINEUP
+        # -------------------------------------------------
 
         lineup = manager.get(
             "lineup",
@@ -6518,10 +6599,12 @@ async def mostrar_once_manager(
         ):
             discarded = []
 
-        jugadores = (
-            obtener_jugadores_por_ids(
-                player_ids
-            )
+        # -------------------------------------------------
+        # JUGADORES
+        # -------------------------------------------------
+
+        jugadores = obtener_jugadores_por_ids(
+            player_ids
         )
 
         grupos = {
@@ -6533,7 +6616,10 @@ async def mostrar_once_manager(
 
         otros = []
 
+        jugadores_imagen = []
+
         for player_id in player_ids:
+
             try:
                 player_id = int(
                     player_id
@@ -6590,6 +6676,36 @@ async def mostrar_once_manager(
                     dato
                 )
 
+            # ---------------------------------------------
+            # Datos para la imagen
+            # ---------------------------------------------
+
+            if posicion in (
+                1,
+                2,
+                3,
+                4,
+            ):
+                jugador_imagen = dict(
+                    jugador
+                )
+
+                jugador_imagen["id"] = (
+                    player_id
+                )
+
+                jugador_imagen["name"] = (
+                    nombre
+                )
+
+                jugador_imagen["position"] = (
+                    posicion
+                )
+
+                jugadores_imagen.append(
+                    jugador_imagen
+                )
+
         nombres_posicion = {
             1: "🧤 PORTEROS",
             2: "🛡️ DEFENSAS",
@@ -6597,12 +6713,16 @@ async def mostrar_once_manager(
             4: "⚽ DELANTEROS",
         }
 
+        # -------------------------------------------------
+        # TEXTO
+        # -------------------------------------------------
+
         texto = (
             f"👤 {nombre_manager}\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📅 Jornada {jornada_id}\n"
-            f"📋 {formacion}\n"
-            f"⚽ Once: {len(player_ids)} jugadores\n\n"
+            f"📋 Formación: {formacion}\n"
+            f"⚽ Once: {len(player_ids)}/11 jugadores\n\n"
         )
 
         for posicion in (
@@ -6611,6 +6731,7 @@ async def mostrar_once_manager(
             3,
             4,
         ):
+
             lista = grupos[posicion]
 
             if not lista:
@@ -6628,7 +6749,10 @@ async def mostrar_once_manager(
             texto += "\n"
 
         if otros:
-            texto += "👤 OTROS\n"
+
+            texto += (
+                "👤 OTROS\n"
+            )
 
             for _, nombre in otros:
                 texto += (
@@ -6637,16 +6761,24 @@ async def mostrar_once_manager(
 
             texto += "\n"
 
+        # -------------------------------------------------
+        # DESCARTADOS
+        # -------------------------------------------------
+
         if discarded:
+
             descartados = (
                 obtener_jugadores_por_ids(
                     discarded
                 )
             )
 
-            texto += "↩️ DESCARTADOS\n"
+            texto += (
+                "↩️ DESCARTADOS\n"
+            )
 
             for player_id in discarded:
+
                 try:
                     player_id = int(
                         player_id
@@ -6680,6 +6812,10 @@ async def mostrar_once_manager(
                     f"• {nombre}\n"
                 )
 
+        # -------------------------------------------------
+        # BOTONES
+        # -------------------------------------------------
+
         botones = [
             [
                 InlineKeyboardButton(
@@ -6710,7 +6846,51 @@ async def mostrar_once_manager(
             ),
         )
 
+        # -------------------------------------------------
+        # IMAGEN DEL ONCE DEL MANAGER
+        #
+        # IMPORTANTE:
+        # Esta imagen se construye con lineup.players,
+        # NO con reports de un partido.
+        # -------------------------------------------------
+
+        if jugadores_imagen:
+
+            try:
+
+                from lineup_image import (
+                    generar_imagen_alineacion_manager,
+                )
+
+                imagen = (
+                    generar_imagen_alineacion_manager(
+                        nombre_manager,
+                        formacion,
+                        jugadores_imagen,
+                    )
+                )
+
+                await query.message.reply_photo(
+                    photo=InputFile(
+                        imagen
+                    ),
+                    caption=(
+                        f"👤 {nombre_manager} · "
+                        f"{formacion} · "
+                        f"Jornada {jornada_id}"
+                    ),
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "ERROR GENERANDO IMAGEN "
+                    "DEL ONCE DE %s",
+                    nombre_manager,
+                )
+
     except Exception as exc:
+
         logger.exception(
             "ERROR MOSTRANDO ONCE MANAGER: %s",
             exc,
@@ -6720,7 +6900,6 @@ async def mostrar_once_manager(
             "❌ No se pudo cargar el once.",
             show_alert=True,
         )
-
 
 async def jornada_callback(
     update,

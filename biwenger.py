@@ -2676,27 +2676,18 @@ def _obtener_jornada_anterior(
 
     return None
 
-# =========================
-# biwenger.py
-# =========================
-#
-# NO AÑADAS todavía código que haga
-# 11 peticiones HTTP por manager.
-#
-# La API YA devuelve:
-#
-# standings[].lineup.players
-#
-# Primero hay que reutilizar el mapa/cache
-# de jugadores que YA EXISTE en tu biwenger.py.
-#
-# Si en tu biwenger.py NO existe todavía
-# obtener_jugadores_por_ids, añade esta función
-# junto a las funciones de jugadores:
 
-def obtener_jugadores_por_ids(
-    player_ids,
-):
+def obtener_jugadores_por_ids(player_ids):
+    """
+    Devuelve un mapa:
+
+        player_id -> datos del jugador
+
+    utilizando el caché público de jugadores.
+
+    NO realiza una petición HTTP por jugador.
+    """
+
     if not isinstance(
         player_ids,
         (list, tuple, set),
@@ -2707,9 +2698,7 @@ def obtener_jugadores_por_ids(
 
     for player_id in player_ids:
         try:
-            player_id = int(
-                player_id
-            )
+            player_id = int(player_id)
         except (
             TypeError,
             ValueError,
@@ -2717,33 +2706,19 @@ def obtener_jugadores_por_ids(
             continue
 
         if player_id not in ids:
-            ids.append(
-                player_id
-            )
+            ids.append(player_id)
 
     if not ids:
         return {}
 
+    mapa = _extraer_mapa_jugadores()
+
     resultado = {}
 
-    # Usa aquí el mismo mapa/cache de jugadores
-    # que ya utiliza obtener_ficha_jugador().
-    #
-    # IMPORTANTE:
-    # no hacer una petición HTTP por jugador.
-
     for player_id in ids:
-        try:
-            jugador = obtener_ficha_jugador(
-                player_id
-            )
-        except Exception:
-            jugador = None
+        jugador = mapa.get(player_id)
 
-        if isinstance(
-            jugador,
-            dict,
-        ):
+        if isinstance(jugador, dict):
             resultado[player_id] = jugador
         else:
             resultado[player_id] = {
