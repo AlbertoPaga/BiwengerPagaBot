@@ -1585,6 +1585,24 @@ class BiwengerClient:
                 games[0],
             )
 
+            jugadores_participantes = (
+                obtener_jugadores_participantes_partido(
+                    games[0]
+                )
+            )
+
+            logger.warning(
+                "JUGADORES PARTICIPANTES: HOME=%s AWAY=%s",
+                [
+                    f"{jugador.get('id')} - {jugador.get('name')}"
+                    for jugador in jugadores_participantes["home"]
+                ],
+                [
+                    f"{jugador.get('id')} - {jugador.get('name')}"
+                    for jugador in jugadores_participantes["away"]
+                ],
+            )
+
         jornada = {
             "id": root.get("id"),
             "short": short,
@@ -2580,6 +2598,93 @@ def _extraer_propietario(
                 return propietario.strip()
 
     return "No disponible"
+
+
+
+
+
+
+def obtener_jugadores_participantes_partido(
+    game: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Devuelve los jugadores que tienen report en un partido.
+
+    No interpreta eventos.
+    No distingue titulares, suplentes ni cambios.
+    No calcula puntos.
+    No hace peticiones HTTP.
+
+    Simplemente lee:
+
+        game["home"]["reports"]
+        game["away"]["reports"]
+
+    y extrae el jugador de cada report.
+
+    Devuelve:
+
+        {
+            "home": [
+                {
+                    "id": 6792,
+                    "name": "Villalibre",
+                    "slug": "villalibre",
+                    "position": 4,
+                },
+                ...
+            ],
+            "away": [
+                ...
+            ],
+        }
+    """
+
+    resultado = {
+        "home": [],
+        "away": [],
+    }
+
+    if not isinstance(game, dict):
+        return resultado
+
+    for team_key in ("home", "away"):
+        team = game.get(team_key)
+
+        if not isinstance(team, dict):
+            continue
+
+        reports = team.get("reports")
+
+        if not isinstance(reports, list):
+            continue
+
+        jugadores = []
+
+        for report in reports:
+            if not isinstance(report, dict):
+                continue
+
+            player = report.get("player")
+
+            if not isinstance(player, dict):
+                continue
+
+            player_id = player.get("id")
+
+            if player_id is None:
+                continue
+
+            jugadores.append(dict(player))
+
+        resultado[team_key] = jugadores
+
+    return resultado
+
+
+
+
+
 
 
 def _numero_jornada(
