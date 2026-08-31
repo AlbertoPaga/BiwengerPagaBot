@@ -77,6 +77,9 @@ _PLAYERS_CACHE = {}
 _PLAYERS_CACHE_TIME = 0
 PLAYERS_CACHE_TTL = 3600
 
+_REPORT_CACHE = {}
+_REPORT_CACHE_TIME = {}
+REPORT_CACHE_TTL = 90
 
 def _normalizar_texto(texto):
     if texto is None:
@@ -2342,13 +2345,6 @@ def _extraer_mapa_jugadores(
         respuesta
     )
 
-    # -------------------------------------------------
-    # CACHE DEL INFORME
-    # -------------------------------------------------
-
-    _REPORT_CACHE = {}
-    _REPORT_CACHE_TIME = {}
-    REPORT_CACHE_TTL = 90
     _PLAYERS_CACHE = jugadores
     _PLAYERS_CACHE_TIME = time.time()
 
