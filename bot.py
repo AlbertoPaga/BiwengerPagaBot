@@ -24,6 +24,7 @@ from biwenger import (
     obtener_miembros_liga,
     obtener_mercado_miembro_datos,
     obtener_ficha_jugador,
+    obtener_jugadores_por_ids,
     obtener_jornadas,
     obtener_jornada,
     obtener_jornada_actual,
@@ -6262,13 +6263,8 @@ async def mostrar_onces_elegidos(
     context,
     jornada_id,
 ):
-    """
-    Muestra los miembros de la liga para seleccionar
-    de quién queremos consultar el once de la jornada.
-    """
-
     liga_id = context.user_data.get(
-        "liga_id"
+        "liga"
     )
 
     if not liga_id:
@@ -6279,16 +6275,32 @@ async def mostrar_onces_elegidos(
         return
 
     try:
-        datos = obtener_jornada(
-            liga_id,
-            jornada_id,
+        jornada_id = int(
+            jornada_id
         )
 
-        league = (
-            datos.get("league", {})
-            if isinstance(datos, dict)
-            else {}
+        datos = obtener_jornada(
+            jornada_id
         )
+
+        if not isinstance(
+            datos,
+            dict,
+        ):
+            raise ValueError(
+                "Respuesta de jornada inválida"
+            )
+
+        league = datos.get(
+            "league",
+            {},
+        )
+
+        if not isinstance(
+            league,
+            dict,
+        ):
+            league = {}
 
         standings = league.get(
             "standings",
@@ -6301,17 +6313,11 @@ async def mostrar_onces_elegidos(
         ):
             standings = []
 
-        if not standings:
-            await query.answer(
-                "❌ No se encontraron miembros de la liga.",
-                show_alert=True,
-            )
-            return
-
         texto = (
             "👥 ONCES ELEGIDOS\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Selecciona un miembro:"
+            f"📅 Jornada {jornada_id}\n\n"
+            "Selecciona un manager:"
         )
 
         botones = []
@@ -6327,53 +6333,391 @@ async def mostrar_onces_elegidos(
                 "id"
             )
 
+            if manager_id is None:
+                continue
+
             nombre = (
                 manager.get("name")
                 or "Manager"
             )
 
-            if manager_id is None:
-                continue
-
-            botones.append(
-                [
-                    InlineKeyboardButton(
-                        f"👤 {nombre}",
-                        callback_data=(
-                            f"jornada:once:"
-                            f"{jornada_id}:"
-                            f"{manager_id}"
-                        ),
-                    )
-                ]
+            lineup = manager.get(
+                "lineup",
+                {},
             )
 
-        botones.append(
-            [
+            if not isinstance(
+                lineup,
+                dict,
+            ):
+                lineup = {}
+
+            jugadores = lineup.get(
+                "players",
+                [],
+            )
+
+            if not isinstance(
+                jugadores,
+                list,
+            ):
+                jugadores = []
+
+            formacion = (
+                lineup.get("type")
+                or "—"
+            )
+
+            botones.append([
                 InlineKeyboardButton(
-                    "◀️ Volver a Jornada",
+                    (
+                        f"👤 {nombre} "
+                        f"· {formacion} "
+                        f"· {len(jugadores)}"
+                    ),
                     callback_data=(
-                        f"jornada:volver:"
-                        f"{jornada_id}"
+                        f"jornada:once:"
+                        f"{jornada_id}:"
+                        f"{manager_id}"
                     ),
                 )
-            ]
-        )
+            ])
 
-        await query.edit_message_text(
+        botones.append([
+            InlineKeyboardButton(
+                "◀️ Volver a Jornada",
+                callback_data=(
+                    f"jornada:{jornada_id}"
+                ),
+            )
+        ])
+
+        await editar_mensaje(
+            query,
             texto,
-            reply_markup=InlineKeyboardMarkup(
-                botones
+            teclado_con_fijar(
+                InlineKeyboardMarkup(
+                    botones
+                )
             ),
         )
 
-    except Exception:
+    except Exception as exc:
         logger.exception(
-            "Error mostrando onces elegidos"
+            "ERROR MOSTRANDO ONCES: %s",
+            exc,
         )
 
         await query.answer(
             "❌ No se pudieron cargar los onces.",
+            show_alert=True,
+        )
+
+# 3) AÑADE ESTA FUNCIÓN JUSTO DEBAJO
+#    DE mostrar_onces_elegidos(...)
+
+async def mostrar_once_manager(
+    query,
+    context,
+    jornada_id,
+    manager_id,
+):
+    try:
+        jornada_id = int(
+            jornada_id
+        )
+
+        manager_id = int(
+            manager_id
+        )
+
+        datos = obtener_jornada(
+            jornada_id
+        )
+
+        league = datos.get(
+            "league",
+            {},
+        )
+
+        standings = league.get(
+            "standings",
+            [],
+        )
+
+        manager = None
+
+        for item in standings:
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            try:
+                item_id = int(
+                    item.get("id")
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            if item_id == manager_id:
+                manager = item
+                break
+
+        if manager is None:
+            await query.answer(
+                "❌ Manager no encontrado.",
+                show_alert=True,
+            )
+            return
+
+        nombre_manager = (
+            manager.get("name")
+            or "Manager"
+        )
+
+        lineup = manager.get(
+            "lineup",
+            {},
+        )
+
+        if not isinstance(
+            lineup,
+            dict,
+        ):
+            lineup = {}
+
+        formacion = (
+            lineup.get("type")
+            or "—"
+        )
+
+        player_ids = lineup.get(
+            "players",
+            [],
+        )
+
+        if not isinstance(
+            player_ids,
+            list,
+        ):
+            player_ids = []
+
+        discarded = lineup.get(
+            "discarded",
+            [],
+        )
+
+        if not isinstance(
+            discarded,
+            list,
+        ):
+            discarded = []
+
+        jugadores = (
+            obtener_jugadores_por_ids(
+                player_ids
+            )
+        )
+
+        grupos = {
+            1: [],
+            2: [],
+            3: [],
+            4: [],
+        }
+
+        otros = []
+
+        for player_id in player_ids:
+            try:
+                player_id = int(
+                    player_id
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            jugador = jugadores.get(
+                player_id,
+                {},
+            )
+
+            if not isinstance(
+                jugador,
+                dict,
+            ):
+                jugador = {}
+
+            nombre = (
+                jugador.get("name")
+                or jugador.get("nombre")
+                or f"Jugador {player_id}"
+            )
+
+            posicion = (
+                jugador.get("position")
+                or jugador.get("posicion")
+            )
+
+            try:
+                posicion = int(
+                    posicion
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                posicion = None
+
+            dato = (
+                player_id,
+                nombre,
+            )
+
+            if posicion in grupos:
+                grupos[posicion].append(
+                    dato
+                )
+            else:
+                otros.append(
+                    dato
+                )
+
+        nombres_posicion = {
+            1: "🧤 PORTEROS",
+            2: "🛡️ DEFENSAS",
+            3: "🧠 MEDIOS",
+            4: "⚽ DELANTEROS",
+        }
+
+        texto = (
+            f"👤 {nombre_manager}\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📅 Jornada {jornada_id}\n"
+            f"📋 {formacion}\n"
+            f"⚽ Once: {len(player_ids)} jugadores\n\n"
+        )
+
+        for posicion in (
+            1,
+            2,
+            3,
+            4,
+        ):
+            lista = grupos[posicion]
+
+            if not lista:
+                continue
+
+            texto += (
+                f"{nombres_posicion[posicion]}\n"
+            )
+
+            for _, nombre in lista:
+                texto += (
+                    f"• {nombre}\n"
+                )
+
+            texto += "\n"
+
+        if otros:
+            texto += "👤 OTROS\n"
+
+            for _, nombre in otros:
+                texto += (
+                    f"• {nombre}\n"
+                )
+
+            texto += "\n"
+
+        if discarded:
+            descartados = (
+                obtener_jugadores_por_ids(
+                    discarded
+                )
+            )
+
+            texto += "↩️ DESCARTADOS\n"
+
+            for player_id in discarded:
+                try:
+                    player_id = int(
+                        player_id
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                jugador = descartados.get(
+                    player_id,
+                    {},
+                )
+
+                if isinstance(
+                    jugador,
+                    dict,
+                ):
+                    nombre = (
+                        jugador.get("name")
+                        or jugador.get("nombre")
+                        or f"Jugador {player_id}"
+                    )
+                else:
+                    nombre = (
+                        f"Jugador {player_id}"
+                    )
+
+                texto += (
+                    f"• {nombre}\n"
+                )
+
+        botones = [
+            [
+                InlineKeyboardButton(
+                    "◀️ Volver a Onces",
+                    callback_data=(
+                        f"jornada:onces:"
+                        f"{jornada_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🔙 Volver a Jornada",
+                    callback_data=(
+                        f"jornada:{jornada_id}"
+                    ),
+                )
+            ],
+        ]
+
+        await editar_mensaje(
+            query,
+            texto.rstrip(),
+            teclado_con_fijar(
+                InlineKeyboardMarkup(
+                    botones
+                )
+            ),
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "ERROR MOSTRANDO ONCE MANAGER: %s",
+            exc,
+        )
+
+        await query.answer(
+            "❌ No se pudo cargar el once.",
             show_alert=True,
         )
 
@@ -6526,12 +6870,50 @@ async def jornada_callback(
             # ONCES
             # ---------------------------------------------
 
+            # 4) DENTRO DE jornada_callback(...)
+#    SUSTITUYE EL MANEJO ACTUAL DE "onces"
+#    Y AÑADE "once"
+
             elif accion == "onces":
+                if len(partes) < 3:
+                    raise ValueError(
+                        "Falta jornada_id"
+                    )
+
+                jornada_id = int(
+                    partes[2]
+                )
+
                 await mostrar_onces_elegidos(
                     query,
                     context,
                     jornada_id,
                 )
+
+                return
+
+
+            elif accion == "once":
+                if len(partes) < 4:
+                    raise ValueError(
+                        "Faltan jornada_id y manager_id"
+                    )
+
+                jornada_id = int(
+                    partes[2]
+                )
+
+                manager_id = int(
+                    partes[3]
+                )
+
+                await mostrar_once_manager(
+                    query,
+                    context,
+                    jornada_id,
+                    manager_id,
+                )
+
                 return
 
             # ---------------------------------------------

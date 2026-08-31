@@ -2676,6 +2676,84 @@ def _obtener_jornada_anterior(
 
     return None
 
+# =========================
+# biwenger.py
+# =========================
+#
+# NO AÑADAS todavía código que haga
+# 11 peticiones HTTP por manager.
+#
+# La API YA devuelve:
+#
+# standings[].lineup.players
+#
+# Primero hay que reutilizar el mapa/cache
+# de jugadores que YA EXISTE en tu biwenger.py.
+#
+# Si en tu biwenger.py NO existe todavía
+# obtener_jugadores_por_ids, añade esta función
+# junto a las funciones de jugadores:
+
+def obtener_jugadores_por_ids(
+    player_ids,
+):
+    if not isinstance(
+        player_ids,
+        (list, tuple, set),
+    ):
+        return {}
+
+    ids = []
+
+    for player_id in player_ids:
+        try:
+            player_id = int(
+                player_id
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        if player_id not in ids:
+            ids.append(
+                player_id
+            )
+
+    if not ids:
+        return {}
+
+    resultado = {}
+
+    # Usa aquí el mismo mapa/cache de jugadores
+    # que ya utiliza obtener_ficha_jugador().
+    #
+    # IMPORTANTE:
+    # no hacer una petición HTTP por jugador.
+
+    for player_id in ids:
+        try:
+            jugador = obtener_ficha_jugador(
+                player_id
+            )
+        except Exception:
+            jugador = None
+
+        if isinstance(
+            jugador,
+            dict,
+        ):
+            resultado[player_id] = jugador
+        else:
+            resultado[player_id] = {
+                "id": player_id,
+                "name": f"Jugador {player_id}",
+                "position": None,
+            }
+
+    return resultado
+
 
 def _extraer_ultimo_puntos(
     player_id,
