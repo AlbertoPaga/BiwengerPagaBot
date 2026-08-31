@@ -211,40 +211,73 @@ def _normalizar_lista_jugadores(
 # ---------------------------------------------------------------------------
 
 
+
 def normalizar_alineacion(
     team: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """
-    Obtiene el 11 probable/seleccionado del equipo.
+    Obtiene la alineación posible de un equipo para un partido.
+
+    Para partidos en PREVIEW, Biwenger proporciona el posible XI
+    directamente en:
+
+        team["reports"]
+
+    Cada elemento tiene:
+
+        {
+            "player": {
+                "id": ...,
+                "name": ...,
+                "position": ...
+            },
+            "points": None
+        }
 
     IMPORTANTE:
-    NO usamos ``reports``.
-
-    ``reports`` contiene jugadores que participaron en el partido y puede
-    incluir titulares, suplentes y jugadores que entraron después.
+    reports se utiliza aquí SOLO para partidos que todavía no han
+    comenzado. No debe confundirse con la alineación de un manager.
     """
 
     if not isinstance(team, dict):
         return []
 
-    for key in (
-        "lineup",
-        "initialLineup",
-        "starters",
-        "startingXI",
-    ):
-        value = team.get(key)
+    reports = team.get("reports")
 
-        if not value:
+    if not isinstance(reports, list):
+        return []
+
+    resultado = []
+
+    for report in reports:
+        if not isinstance(report, dict):
             continue
 
-        jugadores = _aplanar_jugadores(value)
-        resultado = _normalizar_lista_jugadores(jugadores)
+        player = report.get("player")
 
-        if resultado:
-            return resultado
+        if not isinstance(player, dict):
+            continue
 
-    return []
+        jugador = _normalizar_jugador(
+            {
+                "player": player,
+                "points": report.get("points"),
+            }
+        )
+
+        if jugador is None:
+            continue
+
+        resultado.append(jugador)
+
+        # Un posible XI son 11 jugadores.
+        if len(resultado) == 11:
+            break
+
+    return resultado
+
+
+
 
 
 def _lista_candidatos_alineacion(
@@ -378,41 +411,41 @@ def obtener_alineacion_mostrable(
     team_key: str,
     now: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
-    """
-    Devuelve:
 
-        jugadores, confirmada
-
-    Antes del partido:
-        lineup del equipo / probable.
-
-    Después:
-        lineup inicial real.
-
-    Nunca usa ``reports`` como fallback.
-    """
-
-    confirmed = alineacion_confirmada(
-        game,
-        now=now,
-    )
-
-    if confirmed:
-        jugadores = normalizar_alineacion_confirmada(
-            game,
-            team_key,
-        )
-
-        if jugadores:
-            return jugadores, True
-
-        # No inventamos el once.
-        return [], True
+    if not isinstance(game, dict):
+        return [], False
 
     team = game.get(team_key) or {}
 
-    return normalizar_alineacion(team), False
+    if not isinstance(team, dict):
+        return [], False
 
+    status = str(
+        game.get("status") or ""
+    ).lower()
+
+    # ---------------------------------------------------------
+    # PREVIEW → posible XI desde reports
+    # ---------------------------------------------------------
+
+    if status == "preview":
+        jugadores = normalizar_alineacion(team)
+
+        return jugadores, False
+
+    # ---------------------------------------------------------
+    # LIVE / FINISHED → XI inicial real
+    # ---------------------------------------------------------
+
+    jugadores = normalizar_alineacion_confirmada(
+        game,
+        team_key,
+    )
+
+    if jugadores:
+        return jugadores, True
+
+    return [], True
 
 # ---------------------------------------------------------------------------
 # Once elegido por cada miembro de la liga

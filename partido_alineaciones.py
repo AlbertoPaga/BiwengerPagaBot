@@ -5,18 +5,52 @@ from datetime import datetime
 from io import BytesIO
 from typing import Any
 
+
 from lineup_image import (
     LineupImageError,
     alineacion_confirmada,
-    normalizar_alineacion,
     obtener_alineacion_mostrable,
     generar_imagen_alineacion,
     generar_imagen_partido,
 )
 
+from biwenger import (
+    obtener_reports_por_player_id,
+)
 
-def _jugadores(team: dict[str, Any]) -> list[dict[str, Any]]:
-    return normalizar_alineacion(team)
+
+def añadir_puntos_desde_partido(
+    jugadores: list[dict[str, Any]],
+    team: dict[str, Any],
+) -> list[dict[str, Any]]:
+    reports_por_id = obtener_reports_por_player_id(team)
+
+    resultado = []
+
+    for jugador in jugadores:
+        jugador = dict(jugador)
+
+        try:
+            player_id = int(jugador.get("id"))
+        except (
+            TypeError,
+            ValueError,
+        ):
+            jugador["points"] = None
+            resultado.append(jugador)
+            continue
+
+        report = reports_por_id.get(player_id)
+
+        jugador["points"] = (
+            report.get("points")
+            if isinstance(report, dict)
+            else None
+        )
+
+        resultado.append(jugador)
+
+    return resultado
 
 
 def _linea_jugador(
@@ -41,22 +75,55 @@ def construir_bloque_alineacion(
     team_key: str,
     confirmada: bool,
 ) -> str:
-    jugadores, estado = obtener_alineacion_mostrable(game, team_key)
-    confirmada = estado
-    team = game.get(team_key) or {}
-    nombre = str(team.get("name") or "Equipo")
-    titulo = "11 INICIAL" if confirmada else "11 POSIBLE"
+    jugadores, estado = obtener_alineacion_mostrable(
+        game,
+        team_key,
+    )
 
-    lineas = [f"⚽ {nombre} — {titulo}"]
+    confirmada = estado
+
+    team = game.get(team_key) or {}
+
+    nombre = str(
+        team.get("name") or "Equipo"
+    )
+
+    titulo = (
+        "11 INICIAL"
+        if confirmada
+        else "11 POSIBLE"
+    )
+
+    lineas = [
+        f"⚽ {nombre} — {titulo}"
+    ]
 
     if not jugadores:
-        lineas.append("Sin alineación disponible.")
+        lineas.append(
+            "Sin alineación disponible."
+        )
+
         return "\n".join(lineas)
 
+    # ---------------------------------------------------------
+    # Añadir puntos procedentes de reports
+    # ---------------------------------------------------------
+
+    jugadores = añadir_puntos_desde_partido(
+        jugadores,
+        team,
+    )
+
     for jugador in jugadores:
-        lineas.append(_linea_jugador(jugador, confirmada))
+        lineas.append(
+            _linea_jugador(
+                jugador,
+                confirmada,
+            )
+        )
 
     return "\n".join(lineas)
+
 
 
 def construir_ficha_alineaciones(

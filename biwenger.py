@@ -2729,6 +2729,54 @@ def obtener_jugadores_por_ids(player_ids):
 
     return resultado
 
+def obtener_reports_por_player_id(team):
+    """
+    Devuelve un mapa:
+
+        player_id -> report del partido
+
+    Cada report puede contener, entre otros:
+
+        {
+            "player": {...},
+            "points": ...
+        }
+
+    No realiza ninguna petición HTTP.
+    Trabaja exclusivamente con team["reports"].
+    """
+
+    if not isinstance(team, dict):
+        return {}
+
+    reports = team.get("reports")
+
+    if not isinstance(reports, list):
+        return {}
+
+    resultado = {}
+
+    for report in reports:
+        if not isinstance(report, dict):
+            continue
+
+        player = report.get("player")
+
+        if not isinstance(player, dict):
+            continue
+
+        player_id = player.get("id")
+
+        try:
+            player_id = int(player_id)
+        except (TypeError, ValueError):
+            continue
+
+        resultado[player_id] = report
+
+    return resultado
+
+
 
 def _extraer_ultimo_puntos(
     player_id,
