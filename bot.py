@@ -6257,6 +6257,127 @@ async def mostrar_partidos_jornada(
     )
 
 
+async def mostrar_onces_elegidos(
+    query,
+    context,
+    jornada_id,
+):
+    """
+    Muestra los miembros de la liga para seleccionar
+    de quién queremos consultar el once de la jornada.
+    """
+
+    liga_id = context.user_data.get(
+        "liga_id"
+    )
+
+    if not liga_id:
+        await query.answer(
+            "❌ No se pudo identificar la liga.",
+            show_alert=True,
+        )
+        return
+
+    try:
+        datos = obtener_jornada(
+            liga_id,
+            jornada_id,
+        )
+
+        league = (
+            datos.get("league", {})
+            if isinstance(datos, dict)
+            else {}
+        )
+
+        standings = league.get(
+            "standings",
+            [],
+        )
+
+        if not isinstance(
+            standings,
+            list,
+        ):
+            standings = []
+
+        if not standings:
+            await query.answer(
+                "❌ No se encontraron miembros de la liga.",
+                show_alert=True,
+            )
+            return
+
+        texto = (
+            "👥 ONCES ELEGIDOS\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Selecciona un miembro:"
+        )
+
+        botones = []
+
+        for manager in standings:
+            if not isinstance(
+                manager,
+                dict,
+            ):
+                continue
+
+            manager_id = manager.get(
+                "id"
+            )
+
+            nombre = (
+                manager.get("name")
+                or "Manager"
+            )
+
+            if manager_id is None:
+                continue
+
+            botones.append(
+                [
+                    InlineKeyboardButton(
+                        f"👤 {nombre}",
+                        callback_data=(
+                            f"jornada:once:"
+                            f"{jornada_id}:"
+                            f"{manager_id}"
+                        ),
+                    )
+                ]
+            )
+
+        botones.append(
+            [
+                InlineKeyboardButton(
+                    "◀️ Volver a Jornada",
+                    callback_data=(
+                        f"jornada:volver:"
+                        f"{jornada_id}"
+                    ),
+                )
+            ]
+        )
+
+        await query.edit_message_text(
+            texto,
+            reply_markup=InlineKeyboardMarkup(
+                botones
+            ),
+        )
+
+    except Exception:
+        logger.exception(
+            "Error mostrando onces elegidos"
+        )
+
+        await query.answer(
+            "❌ No se pudieron cargar los onces.",
+            show_alert=True,
+        )
+
+
 async def jornada_callback(
     update,
     context,
@@ -6405,13 +6526,12 @@ async def jornada_callback(
             # ONCES
             # ---------------------------------------------
 
-            if accion == "onces":
-
-                await query.answer(
-                    "🚧 Onces elegidos: próximamente.",
-                    show_alert=True,
+            elif accion == "onces":
+                await mostrar_onces_elegidos(
+                    query,
+                    context,
+                    jornada_id,
                 )
-
                 return
 
             # ---------------------------------------------
