@@ -6,6 +6,7 @@ import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+from typing import Any
 from config import BIWENGER_USERNAME, BIWENGER_PASSWORD
 
 BASE_URL = "https://biwenger.as.com/api/v2"
