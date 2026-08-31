@@ -4072,12 +4072,79 @@ def obtener_informe(
             liga_id
         )
 
-        standings = _extraer_standings(
+        standings_raw = _extraer_standings(
             league_response
         )
 
         # -------------------------------------------------
-        # Historial completo de mercado
+        # NORMALIZAR STANDINGS
+        #
+        # La API devuelve standings como LISTA.
+        # El resto del informe trabaja con un DICCIONARIO
+        # indexado por nombre de manager.
+        # -------------------------------------------------
+
+        standings = {}
+
+        if isinstance(
+            standings_raw,
+            list,
+        ):
+
+            for miembro in standings_raw:
+
+                if not isinstance(
+                    miembro,
+                    dict,
+                ):
+                    continue
+
+                datos_standing = _datos_standing(
+                    miembro
+                )
+
+                nombre = datos_standing.get(
+                    "nombre",
+                    "Desconocido",
+                )
+
+                if not nombre:
+                    nombre = "Desconocido"
+
+                standings[nombre] = {
+                    "user_id": datos_standing.get(
+                        "id"
+                    ),
+                    "numero_jugadores": (
+                        datos_standing.get(
+                            "numero_jugadores",
+                            0,
+                        )
+                    ),
+                    "valor_equipo": (
+                        datos_standing.get(
+                            "valor_equipo",
+                            0,
+                        )
+                    ),
+                }
+
+        elif isinstance(
+            standings_raw,
+            dict,
+        ):
+            # Compatibilidad por si alguna respuesta
+            # futura ya viene normalizada como diccionario.
+            standings = standings_raw
+
+        logger.info(
+            "Standings normalizados: liga=%s usuarios=%s",
+            liga_id,
+            len(standings),
+        )
+
+        # -------------------------------------------------
+        # HISTORIAL COMPLETO DE MERCADO
         # -------------------------------------------------
 
         try:
@@ -4093,6 +4160,12 @@ def obtener_informe(
                 )
             )
 
+            if not isinstance(
+                market_report,
+                dict,
+            ):
+                market_report = {}
+
         except Exception as exc:
             logger.exception(
                 "Error calculando movimientos "
@@ -4104,7 +4177,7 @@ def obtener_informe(
             market_report = {}
 
         # -------------------------------------------------
-        # Premios acumulados de jornadas terminadas
+        # PREMIOS ACUMULADOS DE JORNADAS TERMINADAS
         # -------------------------------------------------
 
         try:
@@ -4113,6 +4186,12 @@ def obtener_informe(
                     liga_id
                 )
             )
+
+            if not isinstance(
+                round_rewards,
+                dict,
+            ):
+                round_rewards = {}
 
         except Exception as exc:
             logger.exception(
@@ -4125,7 +4204,7 @@ def obtener_informe(
             round_rewards = {}
 
         # -------------------------------------------------
-        # Construcción del resultado
+        # CONSTRUCCIÓN DEL RESULTADO
         # -------------------------------------------------
 
         resultado = {}
@@ -4159,6 +4238,7 @@ def obtener_informe(
                 user_id_int = int(
                     user_id
                 )
+
             except (
                 TypeError,
                 ValueError,
@@ -4168,40 +4248,59 @@ def obtener_informe(
             premio_jornadas = 0
 
             if user_id_int is not None:
-                premio_jornadas = int(
-                    round_rewards.get(
-                        user_id_int,
-                        0,
+
+                try:
+                    premio_jornadas = int(
+                        round_rewards.get(
+                            user_id_int,
+                            0,
+                        )
                     )
-                )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    premio_jornadas = 0
 
             resultado[nombre] = {
                 **datos,
+
                 "compras": datos_movimientos.get(
                     "compras",
                     0,
                 ),
+
                 "ventas": datos_movimientos.get(
                     "ventas",
                     0,
                 ),
-                "balance_mercado": datos_movimientos.get(
-                    "balance",
-                    0,
-                ),
-                "valor_equipo": datos_movimientos.get(
-                    "valor_equipo",
-                    datos.get(
-                        "valor_equipo",
+
+                "balance_mercado": (
+                    datos_movimientos.get(
+                        "balance",
                         0,
-                    ),
+                    )
                 ),
-                "premios_jornadas": premio_jornadas,
+
+                "valor_equipo": (
+                    datos_movimientos.get(
+                        "valor_equipo",
+                        datos.get(
+                            "valor_equipo",
+                            0,
+                        ),
+                    )
+                ),
+
+                "premios_jornadas": (
+                    premio_jornadas
+                ),
             }
 
         # -------------------------------------------------
-        # Usuarios que aparecen en movimientos pero no
-        # están actualmente en standings
+        # USUARIOS QUE APARECEN EN MOVIMIENTOS PERO
+        # NO ESTÁN ACTUALMENTE EN STANDINGS
         # -------------------------------------------------
 
         for nombre, datos in market_report.items():
@@ -4215,28 +4314,63 @@ def obtener_informe(
             ):
                 datos = {}
 
+            user_id = datos.get(
+                "user_id"
+            )
+
+            premio_jornadas = 0
+
+            try:
+                if user_id is not None:
+                    premio_jornadas = int(
+                        round_rewards.get(
+                            int(user_id),
+                            0,
+                        )
+                    )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                premio_jornadas = 0
+
             resultado[nombre] = {
-                "user_id": datos.get(
-                    "user_id"
+                "user_id": user_id,
+
+                "saldo": datos.get(
+                    "saldo",
+                    0,
                 ),
-                "saldo": 0,
+
+                "numero_jugadores": datos.get(
+                    "numero_jugadores",
+                    0,
+                ),
+
                 "valor_equipo": datos.get(
                     "valor_equipo",
                     0,
                 ),
+
                 "compras": datos.get(
                     "compras",
                     0,
                 ),
+
                 "ventas": datos.get(
                     "ventas",
                     0,
                 ),
+
                 "balance_mercado": datos.get(
                     "balance",
                     0,
                 ),
-                "premios_jornadas": 0,
+
+                "premios_jornadas": (
+                    premio_jornadas
+                ),
             }
 
         # -------------------------------------------------
@@ -4260,6 +4394,7 @@ def obtener_informe(
         return resultado
 
     except Exception as exc:
+
         logger.exception(
             "Error generando informe de "
             "la liga %s: %s",
@@ -4268,6 +4403,7 @@ def obtener_informe(
         )
 
         return {}
+
 
 def obtener_informe_detallado(
     liga_id,
