@@ -4028,10 +4028,8 @@ def obtener_miembros_liga(
 def obtener_informe(
     liga_id,
 ):
-    import time
-
     # -------------------------------------------------
-    # CACHE
+    # CACHE DEL INFORME
     # -------------------------------------------------
 
     ahora = time.time()
@@ -4068,6 +4066,11 @@ def obtener_informe(
     )
 
     try:
+
+        # -------------------------------------------------
+        # LIGA / STANDINGS
+        # -------------------------------------------------
+
         league_response = _CLIENT.league(
             liga_id
         )
@@ -4075,14 +4078,6 @@ def obtener_informe(
         standings_raw = _extraer_standings(
             league_response
         )
-
-        # -------------------------------------------------
-        # NORMALIZAR STANDINGS
-        #
-        # La API devuelve standings como LISTA.
-        # El resto del informe trabaja con un DICCIONARIO
-        # indexado por nombre de manager.
-        # -------------------------------------------------
 
         standings = {}
 
@@ -4112,15 +4107,19 @@ def obtener_informe(
                     nombre = "Desconocido"
 
                 standings[nombre] = {
-                    "user_id": datos_standing.get(
-                        "id"
+                    "user_id": (
+                        datos_standing.get(
+                            "id"
+                        )
                     ),
+
                     "numero_jugadores": (
                         datos_standing.get(
                             "numero_jugadores",
                             0,
                         )
                     ),
+
                     "valor_equipo": (
                         datos_standing.get(
                             "valor_equipo",
@@ -4133,21 +4132,22 @@ def obtener_informe(
             standings_raw,
             dict,
         ):
-            # Compatibilidad por si alguna respuesta
-            # futura ya viene normalizada como diccionario.
+
             standings = standings_raw
 
         logger.info(
-            "Standings normalizados: liga=%s usuarios=%s",
+            "Standings normalizados: "
+            "liga=%s usuarios=%s",
             liga_id,
             len(standings),
         )
 
         # -------------------------------------------------
-        # HISTORIAL COMPLETO DE MERCADO
+        # HISTORIAL COMPLETO DEL MERCADO
         # -------------------------------------------------
 
         try:
+
             history = (
                 _CLIENT.get_full_market_history(
                     liga_id
@@ -4167,6 +4167,7 @@ def obtener_informe(
                 market_report = {}
 
         except Exception as exc:
+
             logger.exception(
                 "Error calculando movimientos "
                 "de la liga %s: %s",
@@ -4177,10 +4178,11 @@ def obtener_informe(
             market_report = {}
 
         # -------------------------------------------------
-        # PREMIOS ACUMULADOS DE JORNADAS TERMINADAS
+        # PREMIOS DE JORNADAS
         # -------------------------------------------------
 
         try:
+
             round_rewards = (
                 _CLIENT.get_round_rewards(
                     liga_id
@@ -4194,6 +4196,7 @@ def obtener_informe(
                 round_rewards = {}
 
         except Exception as exc:
+
             logger.exception(
                 "Error obteniendo premios de "
                 "jornadas de la liga %s: %s",
@@ -4217,6 +4220,10 @@ def obtener_informe(
             ):
                 datos = {}
 
+            # ---------------------------------------------
+            # DATOS DE MERCADO
+            # ---------------------------------------------
+
             datos_movimientos = (
                 market_report.get(
                     nombre,
@@ -4230,11 +4237,16 @@ def obtener_informe(
             ):
                 datos_movimientos = {}
 
+            # ---------------------------------------------
+            # ID DEL USUARIO
+            # ---------------------------------------------
+
             user_id = datos.get(
                 "user_id"
             )
 
             try:
+
                 user_id_int = int(
                     user_id
                 )
@@ -4243,13 +4255,88 @@ def obtener_informe(
                 TypeError,
                 ValueError,
             ):
+
                 user_id_int = None
+
+            # ---------------------------------------------
+            # COMPRAS
+            #
+            # calculate_market_report devuelve:
+            #
+            #   compras       -> lista de operaciones
+            #   total_compras -> importe total
+            #
+            # Para el informe necesitamos total_compras.
+            # ---------------------------------------------
+
+            compras = datos_movimientos.get(
+                "total_compras",
+                0,
+            )
+
+            ventas = datos_movimientos.get(
+                "total_ventas",
+                0,
+            )
+
+            try:
+
+                compras = int(
+                    compras
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                compras = 0
+
+            try:
+
+                ventas = int(
+                    ventas
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                ventas = 0
+
+            # ---------------------------------------------
+            # VALOR DEL EQUIPO
+            # ---------------------------------------------
+
+            valor_equipo = datos.get(
+                "valor_equipo",
+                0,
+            )
+
+            try:
+
+                valor_equipo = int(
+                    valor_equipo
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                valor_equipo = 0
+
+            # ---------------------------------------------
+            # PREMIOS
+            # ---------------------------------------------
 
             premio_jornadas = 0
 
             if user_id_int is not None:
 
                 try:
+
                     premio_jornadas = int(
                         round_rewards.get(
                             user_id_int,
@@ -4261,46 +4348,92 @@ def obtener_informe(
                     TypeError,
                     ValueError,
                 ):
+
                     premio_jornadas = 0
 
+            # ---------------------------------------------
+            # SALDO ACTUAL
+            #
+            # Saldo inicial
+            # + ventas
+            # - compras
+            # + premios
+            # ---------------------------------------------
+
+            saldo_actual = (
+                _calcular_saldo_actual(
+                    compras,
+                    ventas,
+                    premio_jornadas,
+                )
+            )
+
+            # ---------------------------------------------
+            # PUJA MÁXIMA
+            # ---------------------------------------------
+
+            puja_maxima = (
+                _calcular_puja_maxima(
+                    saldo_actual,
+                    valor_equipo,
+                )
+            )
+
+            # ---------------------------------------------
+            # RESULTADO FINAL DEL MANAGER
+            # ---------------------------------------------
+
             resultado[nombre] = {
-                **datos,
 
-                "compras": datos_movimientos.get(
-                    "compras",
-                    0,
-                ),
+                "user_id": user_id,
 
-                "ventas": datos_movimientos.get(
-                    "ventas",
-                    0,
-                ),
-
-                "balance_mercado": (
-                    datos_movimientos.get(
-                        "balance",
+                "numero_jugadores": (
+                    datos.get(
+                        "numero_jugadores",
                         0,
                     )
                 ),
 
                 "valor_equipo": (
-                    datos_movimientos.get(
-                        "valor_equipo",
-                        datos.get(
-                            "valor_equipo",
-                            0,
-                        ),
-                    )
+                    valor_equipo
+                ),
+
+                "compras": (
+                    compras
+                ),
+
+                "ventas": (
+                    ventas
+                ),
+
+                "total_compras": (
+                    compras
+                ),
+
+                "total_ventas": (
+                    ventas
+                ),
+
+                "balance_mercado": (
+                    ventas - compras
                 ),
 
                 "premios_jornadas": (
                     premio_jornadas
                 ),
+
+                "saldo_actual": (
+                    saldo_actual
+                ),
+
+                "puja_maxima": (
+                    puja_maxima
+                ),
             }
 
         # -------------------------------------------------
-        # USUARIOS QUE APARECEN EN MOVIMIENTOS PERO
-        # NO ESTÁN ACTUALMENTE EN STANDINGS
+        # USUARIOS QUE APARECEN EN MOVIMIENTOS PERO NO
+        # ESTÁN EN STANDINGS
         # -------------------------------------------------
 
         for nombre, datos in market_report.items():
@@ -4318,63 +4451,149 @@ def obtener_informe(
                 "user_id"
             )
 
-            premio_jornadas = 0
-
             try:
-                if user_id is not None:
-                    premio_jornadas = int(
-                        round_rewards.get(
-                            int(user_id),
-                            0,
-                        )
-                    )
+
+                user_id_int = int(
+                    user_id
+                )
 
             except (
                 TypeError,
                 ValueError,
             ):
-                premio_jornadas = 0
+
+                user_id_int = None
+
+            compras = datos.get(
+                "total_compras",
+                0,
+            )
+
+            ventas = datos.get(
+                "total_ventas",
+                0,
+            )
+
+            valor_equipo = datos.get(
+                "valor_equipo",
+                0,
+            )
+
+            try:
+                compras = int(
+                    compras
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                compras = 0
+
+            try:
+                ventas = int(
+                    ventas
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                ventas = 0
+
+            try:
+                valor_equipo = int(
+                    valor_equipo
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                valor_equipo = 0
+
+            premio_jornadas = 0
+
+            if user_id_int is not None:
+
+                try:
+
+                    premio_jornadas = int(
+                        round_rewards.get(
+                            user_id_int,
+                            0,
+                        )
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+
+                    premio_jornadas = 0
+
+            saldo_actual = (
+                _calcular_saldo_actual(
+                    compras,
+                    ventas,
+                    premio_jornadas,
+                )
+            )
+
+            puja_maxima = (
+                _calcular_puja_maxima(
+                    saldo_actual,
+                    valor_equipo,
+                )
+            )
 
             resultado[nombre] = {
+
                 "user_id": user_id,
 
-                "saldo": datos.get(
-                    "saldo",
-                    0,
+                "numero_jugadores": (
+                    datos.get(
+                        "numero_jugadores",
+                        0,
+                    )
                 ),
 
-                "numero_jugadores": datos.get(
-                    "numero_jugadores",
-                    0,
+                "valor_equipo": (
+                    valor_equipo
                 ),
 
-                "valor_equipo": datos.get(
-                    "valor_equipo",
-                    0,
+                "compras": (
+                    compras
                 ),
 
-                "compras": datos.get(
-                    "compras",
-                    0,
+                "ventas": (
+                    ventas
                 ),
 
-                "ventas": datos.get(
-                    "ventas",
-                    0,
+                "total_compras": (
+                    compras
                 ),
 
-                "balance_mercado": datos.get(
-                    "balance",
-                    0,
+                "total_ventas": (
+                    ventas
+                ),
+
+                "balance_mercado": (
+                    ventas - compras
                 ),
 
                 "premios_jornadas": (
                     premio_jornadas
                 ),
+
+                "saldo_actual": (
+                    saldo_actual
+                ),
+
+                "puja_maxima": (
+                    puja_maxima
+                ),
             }
 
         # -------------------------------------------------
-        # CACHEAR RESULTADO
+        # CACHEAR RESULTADO FINAL
         # -------------------------------------------------
 
         _REPORT_CACHE[
@@ -4386,7 +4605,8 @@ def obtener_informe(
         ] = time.time()
 
         logger.info(
-            "Informe cacheado: liga=%s usuarios=%s",
+            "Informe cacheado: "
+            "liga=%s usuarios=%s",
             liga_id,
             len(resultado),
         )
@@ -4403,8 +4623,6 @@ def obtener_informe(
         )
 
         return {}
-
-
 def obtener_informe_detallado(
     liga_id,
 ):
