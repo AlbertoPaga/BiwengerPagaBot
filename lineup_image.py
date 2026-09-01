@@ -922,25 +922,27 @@ def _slots_partido(
 
     Cada equipo ocupa exclusivamente su medio campo.
 
-    La distribución vertical divide el medio campo en cuatro
-    zonas independientes:
+    El medio campo de cada equipo se divide horizontalmente
+    en cuatro columnas:
 
-        POR
-        DEF
-        MED
-        DEL
+        POR | DEF | MC | DL
 
-    Cada línea se coloca dentro de su propia zona para evitar
-    que las cajas de texto de distintas posiciones se solapen.
+    Dentro de cada columna, los jugadores de esa posición
+    se distribuyen verticalmente de forma uniforme.
 
-    LOCAL:
-        POR -> zona inferior
-        DEF -> zona inferior-media
-        MED -> zona superior-media
-        DEL -> zona superior
+    Ejemplo:
 
-    VISITANTE:
-        mismo reparto vertical, pero reflejado horizontalmente.
+        ┌─────┬─────┬─────┬─────┐
+        │     │     │     │     │
+        │ POR │ DEF │ MC  │ DL  │
+        │     │  ●  │  ●  │  ●  │
+        │     │  ●  │  ●  │  ●  │
+        │     │  ●  │  ●  │     │
+        │     │  ●  │  ●  │     │
+        └─────┴─────┴─────┴─────┘
+
+    El equipo visitante utiliza exactamente la misma lógica,
+    pero reflejada horizontalmente.
     """
 
     grouped = _agrupar_por_posicion(jugadores)
@@ -952,66 +954,56 @@ def _slots_partido(
         return []
 
     # ---------------------------------------------------------
-    # PROFUNDIDAD HORIZONTAL
+    # CADA EQUIPO OCUPA SU MEDIO CAMPO
     # ---------------------------------------------------------
-    #
-    # Cada equipo ocupa únicamente su medio campo.
-    #
-    # Local:
-    #   POR -> cerca de su portería
-    #   DEF -> algo más adelantados
-    #   MED -> zona central
-    #   DEL -> cerca de la línea central
-    #
-    # Visitante:
-    #   exactamente reflejado horizontalmente.
-    # ---------------------------------------------------------
+
+    half_width = fw / 2
 
     if lado == "home":
-        x_positions = {
-            1: field_left + fw * 0.07,
-            2: field_left + fw * 0.24,
-            3: field_left + fw * 0.38,
-            4: field_left + fw * 0.45,
-        }
-
+        team_left = field_left
+        team_right = field_left + half_width
     else:
-        x_positions = {
-            1: field_right - fw * 0.07,
-            2: field_right - fw * 0.24,
-            3: field_right - fw * 0.38,
-            4: field_right - fw * 0.45,
+        team_left = field_left + half_width
+        team_right = field_right
+
+    team_width = team_right - team_left
+
+    # ---------------------------------------------------------
+    # DIVIDIMOS EL MEDIO CAMPO EN 4 COLUMNAS
+    # ---------------------------------------------------------
+    #
+    # Cada columna representa una posición:
+    #
+    #   POR | DEF | MC | DL
+    #
+    # Para el visitante se invierte el orden:
+    #
+    #   DL | MC | DEF | POR
+    #
+    # De esta forma cada equipo mira hacia la portería rival.
+    # ---------------------------------------------------------
+
+    column_width = team_width / 4
+
+    if lado == "home":
+        position_columns = {
+            1: 0,  # POR
+            2: 1,  # DEF
+            3: 2,  # MC
+            4: 3,  # DL
         }
-
-    # ---------------------------------------------------------
-    # DIVISIÓN VERTICAL DEL MEDIO CAMPO
-    # ---------------------------------------------------------
-    #
-    # Dividimos TODO el medio campo en cuatro zonas iguales.
-    #
-    # De abajo hacia arriba:
-    #
-    #   1 -> POR
-    #   2 -> DEF
-    #   3 -> MED
-    #   4 -> DEL
-    #
-    # Esto evita que una línea pueda invadir la zona de otra.
-    # ---------------------------------------------------------
-
-    zone_height = fh / 4
-
-    zone_centers = {
-        1: field_bottom - zone_height * 0.5,
-        2: field_bottom - zone_height * 1.5,
-        3: field_bottom - zone_height * 2.5,
-        4: field_bottom - zone_height * 3.5,
-    }
+    else:
+        position_columns = {
+            1: 3,  # POR
+            2: 2,  # DEF
+            3: 1,  # MC
+            4: 0,  # DL
+        }
 
     slots = []
 
     # ---------------------------------------------------------
-    # JUGADORES POR POSICIÓN
+    # UNA COLUMNA POR CADA TIPO DE POSICIÓN
     # ---------------------------------------------------------
 
     for position in (1, 2, 3, 4):
@@ -1021,47 +1013,48 @@ def _slots_partido(
         if not row:
             continue
 
-        x = x_positions[position]
+        column_index = position_columns[position]
+
+        column_left = (
+            team_left
+            + column_width * column_index
+        )
+
+        column_right = (
+            column_left
+            + column_width
+        )
+
+        # Centro horizontal de la columna.
+        x = (
+            column_left
+            + column_width / 2
+        )
 
         # -----------------------------------------------------
-        # PORTERO
+        # DISTRIBUCIÓN VERTICAL
         # -----------------------------------------------------
         #
-        # El portero queda centrado verticalmente dentro de
-        # su propia zona.
-        # -----------------------------------------------------
-
-        if position == 1:
-
-            ys = [
-                zone_centers[position]
-                for _ in row
-            ]
-
-        # -----------------------------------------------------
-        # DEFENSAS / MEDIOS / DELANTEROS
-        # -----------------------------------------------------
+        # Si tenemos:
         #
-        # Se reparten solamente dentro de su zona.
+        #   1 jugador -> centro
+        #   2 jugadores -> 1/4 y 3/4
+        #   3 jugadores -> 1/6, 3/6 y 5/6
+        #   4 jugadores -> 1/8, 3/8, 5/8 y 7/8
         #
-        # Dejamos un margen para que las cajas de texto no
-        # queden pegadas a los límites de la zona.
+        # Es decir, cada jugador queda en el centro de
+        # su propia subdivisión vertical.
         # -----------------------------------------------------
 
-        else:
+        count = len(row)
 
-            zone_margin = zone_height * 0.22
+        slot_height = fh / count
 
-            usable_height = (
-                zone_height
-                - (zone_margin * 2)
-            )
-
-            ys = _row_values(
-                zone_centers[position],
-                len(row),
-                usable_height,
-            )
+        ys = [
+            field_top
+            + slot_height * (index + 0.5)
+            for index in range(count)
+        ]
 
         # -----------------------------------------------------
         # CREAR SLOTS
