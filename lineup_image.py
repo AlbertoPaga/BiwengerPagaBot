@@ -2263,6 +2263,52 @@ def generar_imagen_partido(
         confirmed,
     )
 
+
+def _draw_logo_placeholder(draw, center, radius, team):
+    """
+    Dibuja un placeholder para el escudo mientras no tengamos
+    el logo real del equipo.
+    """
+    cx, cy = center
+
+    # Círculo exterior.
+    draw.ellipse(
+        (
+            cx - radius,
+            cy - radius,
+            cx + radius,
+            cy + radius,
+        ),
+        fill=(24, 32, 43),
+        outline=(90, 105, 120),
+        width=3,
+    )
+
+    # Iniciales del equipo.
+    name = (
+        team.get("name")
+        or team.get("team_name")
+        or ""
+    ).strip()
+
+    words = name.split()
+
+    if len(words) >= 2:
+        initials = "".join(word[0] for word in words[:2]).upper()
+    elif name:
+        initials = name[:2].upper()
+    else:
+        initials = "?"
+
+    draw.text(
+        (cx, cy),
+        initials,
+        font=_font(32, True),
+        fill=(245, 248, 250),
+        anchor="mm",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Compatibilidad con el código existente
 # ---------------------------------------------------------------------------
