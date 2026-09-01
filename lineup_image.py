@@ -1794,12 +1794,12 @@ def generar_imagen_alineacion(
 
         # Marcador visual.
         _dibujar_foto_jugador(
-        _    draw,
-        _    jugador,
-        _    x,
-        _    y,
-         _   radio=30,
-        _)
+            draw,
+            jugador,
+            x,
+            y,
+            radio=30,
+        )
 
         _rounded_label(
             draw,
