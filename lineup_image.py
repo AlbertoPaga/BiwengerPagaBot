@@ -1489,6 +1489,163 @@ def _jugadores_para_imagen(
     )
 
 
+def _dibujar_foto_jugador(
+    draw,
+    jugador,
+    x,
+    y,
+    radio=30,
+):
+    """
+    Dibuja la foto del jugador dentro de un círculo.
+
+    Si no existe foto o no se puede cargar, mantiene
+    el círculo de reserva actual.
+    """
+
+    photo_url = (
+        jugador.get("photo")
+        or jugador.get("image")
+        or jugador.get("imageUrl")
+    )
+
+    # ---------------------------------------------------------
+    # CÍRCULO DE RESERVA
+    # ---------------------------------------------------------
+
+    def dibujar_circulo():
+        draw.ellipse(
+            (
+                x - radio,
+                y - radio,
+                x + radio,
+                y + radio,
+            ),
+            fill=(238, 242, 244),
+            outline=(8, 18, 30),
+            width=3,
+        )
+
+    if not photo_url:
+        dibujar_circulo()
+        return
+
+    try:
+        import requests
+        from PIL import Image
+
+        response = requests.get(
+            photo_url,
+            timeout=5,
+        )
+
+        response.raise_for_status()
+
+        foto = Image.open(
+            BytesIO(response.content)
+        ).convert("RGB")
+
+        # -----------------------------------------------------
+        # RECORTE CUADRADO CENTRADO
+        # -----------------------------------------------------
+
+        ancho, alto = foto.size
+
+        lado = min(
+            ancho,
+            alto,
+        )
+
+        izquierda = (
+            ancho - lado
+        ) // 2
+
+        arriba = (
+            alto - lado
+        ) // 2
+
+        foto = foto.crop(
+            (
+                izquierda,
+                arriba,
+                izquierda + lado,
+                arriba + lado,
+            )
+        )
+
+        diametro = radio * 2
+
+        foto = foto.resize(
+            (
+                diametro,
+                diametro,
+            ),
+            Image.Resampling.LANCZOS,
+        )
+
+        # -----------------------------------------------------
+        # MÁSCARA CIRCULAR
+        # -----------------------------------------------------
+
+        mascara = Image.new(
+            "L",
+            (
+                diametro,
+                diametro,
+            ),
+            0,
+        )
+
+        mascara_draw = ImageDraw.Draw(
+            mascara
+        )
+
+        mascara_draw.ellipse(
+            (
+                0,
+                0,
+                diametro,
+                diametro,
+            ),
+            fill=255,
+        )
+
+        # -----------------------------------------------------
+        # PEGAR FOTO
+        # -----------------------------------------------------
+
+        image = draw._image
+
+        image.paste(
+            foto,
+            (
+                x - radio,
+                y - radio,
+            ),
+            mascara,
+        )
+
+        # -----------------------------------------------------
+        # BORDE
+        # -----------------------------------------------------
+
+        draw.ellipse(
+            (
+                x - radio,
+                y - radio,
+                x + radio,
+                y + radio,
+            ),
+            outline=(8, 18, 30),
+            width=3,
+        )
+
+    except Exception:
+        # Si falla la descarga o la imagen,
+        # seguimos mostrando el círculo.
+        dibujar_circulo()
+
+
 def generar_imagen_alineacion(
     team: dict[str, Any],
     opponent=None,
@@ -1636,17 +1793,13 @@ def generar_imagen_alineacion(
         )
 
         # Marcador visual.
-        draw.ellipse(
-            (
-                x - 30,
-                y - 30,
-                x + 30,
-                y + 30,
-            ),
-            fill=(238, 242, 244),
-            outline=(8, 18, 30),
-            width=3,
-        )
+        _dibujar_foto_jugador(
+        _    draw,
+        _    jugador,
+        _    x,
+        _    y,
+         _   radio=30,
+        _)
 
         _rounded_label(
             draw,
