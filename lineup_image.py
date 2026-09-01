@@ -899,25 +899,115 @@ def _slots_partido(
     lado,
 ):
     """
-    Distribuye los jugadores de un equipo dentro de SU MEDIO CAMPO.
+    Distribuye los jugadores en un campo HORIZONTAL.
 
-    Los dos equipos nunca comparten la zona de profundidad.
+    Cada equipo ocupa su MEDIO CAMPO.
 
     LOCAL:
-        field_left -> centro
+        POR -> extremo izquierdo
+        DEF -> delante del portero
+        MED -> zona central
+        DEL -> cerca del centro
 
     VISITANTE:
-        centro -> field_right
+        exactamente reflejado horizontalmente.
+
+    Los jugadores de una misma posición se reparten
+    verticalmente dentro del campo.
     """
 
-    return _slots_por_posicion(
-        jugadores,
-        field_left=field_left,
-        field_right=field_right,
-        field_top=field_top,
-        field_bottom=field_bottom,
-        home=(lado == "home"),
-    )
+    grouped = _agrupar_por_posicion(jugadores)
+
+    fw = field_right - field_left
+    fh = field_bottom - field_top
+
+    # ---------------------------------------------------------
+    # PROFUNDIDAD
+    # ---------------------------------------------------------
+    #
+    # Los dos equipos ocupan únicamente su mitad.
+    #
+    # Ajustamos DEF y DEL para aumentar la separación entre
+    # las cajas de nombres de ambos equipos.
+    #
+    # LOCAL:
+    #
+    #   POR      0.07
+    #   DEF      0.24
+    #   MED      0.38
+    #   DEL      0.45
+    #
+    # VISITANTE = espejo.
+    #
+
+    if lado == "home":
+        x_positions = {
+            1: field_left + fw * 0.07,
+            2: field_left + fw * 0.24,
+            3: field_left + fw * 0.38,
+            4: field_left + fw * 0.45,
+        }
+    else:
+        x_positions = {
+            1: field_right - fw * 0.07,
+            2: field_right - fw * 0.24,
+            3: field_right - fw * 0.38,
+            4: field_right - fw * 0.45,
+        }
+
+    # ---------------------------------------------------------
+    # REPARTO VERTICAL
+    # ---------------------------------------------------------
+
+    spreads = {
+        1: 0.00,  # Portero siempre centrado
+        2: 0.76,  # Defensas: repartir casi todo el ancho
+        3: 0.62,  # Medios
+        4: 0.58,  # Delanteros
+    }
+
+    slots = []
+
+    for position in (1, 2, 3, 4):
+
+        row = grouped.get(position, [])
+
+        if not row:
+            continue
+
+        x = x_positions[position]
+
+        # -----------------------------------------------------
+        # PORTERO
+        # -----------------------------------------------------
+
+        if position == 1:
+            ys = [
+                field_top + fh * 0.50
+                for _ in row
+            ]
+
+        # -----------------------------------------------------
+        # RESTO DE POSICIONES
+        # -----------------------------------------------------
+
+        else:
+            ys = _row_values(
+                field_top + fh * 0.50,
+                len(row),
+                fh * spreads[position],
+            )
+
+        for jugador, y in zip(row, ys):
+            slots.append(
+                (
+                    jugador,
+                    round(x),
+                    round(y),
+                )
+            )
+
+    return slots
 
 
 
@@ -975,13 +1065,12 @@ def _rounded_label(
         width=1,
     )
 
-    name_font = _font(
-        19,
-        True,
-    )
+    # ---------------------------------------------------------
+    # NOMBRE
+    # ---------------------------------------------------------
 
-    pos_font = _font(
-        14,
+    name_font = _font(
+        22,
         True,
     )
 
@@ -1003,47 +1092,50 @@ def _rounded_label(
                 - box[2]
                 + box[0]
             ) // 2,
-            y1 + 7,
+            y1 + 6,
         ),
         name_text,
         font=name_font,
         fill=(245, 248, 250),
     )
 
-    position_text = str(
-        position
-    )
+    # ---------------------------------------------------------
+    # PUNTOS
+    # ---------------------------------------------------------
 
     puntos = _texto_puntos(
         points
     )
 
     if confirmed and puntos is not None:
-        position_text = (
-            f"{position}  •  {puntos} pts"
+
+        points_text = f"{puntos} pts"
+
+        points_font = _font(
+            19,
+            True,
         )
 
-    box = draw.textbbox(
-        (0, 0),
-        position_text,
-        font=pos_font,
-    )
+        box = draw.textbbox(
+            (0, 0),
+            points_text,
+            font=points_font,
+        )
 
-    draw.text(
-        (
+        draw.text(
             (
-                x1
-                + x2
-                - box[2]
-                + box[0]
-            ) // 2,
-            y1 + 34,
-        ),
-        position_text,
-        font=pos_font,
-        fill=(139, 219, 177),
-    )
-
+                (
+                    x1
+                    + x2
+                    - box[2]
+                    + box[0]
+                ) // 2,
+                y1 + 35,
+            ),
+            points_text,
+            font=points_font,
+            fill=(139, 219, 177),
+        )
 
 # ---------------------------------------------------------------------------
 # Campo
@@ -2025,7 +2117,7 @@ def generar_imagen_partido(
     draw.text(
         (220, 57),
         home_name,
-        font=_font(42, True),
+        font=_font(52, True),
         fill=(245, 248, 250),
         anchor="lm",
     )
@@ -2033,7 +2125,7 @@ def generar_imagen_partido(
     draw.text(
         (width - 220, 57),
         away_name,
-        font=_font(42, True),
+        font=_font(52, True),
         fill=(245, 248, 250),
         anchor="rm",
     )
@@ -2054,7 +2146,7 @@ def generar_imagen_partido(
     draw.text(
         (header_center, 48),
         resultado,
-        font=_font(50, True),
+        font=_font(64, True),
         fill=(245, 248, 250),
         anchor="ma",
     )
@@ -2112,8 +2204,8 @@ def generar_imagen_partido(
         lado="away",
     )
 
-    label_w = 170
-    label_h = 58
+    label_w = 165
+    label_h = 54
 
     # ---------------------------------------------------------
     # PINTAR JUGADORES
