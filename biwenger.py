@@ -1581,28 +1581,33 @@ class BiwengerClient:
             games = []
 
         if games:
-            logger.warning(
-                "DEBUG JORNADA ACTUAL GAME: %r",
-                games[0],
-            )
-
-            jugadores_participantes = (
-                obtener_jugadores_participantes_partido(
-                    games[0]
+            for game in games:
+                logger.warning(
+                    "DEBUG JORNADA GAME: id=%s home=%s away=%s",
+                    game.get("id"),
+                    game.get("home", {}).get("name"),
+                    game.get("away", {}).get("name"),
                 )
-            )
 
-            logger.warning(
-                "JUGADORES PARTICIPANTES: HOME=%s AWAY=%s",
-                [
-                    f"{jugador.get('id')} - {jugador.get('name')}"
-                    for jugador in jugadores_participantes["home"]
-                ],
-                [
-                    f"{jugador.get('id')} - {jugador.get('name')}"
-                    for jugador in jugadores_participantes["away"]
-                ],
-            )
+                jugadores_participantes = (
+                    obtener_jugadores_participantes_partido(
+                        game
+                    )
+                )
+
+                logger.warning(
+                    "JUGADORES PARTICIPANTES [%s - %s]: HOME=%s AWAY=%s",
+                    game.get("home", {}).get("name"),
+                    game.get("away", {}).get("name"),
+                    [
+                        f"{jugador.get('id')} - {jugador.get('name')}"
+                        for jugador in jugadores_participantes["home"]
+                    ],
+                    [
+                        f"{jugador.get('id')} - {jugador.get('name')}"
+                        for jugador in jugadores_participantes["away"]
+                    ],
+                )
 
         jornada = {
             "id": root.get("id"),
