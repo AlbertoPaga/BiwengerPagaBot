@@ -6345,7 +6345,7 @@ def _fusionar_eventos_equipo(
 
 def _texto_evento_agrupado(item):
     """
-    Convierte un evento ya agrupado en texto.
+    Convierte un evento agrupado en texto para el cronograma.
     """
 
     kind = item.get(
@@ -6362,60 +6362,64 @@ def _texto_evento_agrupado(item):
         else "—"
     )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # GOL + ASISTENCIA
-    # ---------------------------------------------------------
+    # =========================================================
 
     if kind == "goal_assist":
 
-        goleador = item.get(
-            "goal_player"
-        ) or "Jugador"
+        goleador = (
+            item.get("goal_player")
+            or "Jugador"
+        )
 
-        asistente = item.get(
-            "assist_player"
-        ) or "Jugador"
+        asistente = (
+            item.get("assist_player")
+            or "Jugador"
+        )
 
         tipo = item.get(
             "type"
         )
 
         if tipo == 2:
+
             return (
                 f"{minuto_texto} ⚽ "
-                f"Gol de penalti ({goleador}) "
-                f"(🅰️ {asistente})"
+                f"Gol de penalti ({goleador})\n"
+                f"       (🅰️ {asistente})"
             )
 
         return (
             f"{minuto_texto} ⚽ "
-            f"{goleador} "
-            f"(🅰️ {asistente})"
+            f"{goleador}\n"
+            f"       (🅰️ {asistente})"
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # CAMBIO
-    # ---------------------------------------------------------
+    # =========================================================
 
     if kind == "substitution":
 
-        entra = item.get(
-            "in_player"
-        ) or "Jugador"
-
-        sale = item.get(
-            "out_player"
-        ) or "Jugador"
-
-        return (
-            f"{minuto_texto} 🔄 "
-            f"🟢 {entra} "
-            f"→ 🔴 {sale}"
+        entra = (
+            item.get("in_player")
+            or "Jugador"
         )
 
-    # ---------------------------------------------------------
+        sale = (
+            item.get("out_player")
+            or "Jugador"
+        )
+
+        return (
+            f"{minuto_texto} 🔄 🟢 {entra}\n"
+            f"       → 🔴 {sale}"
+        )
+
+    # =========================================================
     # EVENTO INDIVIDUAL
-    # ---------------------------------------------------------
+    # =========================================================
 
     if kind == "single":
 
@@ -6429,32 +6433,28 @@ def _texto_evento_agrupado(item):
     )
 
 
+
 def construir_resumen_eventos_partido(
     home,
     away,
 ):
     """
-    Construye el resumen cronológico del partido.
+    Construye únicamente el cronograma de eventos.
 
-    El resultado se muestra en dos columnas:
+    La cabecera del partido se genera en
+    mostrar_resumen_partido().
 
-        LOCAL              │ VISITANTE
+    Los eventos se distribuyen en dos columnas:
 
-    pero el orden de los eventos es GLOBAL por minuto.
+        LOCAL                         │ VISITANTE
 
-    Ejemplo:
+        19' ⚽ Raphinha               │
+             (🅰️ Xavi Espart)         │
 
-        12'                  │ 12' ⚽ Camello
-                             │    (🅰️ Álvaro García)
+                                      │ 12' ⚽ Camello
+                                      │      (🅰️ Álvaro García)
 
-        19' ⚽ Raphinha       │
-            (🅰️ Xavi Espart) │
-
-        21' ⚽ Yamal          │
-            (🅰️ Marc Bernal) │
-
-    Los eventos de cada equipo permanecen siempre
-    en su mitad correspondiente.
+    El orden es cronológico global.
     """
 
     home_eventos = _extraer_eventos_equipo(
@@ -6467,37 +6467,15 @@ def construir_resumen_eventos_partido(
 
     if not home_eventos and not away_eventos:
         return (
-            "📋 EVENTOS\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Todavía no hay eventos disponibles."
+            "No hay eventos disponibles."
         )
-
-    home_name = _nombre_equipo(
-        home,
-        "Local",
-    )
-
-    away_name = _nombre_equipo(
-        away,
-        "Visitante",
-    )
 
     grupos = _agrupar_eventos_minuto(
         home_eventos,
         away_eventos,
     )
 
-    # ---------------------------------------------------------
-    # CABECERA
-    # ---------------------------------------------------------
-
-    lineas = [
-        "📋 RESUMEN DEL PARTIDO",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        "",
-        f"{home_name}           │ {away_name}",
-        "────────────────────────────",
-    ]
+    lineas = []
 
     ultimo_period = None
 
@@ -6507,21 +6485,29 @@ def construir_resumen_eventos_partido(
             "period"
         )
 
-        # -----------------------------------------------------
+        # =====================================================
         # DESCANSO
-        # -----------------------------------------------------
+        # =====================================================
 
         if (
             ultimo_period == "firstTime"
             and period != "firstTime"
         ):
-            lineas.extend([
-                "",
-                "━━━━━━━━━━ DESCANSO ━━━━━━━━━━",
-                "",
-            ])
+
+            if lineas and lineas[-1] != "":
+                lineas.append("")
+
+            lineas.append(
+                "━━━━━━━━━━ DESCANSO ━━━━━━━━━━"
+            )
+
+            lineas.append("")
 
         ultimo_period = period
+
+        # =====================================================
+        # EVENTOS DE CADA EQUIPO
+        # =====================================================
 
         home_items = _fusionar_eventos_equipo(
             grupo.get("home", [])
@@ -6532,22 +6518,14 @@ def construir_resumen_eventos_partido(
         )
 
         home_textos = [
-            _texto_evento_agrupado(
-                item
-            )
+            _texto_evento_agrupado(item)
             for item in home_items
         ]
 
         away_textos = [
-            _texto_evento_agrupado(
-                item
-            )
+            _texto_evento_agrupado(item)
             for item in away_items
         ]
-
-        # -----------------------------------------------------
-        # ALINEAR LAS DOS MITADES
-        # -----------------------------------------------------
 
         max_items = max(
             len(home_textos),
@@ -6556,6 +6534,10 @@ def construir_resumen_eventos_partido(
 
         if max_items == 0:
             continue
+
+        # =====================================================
+        # PINTAR EL MINUTO
+        # =====================================================
 
         for index in range(max_items):
 
@@ -6572,27 +6554,90 @@ def construir_resumen_eventos_partido(
             )
 
             # -------------------------------------------------
-            # Ancho aproximado de cada columna.
-            #
-            # Telegram usa fuente monoespaciada únicamente
-            # dentro de bloques <code>/<pre>, por lo que aquí
-            # mantenemos una separación sencilla y estable.
+            # SOLO LOCAL
             # -------------------------------------------------
 
-            lineas.append(
-                f"{izquierda:<34}│ {derecha}"
-            )
+            if izquierda and not derecha:
 
-    if not grupos:
+                partes_izquierda = (
+                    izquierda.split("\n")
+                )
 
-        lineas.extend([
-            "",
-            "Sin eventos",
-        ])
+                for linea in partes_izquierda:
+
+                    lineas.append(
+                        f"{linea:<38}│"
+                    )
+
+            # -------------------------------------------------
+            # SOLO VISITANTE
+            # -------------------------------------------------
+
+            elif derecha and not izquierda:
+
+                partes_derecha = (
+                    derecha.split("\n")
+                )
+
+                for linea in partes_derecha:
+
+                    lineas.append(
+                        f"{'':38}│  {linea}"
+                    )
+
+            # -------------------------------------------------
+            # AMBOS EQUIPOS
+            # -------------------------------------------------
+
+            else:
+
+                izquierda_lineas = (
+                    izquierda.split("\n")
+                )
+
+                derecha_lineas = (
+                    derecha.split("\n")
+                )
+
+                numero_lineas = max(
+                    len(izquierda_lineas),
+                    len(derecha_lineas),
+                )
+
+                for i in range(numero_lineas):
+
+                    izquierda_linea = (
+                        izquierda_lineas[i]
+                        if i < len(izquierda_lineas)
+                        else ""
+                    )
+
+                    derecha_linea = (
+                        derecha_lineas[i]
+                        if i < len(derecha_lineas)
+                        else ""
+                    )
+
+                    lineas.append(
+                        f"{izquierda_linea:<38}"
+                        f"│  "
+                        f"{derecha_linea}"
+                    )
+
+        # Separación visual entre minutos
+        lineas.append("")
+
+    # =========================================================
+    # LIMPIEZA FINAL
+    # =========================================================
+
+    while lineas and not lineas[-1].strip():
+        lineas.pop()
 
     return "\n".join(
         lineas
     )
+
 
 
 
