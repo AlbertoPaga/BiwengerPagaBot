@@ -5899,6 +5899,333 @@ async def jornadas_callback(
         )
 
 
+def _extraer_eventos_equipo(team):
+    """
+    Extrae los eventos de los reports de un equipo.
+
+    Devuelve una lista normalizada:
+
+        {
+            "minute": 12,
+            "type": 1,
+            "player": "Álvaro García",
+            "player_id": 123,
+        }
+    """
+
+    if not isinstance(team, dict):
+        return []
+
+    reports = team.get("reports")
+
+    if not isinstance(reports, list):
+        return []
+
+    eventos = []
+
+    for report in reports:
+
+        if not isinstance(report, dict):
+            continue
+
+        player = report.get("player")
+
+        if not isinstance(player, dict):
+            player = report
+
+        nombre = str(
+            player.get("name")
+            or player.get("nombre")
+            or "Jugador"
+        )
+
+        player_id = player.get("id")
+
+        report_events = report.get("events")
+
+        if not isinstance(report_events, list):
+            report_events = player.get("events")
+
+        if not isinstance(report_events, list):
+            continue
+
+        for evento in report_events:
+
+            if not isinstance(evento, dict):
+                continue
+
+            try:
+                event_type = int(
+                    evento.get("type")
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            minute = (
+                evento.get("minute")
+            )
+
+            if minute is None:
+                minute = evento.get("metadata")
+
+            try:
+                minute = int(minute)
+            except (
+                TypeError,
+                ValueError,
+            ):
+                minute = None
+
+            eventos.append({
+                "minute": minute,
+                "type": event_type,
+                "player": nombre,
+                "player_id": player_id,
+            })
+
+    eventos.sort(
+        key=lambda evento: (
+            evento["minute"]
+            if evento["minute"] is not None
+            else 999
+        )
+    )
+
+    return eventos
+
+
+
+def _texto_evento_partido(evento):
+    """
+    Convierte un evento normalizado en una línea legible.
+    """
+
+    tipo = evento.get("type")
+
+    acciones = {
+        1: "⚽ Gol",
+        2: "⚽ Gol de penalti",
+        3: "🅰️ Asistencia",
+        4: "⬇️ Sale",
+        5: "⬆️ Entra",
+        6: "🟨 Amarilla",
+        7: "🟥 Roja",
+        8: "🟥 Segunda amarilla",
+        9: "⚽ Gol en propia",
+        10: "🥅 Tiro al palo",
+        13: "❌ Gol anulado",
+        14: "🤕 Lesión",
+        16: "⚠️ Penalti cometido",
+    }
+
+    accion = acciones.get(
+        tipo,
+        "📌 Evento",
+    )
+
+    minuto = evento.get(
+        "minute"
+    )
+
+    minuto_texto = (
+        f"{minuto}'"
+        if minuto is not None
+        else "—"
+    )
+
+    jugador = str(
+        evento.get(
+            "player"
+        )
+        or "Jugador"
+    )
+
+    return (
+        f"{minuto_texto}  "
+        f"{accion} · {jugador}"
+    )
+
+
+def construir_resumen_eventos_partido(
+    home,
+    away,
+):
+    """
+    Construye el resumen cronológico del partido.
+
+    Los dos equipos aparecen separados en dos columnas
+    conceptualmente:
+
+        LOCAL              VISITANTE
+
+        12' ⚽ Jugador      12' 🟨 Jugador
+        32' 🟨 Jugador      45' ⚽ Jugador
+        ...
+    """
+
+    home_eventos = _extraer_eventos_equipo(
+        home
+    )
+
+    away_eventos = _extraer_eventos_equipo(
+        away
+    )
+
+    if not home_eventos and not away_eventos:
+        return (
+            "📋 EVENTOS\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Todavía no hay eventos disponibles."
+        )
+
+    home_name = _nombre_equipo(
+        home,
+        "Local",
+    )
+
+    away_name = _nombre_equipo(
+        away,
+        "Visitante",
+    )
+
+    lineas = [
+        "📋 EVENTOS",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "",
+        f"🏠 {home_name}",
+        "",
+    ]
+
+    for evento in home_eventos:
+
+        lineas.append(
+            _texto_evento_partido(
+                evento
+            )
+        )
+
+    if not home_eventos:
+        lineas.append(
+            "Sin eventos"
+        )
+
+    lineas.extend([
+        "",
+        f"✈️ {away_name}",
+        "",
+    ])
+
+    for evento in away_eventos:
+
+        lineas.append(
+            _texto_evento_partido(
+                evento
+            )
+        )
+
+    if not away_eventos:
+        lineas.append(
+            "Sin eventos"
+        )
+
+    return "\n".join(
+        lineas
+    )
+
+
+
+async def mostrar_resumen_partido(
+    query,
+    context,
+    jornada,
+    partido,
+):
+    try:
+
+        home = partido.get(
+            "home"
+        ) or {}
+
+        away = partido.get(
+            "away"
+        ) or {}
+
+        home_name = _nombre_equipo(
+            home,
+            "Local",
+        )
+
+        away_name = _nombre_equipo(
+            away,
+            "Visitante",
+        )
+
+        resumen = construir_resumen_eventos_partido(
+            home,
+            away,
+        )
+
+        texto = (
+            f"⚽ {home_name} — {away_name}\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "\n"
+            "📋 RESUMEN DEL PARTIDO\n"
+            "\n"
+            f"{resumen}"
+        )
+
+        botones = [
+            [
+                InlineKeyboardButton(
+                    "◀️ Volver al Partido",
+                    callback_data=(
+                        f"jornada:partido:"
+                        f"{jornada.get('id')}:"
+                        f"{partido.get('id')}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "◀️ Volver a Partidos",
+                    callback_data=(
+                        f"jornada:partidos:"
+                        f"{jornada.get('id')}"
+                    ),
+                )
+            ],
+        ]
+
+        guardar_mensaje_anterior(
+            query,
+            context,
+        )
+
+        await editar_mensaje(
+            query,
+            texto,
+            teclado_con_fijar(
+                InlineKeyboardMarkup(
+                    botones
+                )
+            ),
+        )
+
+    except Exception:
+
+        logger.exception(
+            "ERROR RESUMEN PARTIDO"
+        )
+
+        await editar_mensaje(
+            query,
+            "❌ No se pudo generar el resumen del partido.",
+        )
+
+
 async def mostrar_ficha_partido(
     query,
     context,
@@ -6068,6 +6395,11 @@ async def mostrar_ficha_partido(
         # TEXTO DE LA FICHA
         # ---------------------------------------------------------
 
+        resumen_eventos = construir_resumen_eventos_partido(
+            home_raw,
+            away_raw,
+        )
+
         lineas = [
             f"⚽ {home_name} — {away_name}",
             "━━━━━━━━━━━━━━━━━━━━",
@@ -6075,13 +6407,26 @@ async def mostrar_ficha_partido(
             f"{resultado}",
             f"📌 {estado_partido}",
             "",
-            "📋 Alineaciones",
+            "📋 ALINEACIONES",
             "",
-            "Se mostrará una única imagen "
-            "con ambos equipos enfrentados.",
+            "👇 Imagen con las alineaciones",
+            "",
+            resumen_eventos,
         ]
 
         botones = [
+
+            [
+                InlineKeyboardButton(
+                    "📋 Resumen Partido",
+                    callback_data=(
+                        f"jornada:resumen:"
+                        f"{jornada.get('id')}:"
+                        f"{partido.get('id')}"
+                    ),
+                )
+            ],
+
             [
                 InlineKeyboardButton(
                     "◀️ Volver a Partidos",
@@ -7091,6 +7436,81 @@ async def jornada_callback(
 
                 return
 
+            if accion == "resumen":
+
+                if len(partes) < 4:
+                    raise ValueError(
+                        "Faltan jornada_id y partido_id"
+                    )
+
+                jornada_id = int(
+                    partes[2]
+                )
+
+                partido_id = int(
+                    partes[3]
+                )
+
+                jornada = obtener_jornada(
+                    jornada_id
+                )
+
+                if jornada is None:
+                    await query.answer(
+                        "❌ No se encontró la jornada.",
+                        show_alert=True,
+                    )
+                    return
+
+                partido = None
+
+                for game in jornada.get(
+                    "games",
+                    [],
+                ):
+
+                    if not isinstance(
+                        game,
+                        dict,
+                    ):
+                        continue
+
+                    game_id = (
+                        game.get("id")
+                        or game.get("gameId")
+                    )
+
+                    if (
+                        game_id is not None
+                        and int(game_id)
+                        == partido_id
+                    ):
+                        partido = game
+                        break
+
+                if partido is None:
+                    await query.answer(
+                        "❌ No se encontró el partido.",
+                        show_alert=True,
+                    )
+                    return
+
+                context.user_data[
+                    "jornada_actual"
+                ] = jornada
+
+                context.user_data[
+                    "partido_actual"
+                ] = partido
+
+                await mostrar_resumen_partido(
+                    query,
+                    context,
+                    jornada,
+                    partido,
+                )
+
+                return
 
             # ---------------------------------------------
             # ONCES
