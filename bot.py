@@ -6566,7 +6566,7 @@ def construir_resumen_eventos_partido(
                 for linea in partes_izquierda:
 
                     lineas.append(
-                        f"{linea:<38}│"
+                        f"{linea:<38}"
                     )
 
             # -------------------------------------------------
