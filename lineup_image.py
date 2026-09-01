@@ -631,11 +631,52 @@ def obtener_once_manager(
 # Posicionamiento
 # ---------------------------------------------------------------------------
 
+# El campo es HORIZONTAL.
+#
+# X = profundidad del campo
+# Y = anchura del campo
+#
+# LOCAL:
+#   POR -> izquierda
+#   DEF -> izquierda
+#   MED -> centro
+#   DEL -> derecha
+#
+# VISITANTE:
+#   exactamente reflejado horizontalmente.
+#
+# Para cada línea, los jugadores se reparten verticalmente
+# en el centro de cada división.
+#
+# Ejemplo con 4 DEF:
+#
+#   DF
+#
+#   DF
+#
+#   DF
+#
+#   DF
+#
+# Y = 1/8, 3/8, 5/8, 7/8
+#
+# El portero siempre está exactamente centrado verticalmente.
+
+
+_POSITION_DEPTH = {
+    1: 0.08,   # POR
+    2: 0.22,   # DEF
+    3: 0.50,   # MED
+    4: 0.78,   # DEL
+}
+
 
 def _agrupar_por_posicion(
     jugadores: list[dict[str, Any]],
 ) -> dict[int, list[dict[str, Any]]]:
-    grouped = {
+    """Agrupa los jugadores por posición."""
+
+    grouped: dict[int, list[dict[str, Any]]] = {
         1: [],
         2: [],
         3: [],
@@ -643,12 +684,7 @@ def _agrupar_por_posicion(
     }
 
     for jugador in jugadores:
-        try:
-            position = int(
-                jugador.get("position")
-            )
-        except (TypeError, ValueError):
-            continue
+        position = jugador.get("position")
 
         if position in grouped:
             grouped[position].append(jugador)
@@ -656,26 +692,32 @@ def _agrupar_por_posicion(
     return grouped
 
 
-def _xs_repartidas(
+def _ys_repartidas(
     cantidad: int,
-    minimo: int,
-    maximo: int,
+    field_top: int,
+    field_bottom: int,
 ) -> list[int]:
+    """
+    Divide verticalmente el campo en `cantidad` partes
+    y devuelve el centro de cada división.
+
+    1 -> 1/2
+    2 -> 1/4, 3/4
+    3 -> 1/6, 3/6, 5/6
+    4 -> 1/8, 3/8, 5/8, 7/8
+    """
+
     if cantidad <= 0:
         return []
 
-    if cantidad == 1:
-        return [
-            (minimo + maximo) // 2
-        ]
-
-    step = (
-        maximo - minimo
-    ) / (cantidad - 1)
+    height = field_bottom - field_top
 
     return [
         round(
-            minimo + step * index
+            field_top
+            + (index + 0.5)
+            * height
+            / cantidad
         )
         for index in range(cantidad)
     ]
@@ -683,60 +725,84 @@ def _xs_repartidas(
 
 def _slots_por_posicion(
     jugadores: list[dict[str, Any]],
-    width: int,
     *,
-    left: int | None = None,
-    right: int | None = None,
-):
+    field_left: int,
+    field_right: int,
+    field_top: int,
+    field_bottom: int,
+    home: bool,
+) -> list[tuple[dict[str, Any], int, int]]:
     """
-    Campo vertical.
+    Posiciona un equipo en un campo HORIZONTAL.
 
-    POR  -> abajo
-    DEF  -> arriba del POR
-    MED  -> centro
-    DEL  -> arriba
+    El equipo local mira hacia la derecha.
+    El visitante mira hacia la izquierda.
 
-    El payload nunca decide dónde pintar al jugador:
-    manda ``position``.
+    POR:
+        siempre centrado verticalmente.
+
+    DEF / MED / DEL:
+        cada jugador ocupa el centro de una división vertical.
     """
 
-    grouped = _agrupar_por_posicion(
-        jugadores
-    )
+    grouped = _agrupar_por_posicion(jugadores)
 
-    if left is None:
-        left = int(width * 0.09)
-
-    if right is None:
-        right = int(width * 0.91)
+    field_width = field_right - field_left
 
     slots = []
 
-    for position in (
-        1,
-        2,
-        3,
-        4,
-    ):
-        row = grouped[position]
+    for position in (1, 2, 3, 4):
+
+        row = grouped.get(position, [])
 
         if not row:
             continue
 
-        xs = _xs_repartidas(
+        depth = _POSITION_DEPTH[position]
+
+        if home:
+            x = field_left + field_width * depth
+        else:
+            x = field_right - field_width * depth
+
+        x = round(x)
+
+        # ---------------------------------------------------------
+        # PORTERO
+        # ---------------------------------------------------------
+
+        if position == 1:
+
+            y = round(
+                (field_top + field_bottom)
+                / 2
+            )
+
+            # En condiciones normales solo habrá un portero.
+            # Si hubiera más de uno, el primero queda centrado
+            # y los restantes se reparten.
+            if len(row) == 1:
+                slots.append(
+                    (
+                        row[0],
+                        x,
+                        y,
+                    )
+                )
+                continue
+
+        # ---------------------------------------------------------
+        # DEF / MED / DEL
+        # ---------------------------------------------------------
+
+        ys = _ys_repartidas(
             len(row),
-            left,
-            right,
+            field_top,
+            field_bottom,
         )
 
-        y = round(
-            width * _ROW_Y[position]
-        )
+        for jugador, y in zip(row, ys):
 
-        for jugador, x in zip(
-            row,
-            xs,
-        ):
             slots.append(
                 (
                     jugador,
@@ -746,28 +812,6 @@ def _slots_por_posicion(
             )
 
     return slots
-
-
-def _row_values(center, count, spread):
-    """Devuelve las posiciones Y de los jugadores de una misma línea.
-
-    Los jugadores se distribuyen simétricamente alrededor de `center`.
-    `spread` representa la separación total aproximada de la línea.
-    """
-    if count <= 0:
-        return []
-
-    if count == 1:
-        return [center]
-
-    step = spread / (count - 1)
-
-    start = center - spread / 2
-
-    return [
-        start + i * step
-        for i in range(count)
-    ]
 
 
 def _slots_partido(
@@ -780,78 +824,30 @@ def _slots_partido(
     lado,
 ):
     """
-    Distribuye los jugadores respetando su posición y enfrentando
-    las dos alineaciones dentro del mismo campo.
+    Posiciona los jugadores de un equipo dentro del campo horizontal.
 
-    POR -> zona más retrasada
-    DEF -> línea defensiva
-    MED -> centro
-    DEL -> zona atacante
+    LOCAL:
+        POR  -> zona 1
+        DEF  -> zona 2
+        MED  -> zona 4 aproximadamente
+        DEL  -> zona 6 aproximadamente
+
+    VISITANTE:
+        exactamente reflejado.
+
+    El portero queda siempre en el centro vertical.
+    Los demás jugadores se distribuyen en divisiones verticales.
     """
-    grouped = _agrupar_por_posicion(jugadores)
 
-    fw = field_right - field_left
-    fh = field_bottom - field_top
+    return _slots_por_posicion(
+        jugadores,
+        field_left=field_left,
+        field_right=field_right,
+        field_top=field_top,
+        field_bottom=field_bottom,
+        home=(lado == "home"),
+    )
 
-    # Posición horizontal de cada línea.
-    # Los equipos avanzan hacia el centro desde sus respectivos lados.
-    if lado == "home":
-        x_positions = {
-            1: field_left + fw * 0.08,
-            2: field_left + fw * 0.23,
-            3: field_left + fw * 0.39,
-            4: field_left + fw * 0.47,
-        }
-    else:
-        x_positions = {
-            1: field_right - fw * 0.08,
-            2: field_right - fw * 0.23,
-            3: field_right - fw * 0.39,
-            4: field_right - fw * 0.47,
-        }
-
-    # Posición vertical de cada jugador dentro de su línea.
-    centers = {
-        1: 0.50,
-        2: 0.50,
-        3: 0.50,
-        4: 0.50,
-    }
-
-    # Separación vertical entre jugadores de una misma línea.
-    spreads = {
-        1: 0.00,
-        2: 0.20,
-        3: 0.23,
-        4: 0.22,
-    }
-
-    slots = []
-
-    for position in (1, 2, 3, 4):
-        row = grouped[position]
-
-        if not row:
-            continue
-
-        center_y = field_top + fh * centers[position]
-
-        ys = _row_values(
-            center_y,
-            len(row),
-            fh * spreads[position],
-        )
-
-        for jugador, y in zip(row, ys):
-            slots.append(
-                (
-                    jugador,
-                    round(x_positions[position]),
-                    round(y),
-                )
-            )
-
-    return slots
 
 
 
@@ -1371,7 +1367,7 @@ def generar_imagen_alineacion(
     field_left = 45
     field_right = width - 45
 
-    _dibujar_campo_vertical(
+    _dibujar_campo_partido(
         draw,
         field_left,
         field_right,
@@ -1381,9 +1377,11 @@ def generar_imagen_alineacion(
 
     slots = _slots_por_posicion(
         players,
-        width,
-        left=field_left + 90,
-        right=field_right - 90,
+        field_left=field_left + 90,
+        field_right=field_right - 90,
+        field_top=field_top,
+        field_bottom=field_bottom,
+        home=True,
     )
 
     label_w = 180
