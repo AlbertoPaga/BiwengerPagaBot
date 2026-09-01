@@ -5899,16 +5899,18 @@ async def jornadas_callback(
         )
 
 
+
 def _extraer_eventos_equipo(team):
     """
-    Extrae los eventos de los reports de un equipo.
+    Extrae y normaliza los eventos de los reports de un equipo.
 
-    Devuelve una lista normalizada:
+    Cada evento contiene:
 
         {
             "minute": 12,
+            "period": "firstTime",
             "type": 1,
-            "player": "Álvaro García",
+            "player": "Camello",
             "player_id": 123,
         }
     """
@@ -5979,8 +5981,14 @@ def _extraer_eventos_equipo(team):
             ):
                 minute = None
 
+            period = (
+                evento.get("period")
+                or evento.get("periodo")
+            )
+
             eventos.append({
                 "minute": minute,
+                "period": period,
                 "type": event_type,
                 "player": nombre,
                 "player_id": player_id,
@@ -5988,45 +5996,363 @@ def _extraer_eventos_equipo(team):
 
     eventos.sort(
         key=lambda evento: (
-            evento["minute"]
-            if evento["minute"] is not None
-            else 999
+            0
+            if evento.get("period") == "firstTime"
+            else 1,
+            evento.get("minute")
+            if evento.get("minute") is not None
+            else 999,
         )
     )
 
     return eventos
 
 
-
 def _texto_evento_partido(evento):
     """
-    Convierte un evento normalizado en una línea legible.
+    Convierte un evento individual en texto.
+
+    Esta función se utiliza para eventos que no han sido
+    agrupados con otro evento relacionado.
     """
 
     tipo = evento.get("type")
 
     acciones = {
-        1: "⚽ Gol",
-        2: "⚽ Gol de penalti",
-        3: "🅰️ Asistencia",
-        4: "⬇️ Sale",
-        5: "⬆️ Entra",
-        6: "🟨 Amarilla",
-        7: "🟥 Roja",
-        8: "🟥 Segunda amarilla",
-        9: "⚽ Gol en propia",
-        10: "🥅 Tiro al palo",
-        13: "❌ Gol anulado",
-        14: "🤕 Lesión",
-        16: "⚠️ Penalti cometido",
+        1: "⚽",
+        2: "⚽",
+        3: "🅰️",
+        4: "🔴",
+        5: "🟢",
+        6: "🟨",
+        7: "🟥",
+        8: "🟥",
+        9: "⚽",
+        10: "🥅",
+        13: "🚫",
+        14: "🩹",
+        16: "⚠️",
     }
 
-    accion = acciones.get(
+    icono = acciones.get(
         tipo,
-        "📌 Evento",
+        "📌",
     )
 
-    minuto = evento.get(
+    jugador = str(
+        evento.get("player")
+        or "Jugador"
+    )
+
+    minuto = evento.get("minute")
+
+    if minuto is None:
+        minuto_texto = "—"
+    else:
+        minuto_texto = f"{minuto}'"
+
+    if tipo == 1:
+        descripcion = f"Gol ({jugador})"
+
+    elif tipo == 2:
+        descripcion = f"Gol de penalti ({jugador})"
+
+    elif tipo == 4:
+        descripcion = f"{jugador}"
+
+    elif tipo == 5:
+        descripcion = f"{jugador}"
+
+    elif tipo == 6:
+        descripcion = f"{jugador}"
+
+    elif tipo == 7:
+        descripcion = f"{jugador}"
+
+    elif tipo == 8:
+        descripcion = f"{jugador}"
+
+    elif tipo == 9:
+        descripcion = f"Gol en propia ({jugador})"
+
+    elif tipo == 10:
+        descripcion = f"{jugador}"
+
+    elif tipo == 13:
+        descripcion = f"Gol anulado ({jugador})"
+
+    elif tipo == 14:
+        descripcion = f"{jugador}"
+
+    elif tipo == 16:
+        descripcion = f"{jugador}"
+
+    else:
+        descripcion = jugador
+
+    return (
+        f"{minuto_texto} "
+        f"{icono} "
+        f"{descripcion}"
+    )
+
+
+def _agrupar_eventos_minuto(
+    home_eventos,
+    away_eventos,
+):
+    """
+    Agrupa los eventos de ambos equipos por minuto y periodo.
+
+    IMPORTANTE:
+    El orden resultante es cronológico GLOBAL.
+
+    Dentro de cada minuto:
+
+        - Gol + asistencia se fusionan.
+        - Entrada + salida se fusionan.
+        - El resto queda como evento individual.
+
+    Devuelve:
+
+        [
+            {
+                "minute": 12,
+                "period": "firstTime",
+                "home": [...],
+                "away": [...],
+            }
+        ]
+    """
+
+    grupos = {}
+
+    for lado, eventos in (
+        ("home", home_eventos),
+        ("away", away_eventos),
+    ):
+
+        for evento in eventos:
+
+            minuto = evento.get("minute")
+            period = evento.get("period")
+
+            clave = (
+                period,
+                minuto,
+            )
+
+            if clave not in grupos:
+                grupos[clave] = {
+                    "minute": minuto,
+                    "period": period,
+                    "home": [],
+                    "away": [],
+                }
+
+            grupos[clave][lado].append(
+                evento
+            )
+
+    grupos_ordenados = sorted(
+        grupos.values(),
+        key=lambda grupo: (
+            0
+            if grupo.get("period")
+            == "firstTime"
+            else 1,
+            grupo.get("minute")
+            if grupo.get("minute") is not None
+            else 999,
+        ),
+    )
+
+    return grupos_ordenados
+
+
+def _fusionar_eventos_equipo(
+    eventos,
+):
+    """
+    Fusiona eventos relacionados de UN equipo.
+
+    Reglas:
+
+        Gol + asistencia
+            ->
+        ⚽ Gol (🅰️ Asistente)
+
+        Entrada + salida
+            ->
+        🔄 🟢 Entra → 🔴 Sale
+
+    El resto permanece como evento individual.
+    """
+
+    if not eventos:
+        return []
+
+    resultado = []
+
+    usados = set()
+
+    # ---------------------------------------------------------
+    # GOL + ASISTENCIA
+    # ---------------------------------------------------------
+
+    for i, evento in enumerate(eventos):
+
+        if i in usados:
+            continue
+
+        tipo = evento.get("type")
+
+        if tipo not in (
+            1,
+            2,
+        ):
+            continue
+
+        asistencia_index = None
+
+        for j, candidato in enumerate(eventos):
+
+            if j == i:
+                continue
+
+            if j in usados:
+                continue
+
+            if candidato.get("type") != 3:
+                continue
+
+            asistencia_index = j
+            break
+
+        if asistencia_index is not None:
+
+            asistencia = eventos[
+                asistencia_index
+            ]
+
+            resultado.append({
+                "kind": "goal_assist",
+                "minute": evento.get("minute"),
+                "goal_player": evento.get("player"),
+                "assist_player": asistencia.get("player"),
+                "type": tipo,
+            })
+
+            usados.add(i)
+            usados.add(asistencia_index)
+
+    # ---------------------------------------------------------
+    # CAMBIOS
+    # ---------------------------------------------------------
+
+    entradas = []
+
+    salidas = []
+
+    for i, evento in enumerate(eventos):
+
+        if i in usados:
+            continue
+
+        tipo = evento.get("type")
+
+        if tipo == 5:
+            entradas.append(
+                (i, evento)
+            )
+
+        elif tipo == 4:
+            salidas.append(
+                (i, evento)
+            )
+
+    # Emparejamos entradas y salidas del mismo minuto.
+    for entrada_index, entrada in entradas:
+
+        if entrada_index in usados:
+            continue
+
+        pareja_index = None
+
+        for salida_index, salida in salidas:
+
+            if salida_index in usados:
+                continue
+
+            if (
+                entrada.get("minute")
+                == salida.get("minute")
+            ):
+                pareja_index = salida_index
+                break
+
+        if pareja_index is None:
+            continue
+
+        salida = eventos[
+            pareja_index
+        ]
+
+        resultado.append({
+            "kind": "substitution",
+            "minute": entrada.get("minute"),
+            "in_player": entrada.get("player"),
+            "out_player": salida.get("player"),
+        })
+
+        usados.add(
+            entrada_index
+        )
+
+        usados.add(
+            pareja_index
+        )
+
+    # ---------------------------------------------------------
+    # RESTO DE EVENTOS
+    # ---------------------------------------------------------
+
+    for i, evento in enumerate(eventos):
+
+        if i in usados:
+            continue
+
+        resultado.append({
+            "kind": "single",
+            "minute": evento.get("minute"),
+            "event": evento,
+        })
+
+    # ---------------------------------------------------------
+    # ORDENAR
+    # ---------------------------------------------------------
+
+    resultado.sort(
+        key=lambda item: (
+            item.get("minute")
+            if item.get("minute") is not None
+            else 999
+        )
+    )
+
+    return resultado
+
+
+def _texto_evento_agrupado(item):
+    """
+    Convierte un evento ya agrupado en texto.
+    """
+
+    kind = item.get(
+        "kind"
+    )
+
+    minuto = item.get(
         "minute"
     )
 
@@ -6036,16 +6362,70 @@ def _texto_evento_partido(evento):
         else "—"
     )
 
-    jugador = str(
-        evento.get(
-            "player"
+    # ---------------------------------------------------------
+    # GOL + ASISTENCIA
+    # ---------------------------------------------------------
+
+    if kind == "goal_assist":
+
+        goleador = item.get(
+            "goal_player"
+        ) or "Jugador"
+
+        asistente = item.get(
+            "assist_player"
+        ) or "Jugador"
+
+        tipo = item.get(
+            "type"
         )
-        or "Jugador"
-    )
+
+        if tipo == 2:
+            return (
+                f"{minuto_texto} ⚽ "
+                f"Gol de penalti ({goleador}) "
+                f"(🅰️ {asistente})"
+            )
+
+        return (
+            f"{minuto_texto} ⚽ "
+            f"{goleador} "
+            f"(🅰️ {asistente})"
+        )
+
+    # ---------------------------------------------------------
+    # CAMBIO
+    # ---------------------------------------------------------
+
+    if kind == "substitution":
+
+        entra = item.get(
+            "in_player"
+        ) or "Jugador"
+
+        sale = item.get(
+            "out_player"
+        ) or "Jugador"
+
+        return (
+            f"{minuto_texto} 🔄 "
+            f"🟢 {entra} "
+            f"→ 🔴 {sale}"
+        )
+
+    # ---------------------------------------------------------
+    # EVENTO INDIVIDUAL
+    # ---------------------------------------------------------
+
+    if kind == "single":
+
+        return _texto_evento_partido(
+            item.get("event")
+            or {}
+        )
 
     return (
-        f"{minuto_texto}  "
-        f"{accion} · {jugador}"
+        f"{minuto_texto} 📌 Evento"
     )
 
 
@@ -6056,14 +6436,25 @@ def construir_resumen_eventos_partido(
     """
     Construye el resumen cronológico del partido.
 
-    Los dos equipos aparecen separados en dos columnas
-    conceptualmente:
+    El resultado se muestra en dos columnas:
 
-        LOCAL              VISITANTE
+        LOCAL              │ VISITANTE
 
-        12' ⚽ Jugador      12' 🟨 Jugador
-        32' 🟨 Jugador      45' ⚽ Jugador
-        ...
+    pero el orden de los eventos es GLOBAL por minuto.
+
+    Ejemplo:
+
+        12'                  │ 12' ⚽ Camello
+                             │    (🅰️ Álvaro García)
+
+        19' ⚽ Raphinha       │
+            (🅰️ Xavi Espart) │
+
+        21' ⚽ Yamal          │
+            (🅰️ Marc Bernal) │
+
+    Los eventos de cada equipo permanecen siempre
+    en su mitad correspondiente.
     """
 
     home_eventos = _extraer_eventos_equipo(
@@ -6091,45 +6482,113 @@ def construir_resumen_eventos_partido(
         "Visitante",
     )
 
+    grupos = _agrupar_eventos_minuto(
+        home_eventos,
+        away_eventos,
+    )
+
+    # ---------------------------------------------------------
+    # CABECERA
+    # ---------------------------------------------------------
+
     lineas = [
-        "📋 EVENTOS",
-        "━━━━━━━━━━━━━━━━━━━━",
+        "📋 RESUMEN DEL PARTIDO",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "",
-        f"🏠 {home_name}",
-        "",
+        f"{home_name}           │ {away_name}",
+        "────────────────────────────",
     ]
 
-    for evento in home_eventos:
+    ultimo_period = None
 
-        lineas.append(
-            _texto_evento_partido(
-                evento
+    for grupo in grupos:
+
+        period = grupo.get(
+            "period"
+        )
+
+        # -----------------------------------------------------
+        # DESCANSO
+        # -----------------------------------------------------
+
+        if (
+            ultimo_period == "firstTime"
+            and period != "firstTime"
+        ):
+            lineas.extend([
+                "",
+                "━━━━━━━━━━ DESCANSO ━━━━━━━━━━",
+                "",
+            ])
+
+        ultimo_period = period
+
+        home_items = _fusionar_eventos_equipo(
+            grupo.get("home", [])
+        )
+
+        away_items = _fusionar_eventos_equipo(
+            grupo.get("away", [])
+        )
+
+        home_textos = [
+            _texto_evento_agrupado(
+                item
             )
-        )
+            for item in home_items
+        ]
 
-    if not home_eventos:
-        lineas.append(
-            "Sin eventos"
-        )
-
-    lineas.extend([
-        "",
-        f"✈️ {away_name}",
-        "",
-    ])
-
-    for evento in away_eventos:
-
-        lineas.append(
-            _texto_evento_partido(
-                evento
+        away_textos = [
+            _texto_evento_agrupado(
+                item
             )
+            for item in away_items
+        ]
+
+        # -----------------------------------------------------
+        # ALINEAR LAS DOS MITADES
+        # -----------------------------------------------------
+
+        max_items = max(
+            len(home_textos),
+            len(away_textos),
         )
 
-    if not away_eventos:
-        lineas.append(
-            "Sin eventos"
-        )
+        if max_items == 0:
+            continue
+
+        for index in range(max_items):
+
+            izquierda = (
+                home_textos[index]
+                if index < len(home_textos)
+                else ""
+            )
+
+            derecha = (
+                away_textos[index]
+                if index < len(away_textos)
+                else ""
+            )
+
+            # -------------------------------------------------
+            # Ancho aproximado de cada columna.
+            #
+            # Telegram usa fuente monoespaciada únicamente
+            # dentro de bloques <code>/<pre>, por lo que aquí
+            # mantenemos una separación sencilla y estable.
+            # -------------------------------------------------
+
+            lineas.append(
+                f"{izquierda:<34}│ {derecha}"
+            )
+
+    if not grupos:
+
+        lineas.extend([
+            "",
+            "Sin eventos",
+        ])
 
     return "\n".join(
         lineas
