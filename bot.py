@@ -31,11 +31,15 @@ from biwenger import (
     _timestamp_partido,
 )
 
-
 from lineup_image import (
     LineupImageError,
     obtener_alineacion_mostrable,
     generar_imagen_alineacion,
+    generar_imagen_partido,
+)
+
+from partido_alineaciones import (
+    generar_imagen_partido_completa,
 )
 
 from datetime import datetime
@@ -5901,228 +5905,271 @@ async def mostrar_ficha_partido(
     jornada,
     partido,
 ):
-    home_raw = partido.get("home", "Local")
-    away_raw = partido.get("away", "Visitante")
+    """
+    Muestra la ficha de un partido y genera UNA ÚNICA imagen
+    con los dos equipos enfrentados.
 
-    home_name = _nombre_equipo(home_raw, "Local")
-    away_name = _nombre_equipo(away_raw, "Visitante")
+    La imagen contiene:
+        - 11 titulares del equipo local
+        - 11 titulares del visitante
+        - suplentes que han entrado al campo
+        - minuto de entrada de los suplentes
+        - puntos de los titulares si el partido está confirmado
 
-    timestamp = _timestamp_partido(partido)
+    IMPORTANTE:
+    Los titulares reales se determinan mediante los reports:
+        type 5 = entra_al_campo
 
-    if timestamp is not None:
-        fecha_partido = datetime.fromtimestamp(
-            timestamp,
-            tz=MADRID_TZ,
+    Por tanto:
+        - sin type 5 -> titular
+        - con type 5 -> suplente que entró
+    """
+
+    try:
+        if not isinstance(partido, dict):
+            raise ValueError(
+                "Partido inválido"
+            )
+
+        # ---------------------------------------------------------
+        # EQUIPOS
+        # ---------------------------------------------------------
+
+        home_raw = partido.get(
+            "home"
         )
 
-        traducciones_dia = {
-            "Mon": "Lun",
-            "Tue": "Mar",
-            "Wed": "Mié",
-            "Thu": "Jue",
-            "Fri": "Vie",
-            "Sat": "Sáb",
-            "Sun": "Dom",
-        }
-
-        dia = traducciones_dia.get(
-            fecha_partido.strftime("%a"),
-            fecha_partido.strftime("%a"),
+        away_raw = partido.get(
+            "away"
         )
 
-        fecha = (
-            f"{dia} "
-            f"{fecha_partido.strftime('%d/%m')}"
-            f" · "
-            f"{fecha_partido.strftime('%H:%M')}"
+        home_name = _nombre_equipo(
+            home_raw,
+            "Local",
         )
-    else:
-        fecha = "Fecha pendiente"
 
-    local_score, away_score, status = (
-        _resultado_partido(partido)
-    )
-
-    status_text = (
-        str(status).strip().lower()
-        if status is not None
-        else ""
-    )
-
-    if (
-        local_score is not None
-        and away_score is not None
-    ):
-        resultado = (
-            f"🏆 {local_score} — {away_score}"
+        away_name = _nombre_equipo(
+            away_raw,
+            "Visitante",
         )
-    else:
-        resultado = "🏆 — —"
 
-    if status_text in (
-        "finished",
-        "final",
-        "ended",
-        "completed",
-        "closed",
-        "finished_game",
-    ):
-        estado_partido = "✅ Finalizado"
+        # ---------------------------------------------------------
+        # FECHA
+        # ---------------------------------------------------------
 
-    elif status_text in (
-        "live",
-        "playing",
-        "inprogress",
-        "in_progress",
-        "started",
-    ):
-        estado_partido = "🔴 En directo"
+        timestamp = _timestamp_partido(
+            partido
+        )
 
-    elif timestamp is not None:
-        ahora = datetime.now(
-            tz=MADRID_TZ
-        ).timestamp()
+        if timestamp is not None:
+            fecha_partido = datetime.fromtimestamp(
+                float(timestamp),
+                tz=MADRID_TZ,
+            )
 
-        if timestamp <= ahora:
-            estado_partido = "🟡 En juego / esperando actualización"
+            dias = (
+                "lunes",
+                "martes",
+                "miércoles",
+                "jueves",
+                "viernes",
+                "sábado",
+                "domingo",
+            )
+
+            dia = dias[
+                fecha_partido.weekday()
+            ]
+
+            fecha = (
+                f"{dia} "
+                f"{fecha_partido.strftime('%d/%m')}"
+                f" · "
+                f"{fecha_partido.strftime('%H:%M')}"
+            )
+
         else:
-            estado_partido = "⏳ Pendiente"
+            fecha = "Fecha pendiente"
 
-    else:
-        estado_partido = "⏳ Pendiente"
+        # ---------------------------------------------------------
+        # RESULTADO
+        # ---------------------------------------------------------
 
-    lineas = [
-        f"⚽ {home_name} — {away_name}",
-        "━━━━━━━━━━━━━━━━━━━━",
-        f"🕐 {fecha}",
-        f"{resultado}",
-        f"📌 {estado_partido}",
-        "",
-    ]
+        local_score, away_score, status = (
+            _resultado_partido(
+                partido
+            )
+        )
 
-    imagenes = []
+        status_text = (
+            str(status).strip().lower()
+            if status is not None
+            else ""
+        )
 
-    for team_key, opponent_raw in (
-        ("home", away_raw),
-        ("away", home_raw),
-    ):
-        team = partido.get(team_key)
+        if (
+            local_score is not None
+            and away_score is not None
+        ):
+            resultado = (
+                f"🏆 {local_score} — {away_score}"
+            )
+        else:
+            resultado = "🏆 — —"
 
-        if not isinstance(team, dict):
-            continue
+        # ---------------------------------------------------------
+        # ESTADO
+        # ---------------------------------------------------------
+
+        if status_text in (
+            "finished",
+            "final",
+            "ended",
+            "completed",
+            "closed",
+            "finished_game",
+        ):
+            estado_partido = (
+                "✅ Finalizado"
+            )
+
+        elif status_text in (
+            "live",
+            "playing",
+            "inprogress",
+            "in_progress",
+            "started",
+        ):
+            estado_partido = (
+                "🔴 En directo"
+            )
+
+        elif timestamp is not None:
+            ahora = datetime.now(
+                tz=MADRID_TZ
+            ).timestamp()
+
+            if timestamp <= ahora:
+                estado_partido = (
+                    "🟡 En juego / "
+                    "esperando actualización"
+                )
+            else:
+                estado_partido = (
+                    "⏳ Pendiente"
+                )
+
+        else:
+            estado_partido = (
+                "⏳ Pendiente"
+            )
+
+        # ---------------------------------------------------------
+        # TEXTO DE LA FICHA
+        # ---------------------------------------------------------
+
+        lineas = [
+            f"⚽ {home_name} — {away_name}",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"🕐 {fecha}",
+            f"{resultado}",
+            f"📌 {estado_partido}",
+            "",
+            "📋 Alineaciones",
+            "",
+            "Se mostrará una única imagen "
+            "con ambos equipos enfrentados.",
+        ]
+
+        botones = [
+            [
+                InlineKeyboardButton(
+                    "◀️ Volver a Partidos",
+                    callback_data=(
+                        f"jornada:partidos:"
+                        f"{jornada.get('id')}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🔙 Volver a Jornada",
+                    callback_data=(
+                        f"jornada:"
+                        f"{jornada.get('id')}"
+                    ),
+                )
+            ],
+        ]
+
+        # ---------------------------------------------------------
+        # MOSTRAR FICHA
+        # ---------------------------------------------------------
+
+        await editar_mensaje(
+            query,
+            "\n".join(lineas),
+            teclado_con_fijar(
+                InlineKeyboardMarkup(
+                    botones
+                )
+            ),
+        )
+
+        # ---------------------------------------------------------
+        # GENERAR UNA ÚNICA IMAGEN
+        # ---------------------------------------------------------
 
         try:
-            jugadores, confirmed = obtener_alineacion_mostrable(
-                partido,
-                team_key,
-            )
-
-            if not jugadores:
-                continue
-
-            opponent = (
-                opponent_raw
-                if isinstance(opponent_raw, dict)
-                else {
-                    "name": _nombre_equipo(
-                        opponent_raw,
-                        "",
-                    )
-                }
-            )
-
-            imagen = generar_imagen_alineacion(
-                team,
-                opponent=opponent,
-                confirmed=confirmed,
-                game=partido,
-                team_key=team_key,
-            )
-
-            imagenes.append(
-                (
-                    team_key,
-                    imagen,
-                    confirmed,
+            imagen, confirmed = (
+                generar_imagen_partido(
+                    partido
                 )
+            )
+
+            caption = (
+                "⚽ "
+                f"{home_name} — {away_name}"
+                "\n"
+                + (
+                    "11 inicial + suplentes"
+                    if confirmed
+                    else "11 posible"
+                )
+            )
+
+            await query.message.reply_photo(
+                photo=InputFile(
+                    imagen
+                ),
+                caption=caption,
             )
 
         except LineupImageError as exc:
             logger.info(
-                "Sin alineación %s para partido %s: %s",
-                team_key,
+                "Sin alineación para partido %s: %s",
                 partido.get("id"),
                 exc,
             )
 
         except Exception:
             logger.exception(
-                "ERROR GENERANDO IMAGEN ALINEACIÓN %s",
-                team_key,
+                "ERROR GENERANDO IMAGEN "
+                "DEL PARTIDO %s",
+                partido.get("id"),
             )
 
-    if imagenes:
-        estado = (
-            "11 inicial"
-            if any(item[2] for item in imagenes)
-            else "11 posible"
+    except Exception as exc:
+
+        logger.exception(
+            "ERROR MOSTRANDO FICHA DE PARTIDO: %s",
+            exc,
         )
-    else:
-        estado = "No disponible"
 
-    lineas.extend([
-        f"📋 Alineaciones: {estado}",
-        "",
-        "Selecciona una opción:",
-    ])
-
-    botones = [
-        [
-            InlineKeyboardButton(
-                "◀️ Volver a Partidos",
-                callback_data=(
-                    f"jornada:partidos:"
-                    f"{jornada.get('id')}"
-                ),
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🔙 Volver a Jornada",
-                callback_data=(
-                    f"jornada:"
-                    f"{jornada.get('id')}"
-                ),
-            )
-        ],
-    ]
-
-    await editar_mensaje(
-        query,
-        "\n".join(lineas),
-        teclado_con_fijar(
-            InlineKeyboardMarkup(botones)
-        ),
-    )
-
-    for team_key, imagen, confirmed in imagenes:
-        try:
-            caption = (
-                "11 inicial"
-                if confirmed
-                else "11 posible"
-            )
-
-            await query.message.reply_photo(
-                photo=InputFile(imagen),
-                caption=caption,
-            )
-
-        except Exception:
-            logger.exception(
-                "ERROR ENVIANDO IMAGEN ALINEACIÓN %s",
-                team_key,
-            )
+        await query.answer(
+            "❌ No se pudo cargar el partido.",
+            show_alert=True,
+        )
 
 async def mostrar_partidos_jornada(
     query,

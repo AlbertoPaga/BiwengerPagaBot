@@ -1509,74 +1509,384 @@ def generar_imagen_alineacion(
 # ---------------------------------------------------------------------------
 # Imagen ÚNICA del partido
 # ---------------------------------------------------------------------------
+def _extraer_titulares_y_suplentes(
+    team: dict[str, Any],
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    """
+    Reconstruye los titulares y suplentes reales a partir
+    de los reports del partido.
 
+    Reglas:
+
+        type 5 = entra_al_campo
+
+    Por tanto:
+
+        - jugador SIN type 5 -> titular
+        - jugador CON type 5 -> suplente que entró
+
+    El suplente conserva el minuto de entrada.
+
+    Soporta tanto reports normalizados directamente como
+    reports con la estructura:
+
+        {
+            "player": {...},
+            "events": [...]
+        }
+    """
+
+    if not isinstance(team, dict):
+        return [], []
+
+    reports = team.get(
+        "reports"
+    )
+
+    if not isinstance(
+        reports,
+        list,
+    ):
+        return [], []
+
+    titulares = []
+    suplentes = []
+
+    for report in reports:
+
+        if not isinstance(
+            report,
+            dict,
+        ):
+            continue
+
+        # ---------------------------------------------------------
+        # PLAYER
+        # ---------------------------------------------------------
+
+        player = report.get(
+            "player"
+        )
+
+        if isinstance(
+            player,
+            dict,
+        ):
+            jugador = dict(
+                player
+            )
+
+            # Datos del report que puedan ser útiles.
+            for key in (
+                "points",
+                "breakdown",
+                "star",
+                "mvp",
+            ):
+                if key in report:
+                    jugador[key] = (
+                        report.get(key)
+                    )
+
+        else:
+            jugador = dict(
+                report
+            )
+
+        # ---------------------------------------------------------
+        # NORMALIZAR JUGADOR
+        # ---------------------------------------------------------
+
+        normalizado = _normalizar_jugador(
+            jugador
+        )
+
+        if normalizado is None:
+            continue
+
+        # ---------------------------------------------------------
+        # EVENTOS
+        # ---------------------------------------------------------
+
+        eventos = report.get(
+            "events"
+        )
+
+        if not isinstance(
+            eventos,
+            list,
+        ):
+            eventos = jugador.get(
+                "events"
+            )
+
+        if not isinstance(
+            eventos,
+            list,
+        ):
+            eventos = []
+
+        entra = False
+        minuto_entrada = None
+
+        for evento in eventos:
+
+            if not isinstance(
+                evento,
+                dict,
+            ):
+                continue
+
+            try:
+                event_type = int(
+                    evento.get("type")
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                event_type = None
+
+            if event_type == 5:
+                entra = True
+
+                minuto = (
+                    evento.get(
+                        "minute"
+                    )
+                )
+
+                if minuto is None:
+                    minuto = evento.get(
+                        "metadata"
+                    )
+
+                try:
+                    minuto_entrada = int(
+                        minuto
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    minuto_entrada = None
+
+                break
+
+        # ---------------------------------------------------------
+        # SUPLENTE
+        # ---------------------------------------------------------
+
+        if entra:
+
+            normalizado[
+                "substitute"
+            ] = True
+
+            normalizado[
+                "entry_minute"
+            ] = minuto_entrada
+
+            suplentes.append(
+                normalizado
+            )
+
+        # ---------------------------------------------------------
+        # TITULAR
+        # ---------------------------------------------------------
+
+        else:
+
+            normalizado[
+                "substitute"
+            ] = False
+
+            normalizado[
+                "entry_minute"
+            ] = None
+
+            titulares.append(
+                normalizado
+            )
+
+    # -------------------------------------------------------------
+    # ORDENAR SUPLENTES POR MINUTO DE ENTRADA
+    # -------------------------------------------------------------
+
+    suplentes.sort(
+        key=lambda jugador: (
+            jugador.get(
+                "entry_minute"
+            )
+            if jugador.get(
+                "entry_minute"
+            ) is not None
+            else 999
+        )
+    )
+
+    # -------------------------------------------------------------
+    # SEGURIDAD
+    # -------------------------------------------------------------
+
+    if len(titulares) > 11:
+        titulares = titulares[:11]
+
+    return (
+        titulares,
+        suplentes,
+    )
+
+
+def _texto_suplente(
+    jugador: dict[str, Any],
+) -> str:
+    nombre = str(
+        jugador.get(
+            "name"
+        )
+        or "Jugador"
+    )
+
+    minuto = jugador.get(
+        "entry_minute"
+    )
+
+    if minuto is not None:
+        return (
+            f"{nombre} · "
+            f"{minuto}'"
+        )
+
+    return nombre
 
 def generar_imagen_partido(
     game: dict[str, Any],
     now: datetime | None = None,
     width: int = 1600,
-    height: int = 1050,
+    height: int = 1250,
 ) -> tuple[BytesIO, bool]:
     """
-    Genera UNA sola imagen con las dos alineaciones enfrentadas.
+    Genera UNA única imagen del partido.
 
-    HOME:
-        POR -> extremo izquierdo
-        DEL -> hacia el centro
+    Incluye:
 
-    AWAY:
-        POR -> extremo derecho
-        DEL -> hacia el centro
+        LOCAL
+            11 titulares
+            suplentes que entraron
 
-    Es decir, visualmente:
+        VISITANTE
+            11 titulares
+            suplentes que entraron
 
-        POR DEF MED DEL | DEL MED DEF POR
-        HOME             | AWAY
+    Los titulares reales se determinan por los reports:
 
-    y nunca se mezclan los jugadores de un partido con los del otro.
+        type 5 = entra_al_campo
+
+    Es decir:
+
+        sin type 5 -> titular
+        con type 5 -> suplente
+
+    Los dos equipos aparecen enfrentados en el mismo campo.
     """
 
-    if not isinstance(game, dict):
+    if not isinstance(
+        game,
+        dict,
+    ):
         raise LineupImageError(
             "El partido debe ser un diccionario"
         )
+
+    # ---------------------------------------------------------
+    # CONFIRMADO
+    # ---------------------------------------------------------
 
     confirmed = alineacion_confirmada(
         game,
         now=now,
     )
 
-    home = game.get("home") or {}
-    away = game.get("away") or {}
+    home = (
+        game.get("home")
+        or {}
+    )
+
+    away = (
+        game.get("away")
+        or {}
+    )
+
+    if not isinstance(
+        home,
+        dict,
+    ):
+        home = {}
+
+    if not isinstance(
+        away,
+        dict,
+    ):
+        away = {}
+
+    # ---------------------------------------------------------
+    # JUGADORES
+    # ---------------------------------------------------------
 
     if confirmed:
-        home_players = normalizar_alineacion_confirmada(
-            game,
-            "home",
+
+        home_players, home_subs = (
+            _extraer_titulares_y_suplentes(
+                home
+            )
         )
 
-        away_players = normalizar_alineacion_confirmada(
-            game,
-            "away",
+        away_players, away_subs = (
+            _extraer_titulares_y_suplentes(
+                away
+            )
         )
+
     else:
-        home_players = normalizar_alineacion(
-            home
+
+        home_players = (
+            normalizar_alineacion(
+                home
+            )
         )
 
-        away_players = normalizar_alineacion(
-            away
+        away_players = (
+            normalizar_alineacion(
+                away
+            )
         )
+
+        home_subs = []
+        away_subs = []
+
+    # ---------------------------------------------------------
+    # SEGURIDAD
+    # ---------------------------------------------------------
 
     if not home_players:
         raise LineupImageError(
-            "No hay alineación disponible para el equipo local"
+            "No hay alineación disponible "
+            "para el equipo local"
         )
 
     if not away_players:
         raise LineupImageError(
-            "No hay alineación disponible para el equipo visitante"
+            "No hay alineación disponible "
+            "para el equipo visitante"
         )
+
+    # ---------------------------------------------------------
+    # NOMBRES
+    # ---------------------------------------------------------
 
     home_name = str(
         home.get("name")
@@ -1588,6 +1898,10 @@ def generar_imagen_partido(
         or "Visitante"
     )
 
+    # ---------------------------------------------------------
+    # RESULTADO
+    # ---------------------------------------------------------
+
     home_score = home.get(
         "score"
     )
@@ -1596,9 +1910,16 @@ def generar_imagen_partido(
         "score"
     )
 
+    # ---------------------------------------------------------
+    # IMAGEN
+    # ---------------------------------------------------------
+
     image = Image.new(
         "RGB",
-        (width, height),
+        (
+            width,
+            height,
+        ),
         (7, 14, 24),
     )
 
@@ -1606,31 +1927,39 @@ def generar_imagen_partido(
         image
     )
 
-    # ------------------------------------------------------------------
-    # Cabecera
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
+    # CABECERA
+    # ---------------------------------------------------------
 
-    header_y = 30
+    header_y = 28
 
     draw.text(
-        (65, header_y),
+        (
+            55,
+            header_y,
+        ),
         home_name,
-        font=_font(42, True),
+        font=_font(
+            40,
+            True,
+        ),
         fill=(245, 248, 250),
     )
 
     draw.text(
         (
-            width - 65,
+            width - 55,
             header_y,
         ),
         away_name,
-        font=_font(42, True),
+        font=_font(
+            40,
+            True,
+        ),
         fill=(245, 248, 250),
         anchor="ra",
     )
 
-    # Resultado / VS.
     if (
         home_score is not None
         and away_score is not None
@@ -1644,10 +1973,13 @@ def generar_imagen_partido(
     draw.text(
         (
             width // 2,
-            header_y + 4,
+            header_y + 2,
         ),
         resultado,
-        font=_font(38, True),
+        font=_font(
+            36,
+            True,
+        ),
         fill=(245, 248, 250),
         anchor="ma",
     )
@@ -1661,22 +1993,26 @@ def generar_imagen_partido(
     draw.text(
         (
             width // 2,
-            header_y + 55,
+            header_y + 50,
         ),
         estado,
-        font=_font(21, True),
+        font=_font(
+            20,
+            True,
+        ),
         fill=(139, 219, 177),
         anchor="ma",
     )
 
-    # ------------------------------------------------------------------
-    # Campo
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
+    # CAMPO
+    # ---------------------------------------------------------
 
     field_left = 35
     field_right = width - 35
-    field_top = 125
-    field_bottom = height - 35
+
+    field_top = 120
+    field_bottom = 905
 
     _dibujar_campo_partido(
         draw,
@@ -1686,9 +2022,9 @@ def generar_imagen_partido(
         field_bottom,
     )
 
-    # ------------------------------------------------------------------
-    # Jugadores
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
+    # SLOTS
+    # ---------------------------------------------------------
 
     home_slots = _slots_partido(
         home_players,
@@ -1711,6 +2047,10 @@ def generar_imagen_partido(
     label_w = 185
     label_h = 65
 
+    # ---------------------------------------------------------
+    # PINTAR JUGADORES
+    # ---------------------------------------------------------
+
     for (
         jugador,
         x,
@@ -1719,10 +2059,13 @@ def generar_imagen_partido(
         home_slots
         + away_slots
     ):
+
         x = max(
-            field_left + label_w // 2,
+            field_left
+            + label_w // 2,
             min(
-                field_right - label_w // 2,
+                field_right
+                - label_w // 2,
                 x,
             ),
         )
@@ -1730,7 +2073,9 @@ def generar_imagen_partido(
         y = max(
             field_top + 42,
             min(
-                field_bottom - label_h - 10,
+                field_bottom
+                - label_h
+                - 10,
                 y,
             ),
         )
@@ -1751,10 +2096,13 @@ def generar_imagen_partido(
         _rounded_label(
             draw,
             (
-                x - label_w // 2,
+                x
+                - label_w // 2,
                 y + 34,
-                x + label_w // 2,
-                y + 34 + label_h,
+                x
+                + label_w // 2,
+                y + 34
+                + label_h,
             ),
             jugador["name"],
             jugador["position_label"],
@@ -1762,26 +2110,187 @@ def generar_imagen_partido(
             confirmed,
         )
 
-    # ------------------------------------------------------------------
-    # Pie
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
+    # SUPLENTES
+    # ---------------------------------------------------------
+
+    subs_top = 930
+
+    draw.text(
+        (
+            65,
+            subs_top,
+        ),
+        "SUPLENTES",
+        font=_font(
+            24,
+            True,
+        ),
+        fill=(139, 219, 177),
+    )
+
+    draw.text(
+        (
+            width - 65,
+            subs_top,
+        ),
+        "SUPLENTES",
+        font=_font(
+            24,
+            True,
+        ),
+        fill=(139, 219, 177),
+        anchor="ra",
+    )
+
+    # ---------------------------------------------------------
+    # COLUMNAS DE SUPLENTES
+    # ---------------------------------------------------------
+
+    left_x = 65
+    right_x = (
+        width // 2
+        + 65
+    )
+
+    subs_start_y = (
+        subs_top + 38
+    )
+
+    line_height = 32
+
+    # LOCAL
+    if confirmed:
+
+        if home_subs:
+
+            for index, jugador in enumerate(
+                home_subs
+            ):
+
+                texto = (
+                    "⬆ "
+                    + _texto_suplente(
+                        jugador
+                    )
+                )
+
+                draw.text(
+                    (
+                        left_x,
+                        subs_start_y
+                        + index
+                        * line_height,
+                    ),
+                    texto,
+                    font=_font(
+                        20
+                    ),
+                    fill=(245, 248, 250),
+                )
+
+        else:
+
+            draw.text(
+                (
+                    left_x,
+                    subs_start_y,
+                ),
+                "Sin suplentes que hayan entrado",
+                font=_font(20),
+                fill=(170, 184, 195),
+            )
+
+        # VISITANTE
+        if away_subs:
+
+            for index, jugador in enumerate(
+                away_subs
+            ):
+
+                texto = (
+                    "⬆ "
+                    + _texto_suplente(
+                        jugador
+                    )
+                )
+
+                draw.text(
+                    (
+                        right_x,
+                        subs_start_y
+                        + index
+                        * line_height,
+                    ),
+                    texto,
+                    font=_font(
+                        20
+                    ),
+                    fill=(245, 248, 250),
+                )
+
+        else:
+
+            draw.text(
+                (
+                    right_x,
+                    subs_start_y,
+                ),
+                "Sin suplentes que hayan entrado",
+                font=_font(20),
+                fill=(170, 184, 195),
+            )
+
+    else:
+
+        draw.text(
+            (
+                left_x,
+                subs_start_y,
+            ),
+            "Suplentes no disponibles todavía",
+            font=_font(20),
+            fill=(170, 184, 195),
+        )
+
+        draw.text(
+            (
+                right_x,
+                subs_start_y,
+            ),
+            "Suplentes no disponibles todavía",
+            font=_font(20),
+            fill=(170, 184, 195),
+        )
+
+    # ---------------------------------------------------------
+    # PIE
+    # ---------------------------------------------------------
 
     footer = (
-        "Alineaciones confirmadas"
+        "Alineaciones confirmadas · "
+        "suplentes = jugadores con type 5"
         if confirmed
-        else "Alineaciones probables"
+        else
+        "Alineaciones probables"
     )
 
     draw.text(
         (
             width // 2,
-            height - 15,
+            height - 18,
         ),
         footer,
-        font=_font(18),
+        font=_font(
+            17
+        ),
         fill=(170, 184, 195),
         anchor="ms",
     )
+
+    # ---------------------------------------------------------
+    # SALIDA
+    # ---------------------------------------------------------
 
     output = BytesIO()
 
@@ -1797,8 +2306,10 @@ def generar_imagen_partido(
 
     output.seek(0)
 
-    return output, confirmed
-
+    return (
+        output,
+        confirmed,
+    )
 
 # ---------------------------------------------------------------------------
 # Compatibilidad con el código existente
