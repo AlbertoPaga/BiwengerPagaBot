@@ -2309,6 +2309,35 @@ def _draw_logo_placeholder(draw, center, radius, team):
     )
 
 
+def _score_text(score):
+    """Normaliza el marcador para mostrarlo en la imagen."""
+    if score is None:
+        return "0"
+
+    if isinstance(score, bool):
+        return str(int(score))
+
+    if isinstance(score, (int, float)):
+        return str(int(score))
+
+    if isinstance(score, dict):
+        for key in ("value", "goals", "score", "total"):
+            value = score.get(key)
+            if value is not None:
+                return _score_text(value)
+
+    if isinstance(score, (list, tuple)) and score:
+        return _score_text(score[0])
+
+    text = str(score).strip()
+
+    # Por si llega algo tipo "2", "2.0", etc.
+    try:
+        return str(int(float(text)))
+    except (ValueError, TypeError):
+        return text or "0"
+
+
 # ---------------------------------------------------------------------------
 # Compatibilidad con el código existente
 # ---------------------------------------------------------------------------
