@@ -16,6 +16,7 @@ from lineup_image import (
 
 from biwenger import (
     obtener_reports_por_player_id,
+    obtener_cambios_partido,
 )
 
 
@@ -70,6 +71,55 @@ def _linea_jugador(
     return f"{posicion} · {nombre}"
 
 
+def _lineas_cambios(
+    team: dict[str, Any],
+) -> list[str]:
+    """
+    Construye las líneas de cambios de un equipo.
+    """
+
+    cambios = obtener_cambios_partido(
+        team
+    )
+
+    if not cambios:
+        return []
+
+    lineas = [
+        "",
+        "🔄 CAMBIOS",
+    ]
+
+    for cambio in cambios:
+
+        nombre = cambio.get(
+            "player_name",
+            "Jugador",
+        )
+
+        minuto = cambio.get(
+            "minute"
+        )
+
+        if minuto is None:
+            minuto_texto = "?"
+        else:
+            minuto_texto = str(
+                minuto
+            )
+
+        if cambio.get("type") == 5:
+            icono = "⬆️"
+        else:
+            icono = "⬇️"
+
+        lineas.append(
+            f"{icono} {minuto_texto}' · {nombre}"
+        )
+
+    return lineas
+
+
 def construir_bloque_alineacion(
     game: dict[str, Any],
     team_key: str,
@@ -119,6 +169,17 @@ def construir_bloque_alineacion(
             _linea_jugador(
                 jugador,
                 confirmada,
+            )
+        )
+
+    # ---------------------------------------------------------
+    # Cambios
+    # ---------------------------------------------------------
+
+    if confirmada:
+        lineas.extend(
+            _lineas_cambios(
+                team
             )
         )
 

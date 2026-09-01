@@ -76,11 +76,21 @@ TEAM_NAMES = {
 
 EVENT_TYPES = {
     1: "gol",
+    2: "gol_de_penalti",
     3: "asistencia",
     4: "sale_del_campo",
     5: "entra_al_campo",
     6: "tarjeta_amarilla",
+    7: "tarjeta_roja",
+    8: "segunda_amarilla",
+    9: "gol_en_propia",
+    10: "tiro_al_palo",
+    11: "desconocido",
+    12: "desconocido",
+    13: "gol_anulado",
     14: "lesion",
+    15: "desconocido",
+    16: "penalti_cometido",
 }
 
 _PLAYERS_CACHE = {}
@@ -2944,6 +2954,300 @@ def obtener_reports_por_player_id(team):
 
     return resultado
 
+
+def _evento_por_tipo(
+    report,
+    event_type,
+):
+    """
+    Devuelve los eventos de un report que coinciden
+    con el tipo solicitado.
+    """
+
+    if not isinstance(report, dict):
+        return []
+
+    eventos = report.get(
+        "events",
+        [],
+    )
+
+    if not isinstance(eventos, list):
+        return []
+
+    resultado = []
+
+    for evento in eventos:
+
+        if not isinstance(evento, dict):
+            continue
+
+        try:
+            tipo = int(
+                evento.get("type")
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+        if tipo != event_type:
+            continue
+
+        resultado.append(evento)
+
+    return resultado
+
+
+def obtener_titulares_partido(
+    team,
+):
+    """
+    Obtiene los 11 titulares reales de un equipo.
+
+    Regla:
+        - Si un jugador tiene type 5 -> entró como suplente.
+        - Si NO tiene type 5 -> comenzó el partido.
+
+    Esta función trabaja directamente con team["reports"].
+    """
+
+    if not isinstance(team, dict):
+        return []
+
+    reports = team.get(
+        "reports",
+        [],
+    )
+
+    if not isinstance(reports, list):
+        return []
+
+    titulares = []
+
+    for report in reports:
+
+        if not isinstance(report, dict):
+            continue
+
+        player = report.get(
+            "player"
+        )
+
+        if not isinstance(player, dict):
+            continue
+
+        player_id = player.get(
+            "id"
+        )
+
+        if player_id is None:
+            continue
+
+        # -------------------------------------------------
+        # Si tiene type 5, entró desde el banquillo.
+        # Por tanto NO es titular.
+        # -------------------------------------------------
+
+        entradas = _evento_por_tipo(
+            report,
+            5,
+        )
+
+        if entradas:
+            continue
+
+        jugador = dict(player)
+
+        jugador["events"] = report.get(
+            "events",
+            [],
+        )
+
+        jugador["points"] = report.get(
+            "points"
+        )
+
+        jugador["breakdown"] = report.get(
+            "breakdown",
+            [],
+        )
+
+        jugador["star"] = bool(
+            report.get(
+                "star",
+                False,
+            )
+        )
+
+        jugador["mvp"] = bool(
+            report.get(
+                "mvp",
+                False,
+            )
+        )
+
+        titulares.append(
+            jugador
+        )
+
+    # -------------------------------------------------
+    # En condiciones normales deben ser 11.
+    # -------------------------------------------------
+
+    if len(titulares) > 11:
+        logger.warning(
+            "Se encontraron más de 11 titulares: %s",
+            len(titulares),
+        )
+
+        titulares = titulares[:11]
+
+    return titulares
+
+
+def obtener_cambios_partido(
+    team,
+):
+    """
+    Obtiene las entradas y salidas de un equipo.
+
+    type 5 -> jugador que entra
+    type 4 -> jugador que sale
+
+    Devuelve una lista ordenada cronológicamente.
+    """
+
+    if not isinstance(team, dict):
+        return []
+
+    reports = team.get(
+        "reports",
+        [],
+    )
+
+    if not isinstance(reports, list):
+        return []
+
+    cambios = []
+
+    for report in reports:
+
+        if not isinstance(report, dict):
+            continue
+
+        player = report.get(
+            "player"
+        )
+
+        if not isinstance(player, dict):
+            continue
+
+        player_id = player.get(
+            "id"
+        )
+
+        nombre = (
+            player.get("name")
+            or player.get("nombre")
+            or "Jugador"
+        )
+
+        eventos = report.get(
+            "events",
+            [],
+        )
+
+        if not isinstance(eventos, list):
+            continue
+
+        for evento in eventos:
+
+            if not isinstance(evento, dict):
+                continue
+
+            try:
+                tipo = int(
+                    evento.get("type")
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            if tipo not in (
+                4,
+                5,
+            ):
+                continue
+
+            minuto = evento.get(
+                "metadata"
+            )
+
+            try:
+                minuto = int(
+                    minuto
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                minuto = None
+
+            cambios.append({
+                "player_id": player_id,
+                "player_name": str(nombre),
+                "type": tipo,
+                "type_name": EVENT_TYPES.get(
+                    tipo,
+                    "desconocido",
+                ),
+                "minute": minuto,
+            })
+
+    # -------------------------------------------------
+    # Orden cronológico.
+    # Los eventos sin minuto quedan al final.
+    # -------------------------------------------------
+
+    cambios.sort(
+        key=lambda cambio: (
+            cambio.get("minute")
+            if cambio.get("minute") is not None
+            else 9999,
+            0 if cambio.get("type") == 4 else 1,
+        )
+    )
+
+    return cambios
+
+
+def obtener_alineacion_y_cambios_partido(
+    team,
+):
+    """
+    Devuelve conjuntamente:
+
+        {
+            "titulares": [...],
+            "cambios": [...]
+        }
+
+    Pensado para reutilizar la misma información
+    tanto en texto como en imágenes.
+    """
+
+    return {
+        "titulares": obtener_titulares_partido(
+            team
+        ),
+        "cambios": obtener_cambios_partido(
+            team
+        ),
+    }
 
 
 def _extraer_ultimo_puntos(

@@ -9,6 +9,10 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
+from biwenger import (
+    obtener_titulares_partido,
+    obtener_cambios_partido,
+)
 
 POSITION_LABELS = {
     1: "POR",
@@ -341,23 +345,73 @@ def normalizar_alineacion_confirmada(
     """
     Obtiene exclusivamente el 11 inicial real del partido.
 
-    NO hace fallback a ``reports``.
+    Primero intenta encontrar una alineación inicial explícita
+    en el payload.
+
+    Si Biwenger no la proporciona, utiliza los reports:
+
+        type 5 = entra al campo
+
+    Por tanto, un jugador sin type 5 dentro de reports
+    comenzó el partido.
     """
+
+    # ---------------------------------------------------------
+    # 1. Intentar primero una alineación inicial explícita.
+    # ---------------------------------------------------------
 
     for candidato in _lista_candidatos_alineacion(
         game,
         team_key,
     ):
-        jugadores = _aplanar_jugadores(candidato)
+        jugadores = _aplanar_jugadores(
+            candidato
+        )
 
         resultado = _normalizar_lista_jugadores(
             jugadores
         )
 
-        if resultado:
+        if len(resultado) == 11:
             return resultado
 
-    return []
+    # ---------------------------------------------------------
+    # 2. Fallback: reconstruir el XI desde reports.
+    # ---------------------------------------------------------
+
+    team = game.get(
+        team_key
+    ) or {}
+
+    if not isinstance(team, dict):
+        return []
+
+    titulares = obtener_titulares_partido(
+        team
+    )
+
+    if not titulares:
+        return []
+
+    resultado = []
+
+    for jugador in titulares:
+
+        normalizado = _normalizar_jugador(
+            jugador
+        )
+
+        if normalizado is None:
+            continue
+
+        resultado.append(
+            normalizado
+        )
+
+        if len(resultado) == 11:
+            break
+
+    return resultado
 
 
 def alineacion_confirmada(
