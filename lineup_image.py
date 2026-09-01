@@ -1698,6 +1698,33 @@ def _extraer_titulares_y_suplentes(
     )
 
 
+def _timestamp_partido(game):
+    """Devuelve la fecha/hora del partido en formato legible."""
+    timestamp = (
+        game.get("timestamp")
+        or game.get("date")
+        or game.get("startTimestamp")
+    )
+
+    if not timestamp:
+        return ""
+
+    try:
+        if isinstance(timestamp, str):
+            timestamp = float(timestamp)
+
+        # Si viene en milisegundos
+        if timestamp > 10_000_000_000:
+            timestamp /= 1000
+
+        dt = datetime.fromtimestamp(timestamp)
+
+        return dt.strftime("%d/%m/%Y · %H:%M")
+
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
 def _texto_suplente(
     jugador: dict[str, Any],
 ) -> str:
