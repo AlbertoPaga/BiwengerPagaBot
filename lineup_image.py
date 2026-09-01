@@ -71,18 +71,6 @@ def _normalizar_jugador(
     if not isinstance(jugador, dict):
         return None
 
-    # Algunos payloads vienen como:
-    #
-    # {
-    #     "player": {
-    #         "id": ...,
-    #         "name": ...,
-    #         "position": ...
-    #     },
-    #     "points": ...
-    # }
-    #
-    # y otros directamente como jugador.
     player = jugador.get("player")
 
     if isinstance(player, dict):
@@ -105,8 +93,37 @@ def _normalizar_jugador(
     if position not in POSITION_LABELS:
         return None
 
+    player_id = datos.get("id")
+
+    # ---------------------------------------------------------
+    # FOTO BIWENGER
+    # ---------------------------------------------------------
+    #
+    # Biwenger utiliza:
+    #
+    # https://cdn.biwenger.com/i/p/{player_id}.png
+    #
+    # Ejemplo:
+    # https://cdn.biwenger.com/i/p/42395.png
+    #
+    # Si el payload ya trae una foto, la respetamos.
+    # Si no, la construimos a partir del ID.
+    #
+
+    photo = (
+        datos.get("photo")
+        or datos.get("image")
+        or datos.get("imageUrl")
+    )
+
+    if not photo and player_id is not None:
+        photo = (
+            f"https://cdn.biwenger.com/i/p/"
+            f"{player_id}.png"
+        )
+
     return {
-        "id": datos.get("id"),
+        "id": player_id,
         "name": str(
             datos.get("name")
             or datos.get("nombre")
@@ -116,13 +133,8 @@ def _normalizar_jugador(
         "position_label": POSITION_LABELS[position],
         "alt_positions": datos.get("altPositions") or [],
         "points": datos.get("points"),
-        "photo": (
-            datos.get("photo")
-            or datos.get("image")
-            or datos.get("imageUrl")
-        ),
+        "photo": photo,
     }
-
 
 def _aplanar_jugadores(valor: Any) -> list[dict[str, Any]]:
     """Convierte las diferentes estructuras de lineup en una lista."""
@@ -1494,20 +1506,51 @@ def _dibujar_foto_jugador(
     jugador,
     x,
     y,
-    radio=30,
+    radio=34,
 ):
     """
     Dibuja la foto del jugador dentro de un círculo.
 
-    Si no existe foto o no se puede cargar, mantiene
-    el círculo de reserva actual.
+    Si Biwenger no proporciona directamente la URL de la foto,
+    se construye automáticamente a partir del ID:
+
+        https://cdn.biwenger.com/i/p/{id}.png
+
+    Ejemplo:
+
+        id = 42395
+        -> https://cdn.biwenger.com/i/p/42395.png
+
+    Si no existe foto o no se puede descargar, muestra
+    el círculo de reserva.
     """
+
+    if not isinstance(jugador, dict):
+        return
+
+    # ---------------------------------------------------------
+    # OBTENER ID DEL JUGADOR
+    # ---------------------------------------------------------
+
+    player_id = jugador.get("id")
+
+    # ---------------------------------------------------------
+    # OBTENER FOTO
+    # ---------------------------------------------------------
 
     photo_url = (
         jugador.get("photo")
         or jugador.get("image")
         or jugador.get("imageUrl")
     )
+
+    # Si no viene la foto pero tenemos ID,
+    # construimos la URL oficial de Biwenger.
+    if not photo_url and player_id is not None:
+        photo_url = (
+            f"https://cdn.biwenger.com/i/p/"
+            f"{player_id}.png"
+        )
 
     # ---------------------------------------------------------
     # CÍRCULO DE RESERVA
@@ -1530,6 +1573,10 @@ def _dibujar_foto_jugador(
         dibujar_circulo()
         return
 
+    # ---------------------------------------------------------
+    # DESCARGAR FOTO
+    # ---------------------------------------------------------
+
     try:
         import requests
         from PIL import Image
@@ -1537,6 +1584,9 @@ def _dibujar_foto_jugador(
         response = requests.get(
             photo_url,
             timeout=5,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+            },
         )
 
         response.raise_for_status()
@@ -1550,6 +1600,10 @@ def _dibujar_foto_jugador(
         # -----------------------------------------------------
 
         ancho, alto = foto.size
+
+        if ancho <= 0 or alto <= 0:
+            dibujar_circulo()
+            return
 
         lado = min(
             ancho,
@@ -1572,6 +1626,10 @@ def _dibujar_foto_jugador(
                 arriba + lado,
             )
         )
+
+        # -----------------------------------------------------
+        # REDIMENSIONAR
+        # -----------------------------------------------------
 
         diametro = radio * 2
 
@@ -1604,8 +1662,8 @@ def _dibujar_foto_jugador(
             (
                 0,
                 0,
-                diametro,
-                diametro,
+                diametro - 1,
+                diametro - 1,
             ),
             fill=255,
         )
@@ -1619,8 +1677,8 @@ def _dibujar_foto_jugador(
         image.paste(
             foto,
             (
-                x - radio,
-                y - radio,
+                int(x - radio),
+                int(y - radio),
             ),
             mascara,
         )
@@ -1641,8 +1699,8 @@ def _dibujar_foto_jugador(
         )
 
     except Exception:
-        # Si falla la descarga o la imagen,
-        # seguimos mostrando el círculo.
+        # Si falla la descarga, formato de imagen,
+        # URL, conexión, etc., usamos el placeholder.
         dibujar_circulo()
 
 
@@ -2457,16 +2515,12 @@ def generar_imagen_partido(
         )
 
         # Círculo del jugador.
-        draw.ellipse(
-            (
-                x - 34,
-                y - 34,
-                x + 34,
-                y + 34,
-            ),
-            fill=(238, 242, 244),
-            outline=(8, 18, 30),
-            width=3,
+        _dibujar_foto_jugador(
+            draw,
+            jugador,
+            x,
+            y,
+            radio=34,
         )
 
         _rounded_label(
@@ -2910,16 +2964,12 @@ def generar_imagen_alineacion_manager(
             ),
         )
 
-        draw.ellipse(
-            (
-                x - 30,
-                y - 30,
-                x + 30,
-                y + 30,
-            ),
-            fill=(238, 242, 244),
-            outline=(8, 18, 30),
-            width=3,
+        _dibujar_foto_jugador(
+            draw,
+            jugador,
+            x,
+            y,
+            radio=30,
         )
 
         _rounded_label(
