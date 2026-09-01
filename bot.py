@@ -6462,23 +6462,6 @@ async def mostrar_ficha_partido(
             ),
         )
 
-        # ---------------------------------------------------------
-        # GENERAR UNA ÚNICA IMAGEN
-        # ---------------------------------------------------------
-
-        except LineupImageError as exc:
-            logger.info(
-                "Sin alineación para partido %s: %s",
-                partido.get("id"),
-                exc,
-            )
-
-        except Exception:
-            logger.exception(
-                "ERROR GENERANDO IMAGEN "
-                "DEL PARTIDO %s",
-                partido.get("id"),
-            )
 
     except Exception as exc:
 
