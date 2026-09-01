@@ -888,6 +888,32 @@ def _slots_por_posicion(
 
     return slots
 
+def _row_values(
+    center,
+    count,
+    spread,
+):
+    """
+    Devuelve las posiciones Y de los jugadores de una misma línea.
+
+    Los jugadores se distribuyen simétricamente alrededor de `center`.
+    `spread` representa la separación total aproximada de la línea.
+    """
+
+    if count <= 0:
+        return []
+
+    if count == 1:
+        return [center]
+
+    step = spread / (count - 1)
+    start = center - spread / 2
+
+    return [
+        start + i * step
+        for i in range(count)
+    ]
+
 
 def _slots_partido(
     jugadores,

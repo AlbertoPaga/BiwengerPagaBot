@@ -6395,10 +6395,6 @@ async def mostrar_ficha_partido(
         # TEXTO DE LA FICHA
         # ---------------------------------------------------------
 
-        resumen_eventos = construir_resumen_eventos_partido(
-            home_raw,
-            away_raw,
-        )
 
         lineas = [
             f"⚽ {home_name} — {away_name}",
@@ -6406,12 +6402,6 @@ async def mostrar_ficha_partido(
             f"🕐 {fecha}",
             f"{resultado}",
             f"📌 {estado_partido}",
-            "",
-            "📋 ALINEACIONES",
-            "",
-            "👇 Imagen con las alineaciones",
-            "",
-            resumen_eventos,
         ]
 
         botones = [
