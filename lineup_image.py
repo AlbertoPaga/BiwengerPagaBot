@@ -748,130 +748,90 @@ def _slots_por_posicion(
     return slots
 
 
+
 def _slots_partido(
-    jugadores: list[dict[str, Any]],
+    jugadores,
     *,
-    field_left: int,
-    field_right: int,
-    field_top: int,
-    field_bottom: int,
-    lado: str,
+    field_left,
+    field_right,
+    field_top,
+    field_bottom,
+    lado,
 ):
     """
-    Posiciona una alineación en un campo horizontal.
+    Distribuye los jugadores respetando su posición y enfrentando
+    las dos alineaciones dentro del mismo campo.
 
-    HOME:
-        POR -> izquierda
-        DEL -> centro
-
-    AWAY:
-        POR -> derecha
-        DEL -> centro
-
-    De esta forma ambas alineaciones se enfrentan correctamente.
+    POR -> zona más retrasada
+    DEF -> línea defensiva
+    MED -> centro
+    DEL -> zona atacante
     """
+    grouped = _agrupar_por_posicion(jugadores)
 
-    grouped = _agrupar_por_posicion(
-        jugadores
-    )
+    fw = field_right - field_left
+    fh = field_bottom - field_top
 
-    field_width = field_right - field_left
-    field_height = field_bottom - field_top
-
-    # Separación de las líneas dentro de cada mitad.
+    # Posición horizontal de cada línea.
+    # Los equipos avanzan hacia el centro desde sus respectivos lados.
     if lado == "home":
         x_positions = {
-            1: field_left + field_width * 0.08,
-            2: field_left + field_width * 0.22,
-            3: field_left + field_width * 0.34,
-            4: field_left + field_width * 0.45,
+            1: field_left + fw * 0.08,
+            2: field_left + fw * 0.23,
+            3: field_left + fw * 0.39,
+            4: field_left + fw * 0.47,
         }
     else:
         x_positions = {
-            1: field_right - field_width * 0.08,
-            2: field_right - field_width * 0.22,
-            3: field_right - field_width * 0.34,
-            4: field_right - field_width * 0.45,
+            1: field_right - fw * 0.08,
+            2: field_right - fw * 0.23,
+            3: field_right - fw * 0.39,
+            4: field_right - fw * 0.47,
         }
+
+    # Posición vertical de cada jugador dentro de su línea.
+    centers = {
+        1: 0.50,
+        2: 0.50,
+        3: 0.50,
+        4: 0.50,
+    }
+
+    # Separación vertical entre jugadores de una misma línea.
+    spreads = {
+        1: 0.00,
+        2: 0.20,
+        3: 0.23,
+        4: 0.22,
+    }
 
     slots = []
 
-    for position in (
-        1,
-        2,
-        3,
-        4,
-    ):
+    for position in (1, 2, 3, 4):
         row = grouped[position]
 
         if not row:
             continue
 
-        center_y = (
-            field_top
-            + field_height
-            * _ROW_Y[position]
-        )
+        center_y = field_top + fh * centers[position]
 
-        # No importa si es home o away:
-        # los jugadores se distribuyen verticalmente.
-        ys = _xs_repartidas(
+        ys = _row_values(
+            center_y,
             len(row),
-            int(field_top + field_height * 0.10),
-            int(field_top + field_height * 0.90),
+            fh * spreads[position],
         )
 
-        # Para evitar que una línea de 4 defensas/medios quede demasiado
-        # pegada al borde superior/inferior, usamos el centro de la fila
-        # como referencia y una separación controlada.
-        if len(row) == 1:
-            ys = [round(center_y)]
-
-        elif len(row) == 2:
-            separation = field_height * 0.20
-            ys = [
-                round(center_y - separation / 2),
-                round(center_y + separation / 2),
-            ]
-
-        elif len(row) == 3:
-            separation = field_height * 0.24
-            ys = [
-                round(center_y - separation),
-                round(center_y),
-                round(center_y + separation),
-            ]
-
-        else:
-            separation = field_height * 0.18
-            total = separation * (len(row) - 1)
-            start = center_y - total / 2
-
-            ys = [
-                round(
-                    start
-                    + separation * index
-                )
-                for index in range(len(row))
-            ]
-
-        x = round(
-            x_positions[position]
-        )
-
-        for jugador, y in zip(
-            row,
-            ys,
-        ):
+        for jugador, y in zip(row, ys):
             slots.append(
                 (
                     jugador,
-                    x,
-                    y,
+                    round(x_positions[position]),
+                    round(y),
                 )
             )
 
     return slots
+
 
 
 # ---------------------------------------------------------------------------
@@ -1096,21 +1056,25 @@ def _dibujar_campo_vertical(
 
 def _dibujar_campo_partido(
     draw,
-    field_left: int,
-    field_right: int,
-    field_top: int,
-    field_bottom: int,
+    field_left,
+    field_right,
+    field_top,
+    field_bottom,
 ):
     """
-    Campo horizontal para mostrar HOME + AWAY juntos.
-
-    Esto sustituye al antiguo comportamiento de crear dos imágenes
-    completas y poner una debajo de otra.
+    Dibuja el campo horizontal de la alineación.
+    Diseño compacto, con franjas y líneas limpias.
     """
-
     width = field_right - field_left
     height = field_bottom - field_top
 
+    radius = 28
+
+    grass = (35, 116, 65)
+    grass_alt = (31, 106, 59)
+    line = (220, 238, 222)
+
+    # Fondo del campo.
     draw.rounded_rectangle(
         (
             field_left,
@@ -1118,82 +1082,87 @@ def _dibujar_campo_partido(
             field_right,
             field_bottom,
         ),
-        radius=28,
-        fill=(34, 112, 63),
-        outline=(117, 190, 130),
+        radius=radius,
+        fill=grass,
+    )
+
+    # Franjas verticales.
+    stripe_width = max(80, width // 12)
+
+    for i, x in enumerate(
+        range(field_left, field_right, stripe_width)
+    ):
+        if i % 2:
+            draw.rectangle(
+                (
+                    x,
+                    field_top,
+                    min(x + stripe_width, field_right),
+                    field_bottom,
+                ),
+                fill=grass_alt,
+            )
+
+    # Borde exterior.
+    draw.rounded_rectangle(
+        (
+            field_left,
+            field_top,
+            field_right,
+            field_bottom,
+        ),
+        radius=radius,
+        outline=line,
         width=3,
     )
 
-    cx = (
-        field_left
-        + field_right
-    ) // 2
+    center_x = (field_left + field_right) // 2
+    center_y = (field_top + field_bottom) // 2
 
-    cy = (
-        field_top
-        + field_bottom
-    ) // 2
-
-    # Línea de medio campo.
+    # Línea central.
     draw.line(
         (
-            cx,
+            center_x,
             field_top,
-            cx,
+            center_x,
             field_bottom,
         ),
-        fill=(183, 224, 187),
+        fill=line,
         width=3,
     )
 
     # Círculo central.
-    radius = min(
-        120,
-        int(width * 0.10),
-    )
+    center_radius = min(105, int(width * 0.085))
 
     draw.ellipse(
         (
-            cx - radius,
-            cy - radius,
-            cx + radius,
-            cy + radius,
+            center_x - center_radius,
+            center_y - center_radius,
+            center_x + center_radius,
+            center_y + center_radius,
         ),
-        outline=(183, 224, 187),
+        outline=line,
         width=3,
     )
 
     # Punto central.
     draw.ellipse(
         (
-            cx - 5,
-            cy - 5,
-            cx + 5,
-            cy + 5,
+            center_x - 5,
+            center_y - 5,
+            center_x + 5,
+            center_y + 5,
         ),
-        fill=(183, 224, 187),
+        fill=line,
     )
 
     # Áreas grandes.
-    area_depth = int(
-        width * 0.14
-    )
+    area_depth = int(width * 0.12)
+    area_height = int(height * 0.46)
 
-    area_height = int(
-        height * 0.48
-    )
+    area_top = center_y - area_height // 2
+    area_bottom = center_y + area_height // 2
 
-    area_top = (
-        cy
-        - area_height // 2
-    )
-
-    area_bottom = (
-        cy
-        + area_height // 2
-    )
-
-    # Área izquierda.
     draw.rectangle(
         (
             field_left,
@@ -1201,11 +1170,10 @@ def _dibujar_campo_partido(
             field_left + area_depth,
             area_bottom,
         ),
-        outline=(183, 224, 187),
+        outline=line,
         width=3,
     )
 
-    # Área derecha.
     draw.rectangle(
         (
             field_right - area_depth,
@@ -1213,28 +1181,16 @@ def _dibujar_campo_partido(
             field_right,
             area_bottom,
         ),
-        outline=(183, 224, 187),
+        outline=line,
         width=3,
     )
 
-    # Áreas pequeñas / portero.
-    small_depth = int(
-        width * 0.055
-    )
+    # Áreas pequeñas.
+    small_depth = int(width * 0.052)
+    small_height = int(height * 0.22)
 
-    small_height = int(
-        height * 0.24
-    )
-
-    small_top = (
-        cy
-        - small_height // 2
-    )
-
-    small_bottom = (
-        cy
-        + small_height // 2
-    )
+    small_top = center_y - small_height // 2
+    small_bottom = center_y + small_height // 2
 
     draw.rectangle(
         (
@@ -1243,7 +1199,7 @@ def _dibujar_campo_partido(
             field_left + small_depth,
             small_bottom,
         ),
-        outline=(183, 224, 187),
+        outline=line,
         width=3,
     )
 
@@ -1254,9 +1210,10 @@ def _dibujar_campo_partido(
             field_right,
             small_bottom,
         ),
-        outline=(183, 224, 187),
+        outline=line,
         width=3,
     )
+
 
 
 # ---------------------------------------------------------------------------
@@ -1931,88 +1888,83 @@ def generar_imagen_partido(
     # CABECERA
     # ---------------------------------------------------------
 
-    header_y = 28
+    header_center = width // 2
 
+    # Escudos / placeholders.
+    _draw_logo_placeholder(
+        draw,
+        (145, 75),
+        78,
+        home,
+    )
+
+    _draw_logo_placeholder(
+        draw,
+        (width - 145, 75),
+        78,
+        away,
+    )
+
+    # Nombres de los equipos.
     draw.text(
-        (
-            55,
-            header_y,
-        ),
+        (220, 57),
         home_name,
-        font=_font(
-            40,
-            True,
-        ),
+        font=_font(42, True),
         fill=(245, 248, 250),
+        anchor="lm",
     )
 
     draw.text(
-        (
-            width - 55,
-            header_y,
-        ),
+        (width - 220, 57),
         away_name,
-        font=_font(
-            40,
-            True,
-        ),
+        font=_font(42, True),
         fill=(245, 248, 250),
-        anchor="ra",
+        anchor="rm",
     )
 
+    # Resultado.
     if (
-        home_score is not None
-        and away_score is not None
+        home.get("score") is not None
+        or away.get("score") is not None
     ):
         resultado = (
-            f"{home_score}  :  {away_score}"
+            f"{_score_text(home.get('score'))}"
+            f"  :  "
+            f"{_score_text(away.get('score'))}"
         )
     else:
         resultado = "VS"
 
     draw.text(
-        (
-            width // 2,
-            header_y + 2,
-        ),
+        (header_center, 48),
         resultado,
-        font=_font(
-            36,
-            True,
-        ),
+        font=_font(50, True),
         fill=(245, 248, 250),
         anchor="ma",
     )
 
-    estado = (
-        "11 INICIAL"
-        if confirmed
-        else "11 POSIBLE"
-    )
+    # Fecha / hora.
+    date_text = _timestamp_partido(game)
 
-    draw.text(
-        (
-            width // 2,
-            header_y + 50,
-        ),
-        estado,
-        font=_font(
-            20,
-            True,
-        ),
-        fill=(139, 219, 177),
-        anchor="ma",
-    )
+    if date_text:
+        draw.text(
+            (header_center, 105),
+            date_text,
+            font=_font(21, True),
+            fill=(170, 184, 195),
+            anchor="ma",
+        )
+
 
     # ---------------------------------------------------------
     # CAMPO
     # ---------------------------------------------------------
 
-    field_left = 35
-    field_right = width - 35
+    field_left = 55
+    field_right = width - 55
 
-    field_top = 120
-    field_bottom = 905
+    field_top = 175
+    field_bottom = 875
 
     _dibujar_campo_partido(
         draw,
@@ -2044,8 +1996,8 @@ def generar_imagen_partido(
         lado="away",
     )
 
-    label_w = 185
-    label_h = 65
+    label_w = 170
+    label_h = 58
 
     # ---------------------------------------------------------
     # PINTAR JUGADORES
@@ -2083,10 +2035,10 @@ def generar_imagen_partido(
         # Círculo del jugador.
         draw.ellipse(
             (
-                x - 29,
-                y - 29,
-                x + 29,
-                y + 29,
+                x - 34,
+                y - 34,
+                x + 34,
+                y + 34,
             ),
             fill=(238, 242, 244),
             outline=(8, 18, 30),
