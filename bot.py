@@ -6226,6 +6226,61 @@ async def mostrar_resumen_partido(
         )
 
 
+async def mostrar_alineaciones_partido(
+    query,
+    context,
+    jornada,
+    partido,
+):
+    """
+    Muestra la imagen completa de las alineaciones
+    al pulsar el botón ALINEACIONES.
+    """
+
+    try:
+        imagen, confirmada = generar_imagen_partido_completa(
+            partido
+        )
+
+        imagen.seek(0)
+
+        await query.message.reply_photo(
+            photo=InputFile(
+                imagen,
+                filename="alineaciones_partido.png",
+            ),
+        )
+
+        await query.answer(
+            "📋 Alineaciones mostradas."
+        )
+
+    except LineupImageError as exc:
+
+        logger.exception(
+            "ERROR GENERANDO IMAGEN DE ALINEACIONES %s: %s",
+            partido.get("id"),
+            exc,
+        )
+
+        await query.answer(
+            "❌ No se pudieron generar las alineaciones.",
+            show_alert=True,
+        )
+
+    except Exception as exc:
+
+        logger.exception(
+            "ERROR MOSTRANDO ALINEACIONES %s: %s",
+            partido.get("id"),
+            exc,
+        )
+
+        await query.answer(
+            "❌ No se pudieron mostrar las alineaciones.",
+            show_alert=True,
+        )
+
 async def mostrar_ficha_partido(
     query,
     context,
@@ -7387,6 +7442,86 @@ async def jornada_callback(
                 ] = partido
 
                 await mostrar_ficha_partido(
+                    query,
+                    context,
+                    jornada,
+                    partido,
+                )
+
+                return
+
+
+            # ---------------------------------------------
+            # ALINEACIONES — IMAGEN DEL PARTIDO
+            # ---------------------------------------------
+
+            if accion == "alineaciones":
+
+                if len(partes) < 4:
+                    raise ValueError(
+                        "Faltan jornada_id y partido_id"
+                    )
+
+                jornada_id = int(
+                    partes[2]
+                )
+
+                partido_id = int(
+                    partes[3]
+                )
+
+                jornada = obtener_jornada(
+                    jornada_id
+                )
+
+                if jornada is None:
+                    await query.answer(
+                        "❌ No se encontró la jornada.",
+                        show_alert=True,
+                    )
+                    return
+
+                partido = None
+
+                for game in jornada.get(
+                    "games",
+                    [],
+                ):
+
+                    if not isinstance(
+                        game,
+                        dict,
+                    ):
+                        continue
+
+                    game_id = (
+                        game.get("id")
+                        or game.get("gameId")
+                    )
+
+                    if (
+                        game_id is not None
+                        and int(game_id) == partido_id
+                    ):
+                        partido = game
+                        break
+
+                if partido is None:
+                    await query.answer(
+                        "❌ No se encontró el partido.",
+                        show_alert=True,
+                    )
+                    return
+
+                context.user_data[
+                    "jornada_actual"
+                ] = jornada
+
+                context.user_data[
+                    "partido_actual"
+                ] = partido
+
+                await mostrar_alineaciones_partido(
                     query,
                     context,
                     jornada,
