@@ -733,55 +733,116 @@ def _slots_por_posicion(
     home: bool,
 ) -> list[tuple[dict[str, Any], int, int]]:
     """
-    Posiciona un equipo en un campo HORIZONTAL.
+    Posiciona un equipo dentro de SU MEDIO CAMPO.
 
-    El equipo local mira hacia la derecha.
-    El visitante mira hacia la izquierda.
+    LOCAL:
+        ocupa desde field_left hasta el centro.
 
-    POR:
-        siempre centrado verticalmente.
+    VISITANTE:
+        ocupa desde el centro hasta field_right.
 
-    DEF / MED / DEL:
-        cada jugador ocupa el centro de una división vertical.
+    X = profundidad dentro del medio campo.
+    Y = anchura del campo.
+
+    El portero siempre queda centrado verticalmente.
+
+    El resto de jugadores se reparte verticalmente
+    dividiendo TODO el ancho vertical del campo entre
+    el número de jugadores de su posición.
     """
 
     grouped = _agrupar_por_posicion(jugadores)
 
-    field_width = field_right - field_left
+    center_x = (
+        field_left + field_right
+    ) / 2
+
+    half_width = (
+        field_right - field_left
+    ) / 2
 
     slots = []
 
-    for position in (1, 2, 3, 4):
+    # ---------------------------------------------------------
+    # PROFUNDIDAD DENTRO DEL MEDIO CAMPO
+    # ---------------------------------------------------------
+    #
+    # Los valores representan posiciones relativas dentro
+    # del medio campo de cada equipo.
+    #
+    # 0.08 -> muy cerca de la portería
+    # 0.30 -> defensa
+    # 0.68 -> mediocampo
+    # 0.90 -> ataque
+    #
+    # Esto evita que el delantero de un equipo invada
+    # el campo del rival.
+    #
 
-        row = grouped.get(position, [])
+    local_depth = {
+        1: 0.08,   # POR
+        2: 0.28,   # DEF
+        3: 0.62,   # MED
+        4: 0.90,   # DEL
+    }
+
+    for position in (
+        1,
+        2,
+        3,
+        4,
+    ):
+
+        row = grouped.get(
+            position,
+            [],
+        )
 
         if not row:
             continue
 
-        depth = _POSITION_DEPTH[position]
+        depth = local_depth[position]
+
+        # -----------------------------------------------------
+        # LOCAL
+        # -----------------------------------------------------
 
         if home:
-            x = field_left + field_width * depth
+
+            x = (
+                field_left
+                + half_width * depth
+            )
+
+        # -----------------------------------------------------
+        # VISITANTE
+        # -----------------------------------------------------
+
         else:
-            x = field_right - field_width * depth
+
+            x = (
+                field_right
+                - half_width * depth
+            )
 
         x = round(x)
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # PORTERO
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
 
         if position == 1:
 
             y = round(
-                (field_top + field_bottom)
-                / 2
+                (
+                    field_top
+                    + field_bottom
+                ) / 2
             )
 
-            # En condiciones normales solo habrá un portero.
-            # Si hubiera más de uno, el primero queda centrado
-            # y los restantes se reparten.
+            # Normalmente solo hay un portero.
             if len(row) == 1:
+
                 slots.append(
                     (
                         row[0],
@@ -789,11 +850,22 @@ def _slots_por_posicion(
                         y,
                     )
                 )
+
                 continue
 
-        # ---------------------------------------------------------
-        # DEF / MED / DEL
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+        # RESTO DE POSICIONES
+        # -----------------------------------------------------
+        #
+        # Se divide TODO el medio campo verticalmente.
+        #
+        # 4 jugadores:
+        #
+        # 1/8
+        # 3/8
+        # 5/8
+        # 7/8
+        #
 
         ys = _ys_repartidas(
             len(row),
@@ -801,7 +873,10 @@ def _slots_por_posicion(
             field_bottom,
         )
 
-        for jugador, y in zip(row, ys):
+        for jugador, y in zip(
+            row,
+            ys,
+        ):
 
             slots.append(
                 (
@@ -824,19 +899,15 @@ def _slots_partido(
     lado,
 ):
     """
-    Posiciona los jugadores de un equipo dentro del campo horizontal.
+    Distribuye los jugadores de un equipo dentro de SU MEDIO CAMPO.
+
+    Los dos equipos nunca comparten la zona de profundidad.
 
     LOCAL:
-        POR  -> zona 1
-        DEF  -> zona 2
-        MED  -> zona 4 aproximadamente
-        DEL  -> zona 6 aproximadamente
+        field_left -> centro
 
     VISITANTE:
-        exactamente reflejado.
-
-    El portero queda siempre en el centro vertical.
-    Los demás jugadores se distribuyen en divisiones verticales.
+        centro -> field_right
     """
 
     return _slots_por_posicion(
@@ -847,7 +918,6 @@ def _slots_partido(
         field_bottom=field_bottom,
         home=(lado == "home"),
     )
-
 
 
 
