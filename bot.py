@@ -6408,6 +6408,17 @@ async def mostrar_ficha_partido(
 
             [
                 InlineKeyboardButton(
+                    "📋 Alineaciones",
+                    callback_data=(
+                        f"jornada:alineaciones:"
+                        f"{jornada.get('id')}:"
+                        f"{partido.get('id')}"
+                    ),
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
                     "📋 Resumen Partido",
                     callback_data=(
                         f"jornada:resumen:"
@@ -6454,31 +6465,6 @@ async def mostrar_ficha_partido(
         # ---------------------------------------------------------
         # GENERAR UNA ÚNICA IMAGEN
         # ---------------------------------------------------------
-
-        try:
-            imagen, confirmed = (
-                generar_imagen_partido(
-                    partido
-                )
-            )
-
-            caption = (
-                "⚽ "
-                f"{home_name} — {away_name}"
-                "\n"
-                + (
-                    "11 inicial + suplentes"
-                    if confirmed
-                    else "11 posible"
-                )
-            )
-
-            await query.message.reply_photo(
-                photo=InputFile(
-                    imagen
-                ),
-                caption=caption,
-            )
 
         except LineupImageError as exc:
             logger.info(
