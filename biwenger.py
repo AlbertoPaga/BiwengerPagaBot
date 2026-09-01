@@ -74,6 +74,15 @@ TEAM_NAMES = {
     812: "Racing de Santander",
 }
 
+EVENT_TYPES = {
+    1: "gol",
+    3: "asistencia",
+    4: "sale_del_campo",
+    5: "entra_al_campo",
+    6: "tarjeta_amarilla",
+    14: "lesion",
+}
+
 _PLAYERS_CACHE = {}
 _PLAYERS_CACHE_TIME = 0
 PLAYERS_CACHE_TTL = 3600
@@ -2608,42 +2617,30 @@ def _extraer_propietario(
 
 
 
-
-
 def obtener_jugadores_participantes_partido(
     game: dict[str, Any],
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Devuelve los jugadores que tienen report en un partido.
 
-    No interpreta eventos.
-    No distingue titulares, suplentes ni cambios.
-    No calcula puntos.
-    No hace peticiones HTTP.
+    Conserva la información proporcionada por Biwenger:
+        - datos del jugador
+        - eventos
+        - puntos
+        - breakdown
+        - star
+        - mvp
 
-    Simplemente lee:
+    Los eventos mantienen siempre:
+        - type
+        - period
+        - metadata
 
-        game["home"]["reports"]
-        game["away"]["reports"]
+    Además se añade:
+        - type_name
+        - minute
 
-    y extrae el jugador de cada report.
-
-    Devuelve:
-
-        {
-            "home": [
-                {
-                    "id": 6792,
-                    "name": "Villalibre",
-                    "slug": "villalibre",
-                    "position": 4,
-                },
-                ...
-            ],
-            "away": [
-                ...
-            ],
-        }
+    No realiza peticiones HTTP.
     """
 
     resultado = {
@@ -2681,14 +2678,74 @@ def obtener_jugadores_participantes_partido(
             if player_id is None:
                 continue
 
-            jugadores.append(dict(player))
+            # Conservamos los datos originales del jugador.
+            jugador = dict(player)
+
+            # ---------------------------------------------------------
+            # EVENTOS
+            # ---------------------------------------------------------
+
+            eventos = []
+
+            raw_events = report.get("events", [])
+
+            if isinstance(raw_events, list):
+
+                for event in raw_events:
+
+                    if not isinstance(event, dict):
+                        continue
+
+                    evento = dict(event)
+
+                    event_type = evento.get("type")
+
+                    # Traducción legible, manteniendo el type original.
+                    evento["type_name"] = EVENT_TYPES.get(
+                        event_type,
+                        "desconocido",
+                    )
+
+                    # metadata representa el minuto del evento.
+                    if "metadata" in evento:
+                        evento["minute"] = evento.get(
+                            "metadata"
+                        )
+
+                    eventos.append(evento)
+
+            jugador["events"] = eventos
+
+            # ---------------------------------------------------------
+            # DATOS DEL REPORT
+            # ---------------------------------------------------------
+
+            jugador["points"] = report.get("points")
+
+            jugador["breakdown"] = report.get(
+                "breakdown",
+                [],
+            )
+
+            jugador["star"] = bool(
+                report.get("star", False)
+            )
+
+            jugador["mvp"] = bool(
+                report.get("mvp", False)
+            )
+
+            jugadores.append(jugador)
 
         resultado[team_key] = jugadores
 
+        logger.warning(
+            "DEBUG REPORTS NORMALIZADOS [%s]: %s",
+            team_key.upper(),
+            jugadores,
+        )
+
     return resultado
-
-
-
 
 
 
