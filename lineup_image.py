@@ -4729,7 +4729,7 @@ def generar_imagen_alineacion_manager(
         (
             f"⚽ {formation}"
             if formation
-            else "⚽ ONCE DE LA JORNADA"
+            else "⚽ ONCE      DE LA JORNADA"
         ),
         font=_font(
             24,
