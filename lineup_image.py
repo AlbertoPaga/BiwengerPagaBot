@@ -614,6 +614,8 @@ def _normalizar_jugador(
 
         "alt_positions": (
             datos.get("altPositions")
+            or datos.get("alt_positions")
+            or datos.get("positions")
             or []
         ),
 
@@ -1462,6 +1464,425 @@ def obtener_once_manager(
 # ===========================================================================
 
 
+def _normalizar_posiciones_jugador(
+    jugador: dict[str, Any],
+) -> list[int]:
+    """
+    Devuelve todas las posiciones posibles del jugador.
+
+    Orden de preferencia:
+        1. posición principal
+        2. altPositions / alt_positions
+
+    Las posiciones válidas de Biwenger son:
+
+        1 = portero
+        2 = defensa
+        3 = medio
+        4 = delantero
+    """
+
+    posiciones = []
+
+    def agregar(valor):
+        if isinstance(
+            valor,
+            dict,
+        ):
+            valor = (
+                valor.get("position")
+                or valor.get("id")
+                or valor.get("value")
+            )
+
+        try:
+            valor = int(
+                valor
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return
+
+        if valor not in (
+            1,
+            2,
+            3,
+            4,
+        ):
+            return
+
+        if valor not in posiciones:
+            posiciones.append(
+                valor
+            )
+
+    agregar(
+        jugador.get("position")
+    )
+
+    alternativas = (
+        jugador.get("alt_positions")
+        or jugador.get("altPositions")
+        or jugador.get("positions")
+        or []
+    )
+
+    if isinstance(
+        alternativas,
+        (list, tuple, set),
+    ):
+        for alternativa in alternativas:
+            agregar(
+                alternativa
+            )
+
+    else:
+        agregar(
+            alternativas
+        )
+
+    return posiciones
+
+
+def _parsear_formacion(
+    formation: Any,
+) -> dict[int, int]:
+    """
+    Convierte:
+
+        3-4-3
+
+    en:
+
+        {
+            1: 1,
+            2: 3,
+            3: 4,
+            4: 3,
+        }
+
+    El portero siempre es 1.
+    """
+
+    texto = str(
+        formation
+        or ""
+    ).strip()
+
+    numeros = []
+
+    for parte in texto.split("-"):
+        try:
+            numeros.append(
+                int(
+                    parte.strip()
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            pass
+
+    if len(numeros) != 3:
+        return {}
+
+    if any(
+        numero <= 0
+        for numero in numeros
+    ):
+        return {}
+
+    if sum(numeros) != 10:
+        return {}
+
+    return {
+        1: 1,
+        2: numeros[0],
+        3: numeros[1],
+        4: numeros[2],
+    }
+
+
+def _asignar_posiciones_formacion(
+    jugadores: list[dict[str, Any]],
+    formation: Any,
+) -> list[dict[str, Any]]:
+    """
+    Asigna a cada jugador una posición FINAL compatible
+    con la formación.
+
+    Prioridad:
+
+        1. posición principal
+        2. posiciones alternativas
+
+    Se busca una combinación que complete exactamente
+    la formación solicitada.
+
+    Ejemplo:
+
+        3-4-3
+
+    produce exactamente:
+
+        POR = 1
+        DEF = 3
+        MED = 4
+        DEL = 3
+    """
+
+    if not jugadores:
+        return []
+
+    objetivos = _parsear_formacion(
+        formation
+    )
+
+    # ---------------------------------------------------------
+    # Si no tenemos una formación válida, mantenemos la
+    # posición principal actual.
+    # ---------------------------------------------------------
+
+    if not objetivos:
+        return [
+            dict(jugador)
+            for jugador in jugadores
+        ]
+
+    jugadores = [
+        dict(jugador)
+        for jugador in jugadores
+    ]
+
+    # ---------------------------------------------------------
+    # Aseguramos que solamente trabajamos con un XI.
+    # ---------------------------------------------------------
+
+    jugadores = jugadores[:11]
+
+    # ---------------------------------------------------------
+    # Portero.
+    #
+    # Normalmente solamente hay un portero y no tiene sentido
+    # convertir un jugador de campo en portero.
+    # ---------------------------------------------------------
+
+    indices_por_posicion = {
+        posicion: []
+        for posicion in (
+            1,
+            2,
+            3,
+            4,
+        )
+    }
+
+    for indice, jugador in enumerate(
+        jugadores
+    ):
+        posiciones = _normalizar_posiciones_jugador(
+            jugador
+        )
+
+        for posicion in posiciones:
+            indices_por_posicion[
+                posicion
+            ].append(
+                indice
+            )
+
+    # ---------------------------------------------------------
+    # Backtracking.
+    #
+    # Primero intentamos respetar siempre la posición principal.
+    # Si no es posible, utilizamos altPositions.
+    # ---------------------------------------------------------
+
+    candidatos = []
+
+    for indice, jugador in enumerate(
+        jugadores
+    ):
+        posiciones = _normalizar_posiciones_jugador(
+            jugador
+        )
+
+        if not posiciones:
+            posiciones = [4]
+
+        principal = posiciones[0]
+
+        candidatos.append(
+            (
+                indice,
+                posiciones,
+                principal,
+            )
+        )
+
+    # Los jugadores con menos alternativas se asignan antes.
+    candidatos.sort(
+        key=lambda item: (
+            len(item[1]),
+            item[0],
+        )
+    )
+
+    asignados = {}
+
+    usados = set()
+
+    def buscar(
+        indice_candidato,
+        restantes,
+    ):
+        if indice_candidato >= len(
+            candidatos
+        ):
+            return all(
+                cantidad == 0
+                for cantidad in restantes.values()
+            )
+
+        indice, posiciones, principal = (
+            candidatos[
+                indice_candidato
+            ]
+        )
+
+        # Preferimos posición principal.
+        orden_posiciones = sorted(
+            posiciones,
+            key=lambda posicion: (
+                0
+                if posicion == principal
+                else 1,
+                posicion,
+            )
+        )
+
+        for posicion in orden_posiciones:
+
+            if restantes.get(
+                posicion,
+                0,
+            ) <= 0:
+                continue
+
+            if indice in usados:
+                continue
+
+            usados.add(
+                indice
+            )
+
+            asignados[
+                indice
+            ] = posicion
+
+            restantes[
+                posicion
+            ] -= 1
+
+            if buscar(
+                indice_candidato + 1,
+                restantes,
+            ):
+                return True
+
+            restantes[
+                posicion
+            ] += 1
+
+            asignados.pop(
+                indice,
+                None
+            )
+
+            usados.remove(
+                indice
+            )
+
+        return False
+
+    restantes = dict(
+        objetivos
+    )
+
+    encontrado = buscar(
+        0,
+        restantes,
+    )
+
+    # ---------------------------------------------------------
+    # Si la formación no pudo completarse exactamente,
+    # hacemos un fallback seguro a las posiciones principales.
+    # ---------------------------------------------------------
+
+    if not encontrado:
+
+        resultado = []
+
+        for jugador in jugadores:
+
+            copia = dict(
+                jugador
+            )
+
+            posiciones = _normalizar_posiciones_jugador(
+                jugador
+            )
+
+            if posiciones:
+                copia[
+                    "_lineup_position"
+                ] = posiciones[0]
+
+            resultado.append(
+                copia
+            )
+
+        return resultado
+
+    # ---------------------------------------------------------
+    # Guardamos la posición final elegida.
+    # ---------------------------------------------------------
+
+    resultado = []
+
+    for indice, jugador in enumerate(
+        jugadores
+    ):
+        copia = dict(
+            jugador
+        )
+
+        posicion_final = asignados.get(
+            indice
+        )
+
+        if posicion_final is None:
+            posiciones = _normalizar_posiciones_jugador(
+                jugador
+            )
+
+            if posiciones:
+                posicion_final = posiciones[0]
+
+        copia[
+            "_lineup_position"
+        ] = posicion_final
+
+        resultado.append(
+            copia
+        )
+
+    return resultado
+
+
 def _agrupar_por_posicion(
     jugadores: list[dict[str, Any]],
 ) -> dict[
@@ -1477,12 +1898,29 @@ def _agrupar_por_posicion(
 
     for jugador in jugadores:
 
-        position = jugador.get(
-            "position"
+        position = (
+            jugador.get(
+                "_lineup_position"
+            )
+            or jugador.get(
+                "position"
+            )
         )
 
+        try:
+            position = int(
+                position
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
         if position in grouped:
-            grouped[position].append(
+            grouped[
+                position
+            ].append(
                 jugador
             )
 
@@ -1533,12 +1971,15 @@ def _slots_partido(
     ]
 ]:
     """
-    Mantiene la distribución horizontal actual:
+    Distribución horizontal del campo.
 
-        LOCAL:      POR | DEF | MED | DEL
-        VISITANTE:  DEL | MED | DEF | POR
+    LOCAL:
 
-    Cada equipo ocupa exclusivamente su mitad.
+        POR | DEF | MED | DEL
+
+    VISITANTE:
+
+        DEL | MED | DEF | POR
     """
 
     grouped = _agrupar_por_posicion(
@@ -1598,6 +2039,7 @@ def _slots_partido(
         3,
         4,
     ):
+
         row = grouped.get(
             position,
             [],
@@ -1621,9 +2063,10 @@ def _slots_partido(
             )
         )
 
-        count = len(row)
+        count = len(
+            row
+        )
 
-        # El portero único queda exactamente centrado.
         if (
             position == 1
             and count == 1
@@ -1635,7 +2078,9 @@ def _slots_partido(
                 )
                 / 2
             ]
+
         else:
+
             ys = [
                 field_top
                 + fh
@@ -3002,7 +3447,7 @@ def _dibujar_tarjeta_jugador(
     )
 
     name_font = _font(
-        20,
+        26,
         True,
     )
 
@@ -3047,17 +3492,14 @@ def _dibujar_tarjeta_jugador(
         )
     )
 
-    if (
-        confirmado
-        and points is not None
-    ):
+    if points is not None:
 
         points_text = (
             f"{points} pts"
         )
 
         points_font = _font(
-            17,
+            23,
             True,
         )
 
@@ -4090,7 +4532,7 @@ def generar_imagen_partido(
         ),
         home_name,
         font=_font(
-            38,
+            52,
             True,
         ),
         fill=TEXT,
@@ -4104,7 +4546,7 @@ def generar_imagen_partido(
         ),
         away_name,
         font=_font(
-            38,
+            52,
             True,
         ),
         fill=TEXT,
@@ -4220,19 +4662,23 @@ def generar_imagen_partido(
 
         resultado = "VS"
 
+
     draw.text(
         (
             center_x,
-            42,
+            70,
         ),
         resultado,
         font=_font(
-            52,
+            200,
             True,
         ),
         fill=TEXT,
         anchor="ma",
     )
+
+
+    print("TAMAÑO MARCADOR:", _font(200, True).size)
 
     date_text = _timestamp_partido(
         game
@@ -4684,6 +5130,24 @@ def generar_imagen_alineacion_manager(
     width: int = 1200,
     height: int = 1500,
 ) -> BytesIO:
+    """
+    Genera la imagen vertical del once elegido por un manager.
+
+    La formación determina las posiciones finales.
+
+    Ejemplo:
+
+        3-4-3
+
+    obliga a mostrar:
+
+        1 POR
+        3 DEF
+        4 MED
+        3 DEL
+
+    utilizando altPositions cuando sea necesario.
+    """
 
     jugadores = normalizar_once_manager(
         players
@@ -4694,6 +5158,19 @@ def generar_imagen_alineacion_manager(
             "No hay jugadores válidos "
             "en el once elegido"
         )
+
+    # ---------------------------------------------------------
+    # ASIGNAR POSICIONES SEGÚN FORMACIÓN
+    # ---------------------------------------------------------
+
+    jugadores = _asignar_posiciones_formacion(
+        jugadores,
+        formation,
+    )
+
+    # ---------------------------------------------------------
+    # IMAGEN
+    # ---------------------------------------------------------
 
     image = Image.new(
         "RGB",
@@ -4707,6 +5184,10 @@ def generar_imagen_alineacion_manager(
     draw = ImageDraw.Draw(
         image
     )
+
+    # ---------------------------------------------------------
+    # CABECERA
+    # ---------------------------------------------------------
 
     draw.text(
         (
@@ -4729,7 +5210,7 @@ def generar_imagen_alineacion_manager(
         (
             f"⚽ {formation}"
             if formation
-            else "⚽ ONCE      DE LA JORNADA"
+            else "⚽ ONCE DE LA JORNADA"
         ),
         font=_font(
             24,
@@ -4752,12 +5233,18 @@ def generar_imagen_alineacion_manager(
         anchor="ra",
     )
 
+    # ---------------------------------------------------------
+    # CAMPO VERTICAL
+    # ---------------------------------------------------------
+
     field_top = 145
+
     field_bottom = (
         height - 70
     )
 
     field_left = 45
+
     field_right = (
         width - 45
     )
@@ -4770,6 +5257,10 @@ def generar_imagen_alineacion_manager(
         field_bottom,
     )
 
+    # ---------------------------------------------------------
+    # SLOTS
+    # ---------------------------------------------------------
+
     slots = _slots_por_posicion(
         jugadores,
         field_left=(
@@ -4781,6 +5272,10 @@ def generar_imagen_alineacion_manager(
         field_top=field_top,
         field_bottom=field_bottom,
     )
+
+    # ---------------------------------------------------------
+    # JUGADORES
+    # ---------------------------------------------------------
 
     for jugador, x, y in slots:
 
@@ -4797,19 +5292,27 @@ def generar_imagen_alineacion_manager(
             jugador,
             x,
             y,
-            confirmado=False,
+            confirmado=True,
         )
+
+    # ---------------------------------------------------------
+    # PIE
+    # ---------------------------------------------------------
 
     draw.text(
         (
             width // 2,
             height - 35,
         ),
-        "Once elegido por el manager",
+        "Once elegido por el manager · jornada actual",
         font=_font(17),
         fill=MUTED,
         anchor="ms",
     )
+
+    # ---------------------------------------------------------
+    # SALIDA
+    # ---------------------------------------------------------
 
     output = BytesIO()
 
@@ -4826,6 +5329,7 @@ def generar_imagen_alineacion_manager(
     output.seek(0)
 
     return output
+
 
 
 def generar_imagen_once_miembro(

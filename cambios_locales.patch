@@ -1,0 +1,67 @@
+diff --git a/lineup_image.py b/lineup_image.py
+index 6cc2419..575720a 100644
+--- a/lineup_image.py
++++ b/lineup_image.py
+@@ -3002,7 +3002,7 @@ def _dibujar_tarjeta_jugador(
+     )
+ 
+     name_font = _font(
+-        20,
++        26,
+         True,
+     )
+ 
+@@ -3057,7 +3057,7 @@ def _dibujar_tarjeta_jugador(
+         )
+ 
+         points_font = _font(
+-            17,
++            23,
+             True,
+         )
+ 
+@@ -4090,7 +4090,7 @@ def generar_imagen_partido(
+         ),
+         home_name,
+         font=_font(
+-            38,
++            52,
+             True,
+         ),
+         fill=TEXT,
+@@ -4104,7 +4104,7 @@ def generar_imagen_partido(
+         ),
+         away_name,
+         font=_font(
+-            38,
++            52,
+             True,
+         ),
+         fill=TEXT,
+@@ -4220,20 +4220,24 @@ def generar_imagen_partido(
+ 
+         resultado = "VS"
+ 
++
+     draw.text(
+         (
+             center_x,
+-            42,
++            70,
+         ),
+         resultado,
+         font=_font(
+-            52,
++            200,
+             True,
+         ),
+         fill=TEXT,
+         anchor="ma",
+     )
+ 
++
++    print("TAMAÑO MARCADOR:", _font(200, True).size)
++
+     date_text = _timestamp_partido(
+         game
+     )

@@ -348,6 +348,7 @@ class BiwengerClient:
         )
 
 
+
     def user_team(
         self,
         user_id,
@@ -385,6 +386,45 @@ class BiwengerClient:
             },
         )
 
+    def league_round(
+        self,
+        league_id,
+    ):
+        """
+        Obtiene la jornada fantasy actual de la liga.
+
+        La respuesta contiene:
+
+            data
+                -> league
+                    -> standings
+                        -> lineup
+                            -> type
+                            -> players
+                            -> discarded
+
+        Es la fuente correcta para conocer el once elegido
+        por cada manager.
+        """
+
+        self.prepare_context(
+            league_id
+        )
+
+        response = self.get(
+            "/rounds/league"
+        )
+
+        if not isinstance(
+            response,
+            dict,
+        ):
+            raise ValueError(
+                "Respuesta inválida de /rounds/league"
+            )
+
+        return response
+
     def board(
         self,
         league_id,
@@ -396,6 +436,7 @@ class BiwengerClient:
         return self.get(
             f"/league/{self.league_id}/board"
         )
+
 
     def players(self):
         response = self.public_session.get(
@@ -878,15 +919,23 @@ class BiwengerClient:
         max_pages=100,
     ):
         all_events = []
-        current_date = None
         seen = set()
+
+        self.prepare_context(
+            league_id
+        )
+
+        offset = 0
 
         for _ in range(max_pages):
 
-            response = self.board_history(
-                league_id,
-                current_date,
-                limit,
+            response = self.get(
+                f"/league/{self.league_id}/board",
+                params={
+                    "type": "transfer,market,bonus",
+                    "offset": offset,
+                    "limit": limit,
+                },
             )
 
             data = (
@@ -898,7 +947,7 @@ class BiwengerClient:
             if not data:
                 break
 
-            fechas = []
+            nuevos = 0
 
             for event in data:
 
@@ -915,47 +964,31 @@ class BiwengerClient:
                     continue
 
                 seen.add(key)
-
                 all_events.append(event)
+                nuevos += 1
 
-                event_date = event.get(
-                    "date"
-                )
+            logger.info(
+                "Historial mercado: "
+                "liga=%s offset=%s recibidos=%s nuevos=%s",
+                league_id,
+                offset,
+                len(data),
+                nuevos,
+            )
 
-                if isinstance(
-                    event_date,
-                    (int, float),
-                ):
-                    fechas.append(
-                        event_date
-                    )
-
-            if not fechas:
-                break
-
-            antigua = min(fechas)
-
-            if (
-                current_date is not None
-                and antigua >= current_date
-            ):
-                break
-
-            current_date = antigua - 1
+            offset += len(data)
 
             if len(data) < limit:
                 break
 
         all_events.sort(
-            key=lambda x: x.get(
-                "date",
-                0,
-            ),
+            key=lambda x: x.get("date", 0),
             reverse=True,
         )
 
         logger.info(
-            "Historial completo: liga=%s eventos=%s",
+            "Historial completo: "
+            "liga=%s eventos=%s",
             league_id,
             len(all_events),
         )
@@ -1149,10 +1182,11 @@ class BiwengerClient:
 
         return operations
 
+
     def calculate_market_report(
-        self,
-        history,
-    ):
+            self,
+            history,
+        ):
         operations = self.extract_operations(
             history
         )
@@ -1188,10 +1222,96 @@ class BiwengerClient:
                 "numero_compras": 0,
                 "numero_ventas": 0,
                 "premios": 0,
+                "bonificaciones": 0,
+                "user_id": None,
             }
         )
 
         for operation in operations:
+
+            event_type = str(
+                operation.get(
+                    "_event_type",
+                    "",
+                )
+            ).lower().strip()
+
+            if event_type == "bonus":
+
+                user = operation.get(
+                    "user"
+                )
+
+                if not isinstance(
+                    user,
+                    dict,
+                ):
+                    continue
+
+                user_id = user.get(
+                    "id"
+                )
+
+                try:
+
+                    user_id = int(
+                        user_id
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                try:
+
+                    amount = int(
+                        operation.get(
+                            "amount",
+                            0,
+                        )
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    amount = 0
+
+                if amount <= 0:
+                    continue
+
+                nombre = user.get(
+                    "name",
+                    "Desconocido",
+                )
+
+                report[nombre][
+                    "user_id"
+                ] = user_id
+
+                report[nombre][
+                    "bonificaciones"
+                ] += amount
+
+                logger.info(
+                    "Bonus detectado: "
+                    "usuario=%s id=%s amount=%s "
+                    "reason=%s fecha=%s",
+                    nombre,
+                    user_id,
+                    amount,
+                    operation.get(
+                        "reason",
+                        "desconocido",
+                    ),
+                    operation.get(
+                        "_event_date"
+                    ),
+                )
+
+                continue
 
             amount = operation.get(
                 "amount",
@@ -1220,6 +1340,7 @@ class BiwengerClient:
                 buyer,
                 dict,
             ):
+
                 nombre = buyer.get(
                     "name",
                     "Desconocido",
@@ -1248,6 +1369,7 @@ class BiwengerClient:
                 )
 
                 try:
+
                     user_id = int(
                         user_id
                     )
@@ -1259,6 +1381,11 @@ class BiwengerClient:
                     user_id = None
 
                 if user_id is not None:
+
+                    report[nombre][
+                        "user_id"
+                    ] = user_id
+
                     report[nombre][
                         "premios"
                     ] = premios.get(
@@ -1270,6 +1397,7 @@ class BiwengerClient:
                 seller,
                 dict,
             ):
+
                 nombre = seller.get(
                     "name",
                     "Desconocido",
@@ -1298,6 +1426,7 @@ class BiwengerClient:
                 )
 
                 try:
+
                     user_id = int(
                         user_id
                     )
@@ -1309,6 +1438,11 @@ class BiwengerClient:
                     user_id = None
 
                 if user_id is not None:
+
+                    report[nombre][
+                        "user_id"
+                    ] = user_id
+
                     report[nombre][
                         "premios"
                     ] = premios.get(
@@ -1317,7 +1451,6 @@ class BiwengerClient:
                     )
 
         return report
-
 
     def obtener_jornadas(
         self,
@@ -1330,28 +1463,14 @@ class BiwengerClient:
         Los IDs son consecutivos, pero una jornada aplazada tiene
         un ID diferente y conserva el mismo `short`.
 
-        Ejemplo:
- 
-            4899 -> J1 -> Jornada 1
-            4900 -> J2 -> Jornada 2
-            ...
-            4937 -> J1 -> Jornada 1 (aplazada)
-
         Devuelve una lista con todas las jornadas encontradas.
         """
 
         import re
 
         jornadas = []
-
-        # Evitamos duplicados por ID
         ids_vistos = set()
 
-        # Necesitamos seguir buscando después de encontrar la J38,
-        # porque puede haber jornadas aplazadas con IDs posteriores.
-        #
-        # El límite evita hacer peticiones infinitas si Biwenger
-        # devuelve errores o cambia el comportamiento.
         max_ids = 100
 
         logger.info(
@@ -1367,7 +1486,7 @@ class BiwengerClient:
                 continue
 
             ids_vistos.add(round_id)
- 
+
             try:
                 response = self.public_session.get(
                     f"{ROUNDS_URL}/{round_id}",
@@ -1406,11 +1525,10 @@ class BiwengerClient:
                 )
                 continue
 
-        # -------------------------------------------------
-        # Extraer información de la jornada
-        # -------------------------------------------------
-
-            root = data.get("data", data)
+            root = data.get(
+                "data",
+                data,
+            )
 
             if not isinstance(root, dict):
                 continue
@@ -1418,16 +1536,12 @@ class BiwengerClient:
             short = root.get("short")
             name = root.get("name")
 
-            # Algunas respuestas pueden tener la información
-            # en otro nivel.
             if short is None:
                 short = data.get("short")
 
             if name is None:
                 name = data.get("name")
 
-            # Si no encontramos short, probablemente ese ID no
-            # corresponde a una jornada.
             if not short:
                 logger.warning(
                     "ID %s sin short. Keys=%s",
@@ -1436,7 +1550,6 @@ class BiwengerClient:
                 )
                 continue
 
-            # Normalizamos
             short = str(short).strip()
 
             if name is None:
@@ -1444,21 +1557,13 @@ class BiwengerClient:
 
             name = str(name).strip()
 
-        # -------------------------------------------------
-        # Partidos
-        # -------------------------------------------------
-
-            games = root.get("games", [])
+            games = root.get(
+                "games",
+                [],
+            )
 
             if not isinstance(games, list):
                 games = []
-
-            if games:
-                logger.warning(
-                    "DEBUG PARTIDO JORNADA %s: %r",
-                    round_id,
-                    games[0],
-                )
 
             jornada = {
                 "id": round_id,
@@ -1478,10 +1583,6 @@ class BiwengerClient:
                 len(games),
             )
 
-    # -----------------------------------------------------
-    # Ordenación
-    # -----------------------------------------------------
-
         jornadas.sort(
             key=lambda j: (
                 int(
@@ -1499,10 +1600,6 @@ class BiwengerClient:
             )
         )
 
-    # -----------------------------------------------------
-    # Diagnóstico
-    # -----------------------------------------------------
-
         logger.warning(
             "JORNADAS ENCONTRADAS: %s",
             [
@@ -1519,7 +1616,6 @@ class BiwengerClient:
         return {
             "data": jornadas
         }
-
 
     def obtener_jornada_actual(self):
         """
@@ -1590,7 +1686,6 @@ class BiwengerClient:
 
         name = str(name).strip()
 
-
         games = root.get(
             "games",
             [],
@@ -1598,35 +1693,6 @@ class BiwengerClient:
 
         if not isinstance(games, list):
             games = []
-
-        if games:
-            for game in games:
-                logger.warning(
-                    "DEBUG JORNADA GAME: id=%s home=%s away=%s",
-                    game.get("id"),
-                    game.get("home", {}).get("name"),
-                    game.get("away", {}).get("name"),
-                )
-
-                jugadores_participantes = (
-                    obtener_jugadores_participantes_partido(
-                        game
-                    )
-                )
-
-                logger.warning(
-                    "JUGADORES PARTICIPANTES [%s - %s]: HOME=%s AWAY=%s",
-                    game.get("home", {}).get("name"),
-                    game.get("away", {}).get("name"),
-                    [
-                        f"{jugador.get('id')} - {jugador.get('name')}"
-                        for jugador in jugadores_participantes["home"]
-                    ],
-                    [
-                        f"{jugador.get('id')} - {jugador.get('name')}"
-                        for jugador in jugadores_participantes["away"]
-                    ],
-                )
 
         jornada = {
             "id": root.get("id"),
@@ -1645,6 +1711,7 @@ class BiwengerClient:
         )
 
         return jornada
+
 
 
 _CLIENT = BiwengerClient()
@@ -2906,6 +2973,82 @@ def obtener_jugadores_por_ids(player_ids):
             }
 
     return resultado
+
+
+def obtener_onces_jornada(
+    liga_id,
+):
+    """
+    Devuelve los managers y sus onces elegidos
+    para la jornada actual de la liga.
+
+    La fuente oficial es:
+
+        GET /rounds/league
+
+    Retorna una lista de standings normalizada.
+    """
+
+    try:
+        liga_id = int(
+            liga_id
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        raise ValueError(
+            f"Liga inválida: {liga_id}"
+        )
+
+    respuesta = _CLIENT.league_round(
+        liga_id
+    )
+
+    if not isinstance(
+        respuesta,
+        dict,
+    ):
+        raise ValueError(
+            "Respuesta inválida de /rounds/league"
+        )
+
+    data = respuesta.get(
+        "data",
+        {}
+    )
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return []
+
+    league = data.get(
+        "league",
+        {}
+    )
+
+    if not isinstance(
+        league,
+        dict,
+    ):
+        return []
+
+    standings = league.get(
+        "standings",
+        []
+    )
+
+    if not isinstance(
+        standings,
+        list,
+    ):
+        return []
+
+    return standings
+
+
 
 def obtener_reports_por_player_id(team):
     """
@@ -4599,434 +4742,874 @@ def obtener_miembros_liga(
 
 
 def obtener_informe(
-    liga_id,
+    liga_id
 ):
+    """
+    Obtiene el informe completo de la liga.
+
+    Mantiene:
+    - compras y ventas calculadas desde calculate_market_report()
+    - paginación completa del board
+    - premios de jornadas
+    - bonificaciones
+    - saldo actual
+    - puja máxima
+
+    El número de jugadores se obtiene mediante:
+    /user/{user_id} -> players
+    """
+
     # -------------------------------------------------
-    # CACHE DEL INFORME
+    # LIGA
     # -------------------------------------------------
 
-    ahora = time.time()
-
-    cache_time = _REPORT_CACHE_TIME.get(
-        liga_id
+    league_data = (
+        _CLIENT.league(
+            liga_id
+        )
     )
 
-    if (
-        liga_id in _REPORT_CACHE
-        and cache_time is not None
-        and (
-            ahora - cache_time
-        ) < REPORT_CACHE_TTL
+    if not isinstance(
+        league_data,
+        dict,
     ):
-        logger.info(
-            "Informe servido desde cache: "
-            "liga=%s edad=%.1fs",
-            liga_id,
-            ahora - cache_time,
+        raise ValueError(
+            "Respuesta inválida al obtener la liga."
         )
 
-        return _REPORT_CACHE[
-            liga_id
-        ]
+    league_root = (
+        league_data.get(
+            "data",
+            league_data,
+        )
+    )
+
+    if not isinstance(
+        league_root,
+        dict,
+    ):
+        raise ValueError(
+            "Datos de liga inválidos."
+        )
 
     # -------------------------------------------------
-    # GENERACIÓN DEL INFORME
+    # STANDINGS
     # -------------------------------------------------
+
+    standings_data = (
+        league_root.get(
+            "standings",
+            [],
+        )
+    )
 
     logger.info(
-        "Generando informe: liga=%s",
-        liga_id,
+        "DEBUG STANDINGS: tipo=%s",
+        type(
+            standings_data
+        ).__name__,
     )
 
-    try:
+    if isinstance(
+        standings_data,
+        dict,
+    ):
 
-        # -------------------------------------------------
-        # LIGA / STANDINGS
-        # -------------------------------------------------
-
-        league_response = _CLIENT.league(
-            liga_id
+        logger.info(
+            "DEBUG STANDINGS KEYS: %s",
+            list(
+                standings_data.keys()
+            ),
         )
-
-        standings_raw = _extraer_standings(
-            league_response
-        )
-
-        standings = {}
 
         if isinstance(
-            standings_raw,
+            standings_data.get(
+                "data"
+            ),
             list,
         ):
 
-            for miembro in standings_raw:
+            standings_data = (
+                standings_data.get(
+                    "data"
+                )
+            )
+
+        elif isinstance(
+            standings_data.get(
+                "data"
+            ),
+            dict,
+        ):
+
+            standings_data = (
+                standings_data.get(
+                    "data"
+                )
+            )
+
+        elif not any(
+            key in standings_data
+            for key in (
+                "users",
+                "items",
+                "results",
+            )
+        ):
+
+            standings_data = list(
+                standings_data.values()
+            )
+
+        elif isinstance(
+            standings_data.get(
+                "users"
+            ),
+            list,
+        ):
+
+            standings_data = (
+                standings_data.get(
+                    "users"
+                )
+            )
+
+        elif isinstance(
+            standings_data.get(
+                "items"
+            ),
+            list,
+        ):
+
+            standings_data = (
+                standings_data.get(
+                    "items"
+                )
+            )
+
+        elif isinstance(
+            standings_data.get(
+                "results"
+            ),
+            list,
+        ):
+
+            standings_data = (
+                standings_data.get(
+                    "results"
+                )
+            )
+
+        else:
+
+            standings_data = []
+
+    if not isinstance(
+        standings_data,
+        list,
+    ):
+
+        standings_data = []
+
+    logger.info(
+        "DEBUG STANDINGS NORMALIZADOS: %s",
+        len(
+            standings_data
+        ),
+    )
+
+    # -------------------------------------------------
+    # USUARIOS
+    # -------------------------------------------------
+
+    standings = {}
+
+    for item in standings_data:
+
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        user = item.get(
+            "user"
+        )
+
+        if not isinstance(
+            user,
+            dict,
+        ):
+            user = {}
+
+        user_id = (
+            user.get(
+                "id"
+            )
+            or item.get(
+                "userId"
+            )
+            or item.get(
+                "user_id"
+            )
+            or item.get(
+                "id"
+            )
+        )
+
+        if user_id is None:
+
+            user_value = item.get(
+                "user"
+            )
+
+            if isinstance(
+                user_value,
+                (int, str),
+            ):
+
+                user_id = user_value
+
+        if user_id is None:
+            continue
+
+        try:
+
+            user_id = int(
+                user_id
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            continue
+
+        nombre = (
+            user.get(
+                "name"
+            )
+            or item.get(
+                "name"
+            )
+            or item.get(
+                "teamName"
+            )
+            or item.get(
+                "team_name"
+            )
+            or f"Usuario {user_id}"
+        )
+
+        valor_equipo = (
+            item.get(
+                "value"
+            )
+            or item.get(
+                "teamValue"
+            )
+            or item.get(
+                "team_value"
+            )
+            or item.get(
+                "valueTeam"
+            )
+            or 0
+        )
+
+        try:
+
+            valor_equipo = int(
+                valor_equipo
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            valor_equipo = 0
+
+        standings[nombre] = {
+            "user_id": user_id,
+            "numero_jugadores": 0,
+            "valor_equipo": valor_equipo,
+        }
+
+    logger.info(
+        "USUARIOS EN STANDINGS: %s",
+        len(
+            standings
+        ),
+    )
+
+    logger.info(
+        "USUARIOS DETECTADOS: %s",
+        standings,
+    )
+
+    # -------------------------------------------------
+    # RESPALDO SI STANDINGS NO TIENE USUARIOS
+    # -------------------------------------------------
+
+    if not standings:
+
+        logger.warning(
+            "STANDINGS no contiene usuarios. "
+            "Buscando usuarios en el historial de mercado."
+        )
+
+        history_temp = (
+            _CLIENT.get_full_market_history(
+                liga_id
+            )
+        )
+
+        operations_temp = (
+            _CLIENT.extract_operations(
+                history_temp
+            )
+        )
+
+        usuarios_temp = {}
+
+        for operation in operations_temp:
+
+            if not isinstance(
+                operation,
+                dict,
+            ):
+                continue
+
+            for campo in (
+                "user",
+                "to",
+                "from",
+            ):
+
+                usuario = operation.get(
+                    campo
+                )
 
                 if not isinstance(
-                    miembro,
+                    usuario,
                     dict,
                 ):
                     continue
 
-                datos_standing = _datos_standing(
-                    miembro
+                user_id = usuario.get(
+                    "id"
                 )
 
-                nombre = datos_standing.get(
-                    "nombre",
-                    "Desconocido",
+                if user_id is None:
+                    continue
+
+                try:
+
+                    user_id = int(
+                        user_id
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+
+                    continue
+
+                nombre = (
+                    usuario.get(
+                        "name"
+                    )
+                    or f"Usuario {user_id}"
                 )
 
-                if not nombre:
-                    nombre = "Desconocido"
+                usuarios_temp[
+                    user_id
+                ] = nombre
 
-                standings[nombre] = {
-                    "user_id": (
-                        datos_standing.get(
-                            "id"
-                        )
-                    ),
-
-                    "numero_jugadores": (
-                        datos_standing.get(
-                            "numero_jugadores",
-                            0,
-                        )
-                    ),
-
-                    "valor_equipo": (
-                        datos_standing.get(
-                            "valor_equipo",
-                            0,
-                        )
-                    ),
-                }
-
-        elif isinstance(
-            standings_raw,
-            dict,
+        for user_id, nombre in (
+            usuarios_temp.items()
         ):
 
-            standings = standings_raw
+            standings[nombre] = {
+                "user_id": user_id,
+                "numero_jugadores": 0,
+                "valor_equipo": 0,
+            }
 
         logger.info(
-            "Standings normalizados: "
-            "liga=%s usuarios=%s",
-            liga_id,
-            len(standings),
+            "USUARIOS RECUPERADOS DESDE HISTORIAL: %s",
+            standings,
         )
 
-        # -------------------------------------------------
-        # HISTORIAL COMPLETO DEL MERCADO
-        # -------------------------------------------------
+    # -------------------------------------------------
+    # HISTORIAL COMPLETO
+    # -------------------------------------------------
+
+    history = (
+        _CLIENT.get_full_market_history(
+            liga_id
+        )
+    )
+
+    # -------------------------------------------------
+    # INFORME DE MERCADO
+    #
+    # IMPORTANTE:
+    # calculate_market_report() utiliza el NOMBRE
+    # del usuario como clave.
+    # -------------------------------------------------
+
+    market_report = (
+        _CLIENT.calculate_market_report(
+            history
+        )
+    )
+
+    # -------------------------------------------------
+    # BONIFICACIONES
+    # -------------------------------------------------
+
+    operaciones = (
+        _CLIENT.extract_operations(
+            history
+        )
+    )
+
+    bonificaciones_por_usuario = (
+        defaultdict(int)
+    )
+
+    for operation in operaciones:
+
+        if not isinstance(
+            operation,
+            dict,
+        ):
+            continue
+
+        event_type = (
+            operation.get(
+                "_event_type"
+            )
+        )
+
+        if event_type != "bonus":
+            continue
+
+        user = operation.get(
+            "user"
+        )
+
+        if not isinstance(
+            user,
+            dict,
+        ):
+            continue
+
+        user_id = user.get(
+            "id"
+        )
+
+        if user_id is None:
+            continue
 
         try:
 
-            history = (
-                _CLIENT.get_full_market_history(
-                    liga_id
-                )
+            user_id = int(
+                user_id
             )
 
-            market_report = (
-                _CLIENT.calculate_market_report(
-                    history
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            continue
+
+        try:
+
+            amount = int(
+                operation.get(
+                    "amount",
+                    0,
                 )
+                or 0
             )
 
-            if not isinstance(
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            amount = 0
+
+        bonificaciones_por_usuario[
+            user_id
+        ] += amount
+
+    logger.info(
+        "BONIFICACIONES POR USUARIO: %s",
+        dict(
+            bonificaciones_por_usuario
+        ),
+    )
+
+    # -------------------------------------------------
+    # PREMIOS DE JORNADAS
+    # -------------------------------------------------
+
+    round_rewards = (
+        _CLIENT.get_round_rewards(
+            liga_id
+        )
+    )
+
+    # -------------------------------------------------
+    # JUGADORES POR USUARIO
+    # -------------------------------------------------
+
+    jugadores_por_usuario = {}
+
+    # -------------------------------------------------
+    # RESULTADO FINAL
+    # -------------------------------------------------
+
+    report = {}
+
+    for nombre, datos in (
+        standings.items()
+    ):
+
+        user_id = datos.get(
+            "user_id"
+        )
+
+        # ---------------------------------------------
+        # JUGADORES
+        # ---------------------------------------------
+
+        if user_id not in jugadores_por_usuario:
+
+            numero_jugadores = 0
+
+            try:
+
+                team_data = (
+                    _CLIENT.user_team(
+                        user_id
+                    )
+                )
+
+                logger.info(
+                    "USER TEAM usuario=%s tipo=%s",
+                    user_id,
+                    type(
+                        team_data
+                    ).__name__,
+                )
+
+                if isinstance(
+                    team_data,
+                    dict,
+                ):
+
+                    team_root = (
+                        team_data.get(
+                            "data",
+                            team_data,
+                        )
+                    )
+
+                    if isinstance(
+                        team_root,
+                        dict,
+                    ):
+
+                        players = (
+                            team_root.get(
+                                "players",
+                                [],
+                            )
+                        )
+
+                        logger.info(
+                            "USER TEAM usuario=%s "
+                            "players_tipo=%s players=%s",
+                            user_id,
+                            type(
+                                players
+                            ).__name__,
+                            (
+                                len(players)
+                                if isinstance(
+                                    players,
+                                    list,
+                                )
+                                else 0
+                            ),
+                        )
+
+                        if isinstance(
+                            players,
+                            list,
+                        ):
+
+                            numero_jugadores = len(
+                                players
+                            )
+
+            except Exception:
+
+                logger.exception(
+                    "Error obteniendo plantilla "
+                    "del usuario %s",
+                    user_id,
+                )
+
+                numero_jugadores = 0
+
+            jugadores_por_usuario[
+                user_id
+            ] = numero_jugadores
+
+        numero_jugadores = (
+            jugadores_por_usuario[
+                user_id
+            ]
+        )
+
+        # ---------------------------------------------
+        # MERCADO
+        #
+        # AQUÍ ESTÁ LA CORRECCIÓN IMPORTANTE:
+        # market_report está indexado por NOMBRE.
+        # ---------------------------------------------
+
+        datos_mercado = (
+            market_report.get(
+                nombre,
+                {},
+            )
+            if isinstance(
                 market_report,
                 dict,
-            ):
-                market_report = {}
-
-        except Exception as exc:
-
-            logger.exception(
-                "Error calculando movimientos "
-                "de la liga %s: %s",
-                liga_id,
-                exc,
             )
+            else {}
+        )
 
-            market_report = {}
+        if not isinstance(
+            datos_mercado,
+            dict,
+        ):
+            datos_mercado = {}
 
-        # -------------------------------------------------
-        # PREMIOS DE JORNADAS
-        # -------------------------------------------------
+        compras = (
+            datos_mercado.get(
+                "total_compras",
+                datos_mercado.get(
+                    "compras",
+                    0,
+                ),
+            )
+            or 0
+        )
+
+        ventas = (
+            datos_mercado.get(
+                "total_ventas",
+                datos_mercado.get(
+                    "ventas",
+                    0,
+                ),
+            )
+            or 0
+        )
+
+        valor_equipo = (
+            datos_mercado.get(
+                "valor_equipo",
+                datos.get(
+                    "valor_equipo",
+                    0,
+                ),
+            )
+            or datos.get(
+                "valor_equipo",
+                0,
+            )
+        )
 
         try:
 
-            round_rewards = (
-                _CLIENT.get_round_rewards(
-                    liga_id
+            compras = int(
+                compras
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            compras = 0
+
+        try:
+
+            ventas = int(
+                ventas
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            ventas = 0
+
+        try:
+
+            valor_equipo = int(
+                valor_equipo
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            valor_equipo = 0
+
+        # ---------------------------------------------
+        # PREMIOS
+        # ---------------------------------------------
+
+        try:
+
+            premio_jornadas = int(
+                round_rewards.get(
+                    user_id,
+                    0,
                 )
+                or 0
             )
 
-            if not isinstance(
-                round_rewards,
-                dict,
-            ):
-                round_rewards = {}
-
-        except Exception as exc:
-
-            logger.exception(
-                "Error obteniendo premios de "
-                "jornadas de la liga %s: %s",
-                liga_id,
-                exc,
-            )
-
-            round_rewards = {}
-
-        # -------------------------------------------------
-        # CONSTRUCCIÓN DEL RESULTADO
-        # -------------------------------------------------
-
-        resultado = {}
-
-        for nombre, datos in standings.items():
-
-            if not isinstance(
-                datos,
-                dict,
-            ):
-                datos = {}
-
-            # ---------------------------------------------
-            # DATOS DE MERCADO
-            # ---------------------------------------------
-
-            datos_movimientos = (
-                market_report.get(
-                    nombre,
-                    {},
-                )
-            )
-
-            if not isinstance(
-                datos_movimientos,
-                dict,
-            ):
-                datos_movimientos = {}
-
-            # ---------------------------------------------
-            # ID DEL USUARIO
-            # ---------------------------------------------
-
-            user_id = datos.get(
-                "user_id"
-            )
-
-            try:
-
-                user_id_int = int(
-                    user_id
-                )
-
-            except (
-                TypeError,
-                ValueError,
-            ):
-
-                user_id_int = None
-
-            # ---------------------------------------------
-            # COMPRAS
-            #
-            # calculate_market_report devuelve:
-            #
-            #   compras       -> lista de operaciones
-            #   total_compras -> importe total
-            #
-            # Para el informe necesitamos total_compras.
-            # ---------------------------------------------
-
-            compras = datos_movimientos.get(
-                "total_compras",
-                0,
-            )
-
-            ventas = datos_movimientos.get(
-                "total_ventas",
-                0,
-            )
-
-            try:
-
-                compras = int(
-                    compras
-                )
-
-            except (
-                TypeError,
-                ValueError,
-            ):
-
-                compras = 0
-
-            try:
-
-                ventas = int(
-                    ventas
-                )
-
-            except (
-                TypeError,
-                ValueError,
-            ):
-
-                ventas = 0
-
-            # ---------------------------------------------
-            # VALOR DEL EQUIPO
-            # ---------------------------------------------
-
-            valor_equipo = datos.get(
-                "valor_equipo",
-                0,
-            )
-
-            try:
-
-                valor_equipo = int(
-                    valor_equipo
-                )
-
-            except (
-                TypeError,
-                ValueError,
-            ):
-
-                valor_equipo = 0
-
-            # ---------------------------------------------
-            # PREMIOS
-            # ---------------------------------------------
+        except (
+            TypeError,
+            ValueError,
+            AttributeError,
+        ):
 
             premio_jornadas = 0
 
-            if user_id_int is not None:
+        # ---------------------------------------------
+        # BONIFICACIONES
+        # ---------------------------------------------
 
-                try:
+        try:
 
-                    premio_jornadas = int(
-                        round_rewards.get(
-                            user_id_int,
-                            0,
-                        )
-                    )
-
-                except (
-                    TypeError,
-                    ValueError,
-                ):
-
-                    premio_jornadas = 0
-
-            # ---------------------------------------------
-            # SALDO ACTUAL
-            #
-            # Saldo inicial
-            # + ventas
-            # - compras
-            # + premios
-            # ---------------------------------------------
-
-            saldo_actual = (
-                _calcular_saldo_actual(
-                    compras,
-                    ventas,
-                    premio_jornadas,
+            bonificaciones = int(
+                bonificaciones_por_usuario.get(
+                    user_id,
+                    0,
                 )
+                or 0
             )
 
-            # ---------------------------------------------
-            # PUJA MÁXIMA
-            # ---------------------------------------------
+        except (
+            TypeError,
+            ValueError,
+        ):
 
-            puja_maxima = (
-                _calcular_puja_maxima(
-                    saldo_actual,
-                    valor_equipo,
-                )
-            )
+            bonificaciones = 0
 
-            # ---------------------------------------------
-            # RESULTADO FINAL DEL MANAGER
-            # ---------------------------------------------
+        # ---------------------------------------------
+        # SALDO
+        #
+        # Se mantiene la misma función existente.
+        # ---------------------------------------------
 
-            resultado[nombre] = {
-
-                "user_id": user_id,
-
-                "numero_jugadores": (
-                    datos.get(
-                        "numero_jugadores",
-                        0,
-                    )
-                ),
-
-                "valor_equipo": (
-                    valor_equipo
-                ),
-
-                "compras": (
-                    compras
-                ),
-
-                "ventas": (
-                    ventas
-                ),
-
-                "total_compras": (
-                    compras
-                ),
-
-                "total_ventas": (
-                    ventas
-                ),
-
-                "balance_mercado": (
-                    ventas - compras
-                ),
-
-                "premios_jornadas": (
+        saldo_actual = (
+            _calcular_saldo_actual(
+                compras,
+                ventas,
+                (
                     premio_jornadas
+                    + bonificaciones
                 ),
+            )
+        )
 
-                "saldo_actual": (
-                    saldo_actual
-                ),
+        # ---------------------------------------------
+        # PUJA MÁXIMA
+        # ---------------------------------------------
 
-                "puja_maxima": (
-                    puja_maxima
-                ),
-            }
+        puja_maxima = (
+            saldo_actual
+            + valor_equipo
+        )
 
-        # -------------------------------------------------
-        # USUARIOS QUE APARECEN EN MOVIMIENTOS PERO NO
-        # ESTÁN EN STANDINGS
-        # -------------------------------------------------
+        report[nombre] = {
+            "user_id": user_id,
+            "numero_jugadores": (
+                numero_jugadores
+            ),
+            "valor_equipo": (
+                valor_equipo
+            ),
+            "compras": compras,
+            "ventas": ventas,
+            "total_compras": compras,
+            "total_ventas": ventas,
+            "balance_mercado": (
+                ventas - compras
+            ),
+            "premios_jornadas": (
+                premio_jornadas
+            ),
+            "bonificaciones": (
+                bonificaciones
+            ),
+            "saldo_actual": (
+                saldo_actual
+            ),
+            "puja_maxima": (
+                puja_maxima
+            ),
+        }
 
-        for nombre, datos in market_report.items():
+    # -------------------------------------------------
+    # USUARIOS ADICIONALES DEL MERCADO
+    #
+    # calculate_market_report() está indexado por
+    # NOMBRE, no por user_id.
+    # -------------------------------------------------
 
-            if nombre in resultado:
+    if isinstance(
+        market_report,
+        dict,
+    ):
+
+        for nombre, datos_mercado in (
+            market_report.items()
+        ):
+
+            if not isinstance(
+                datos_mercado,
+                dict,
+            ):
                 continue
 
-            if not isinstance(
-                datos,
-                dict,
-            ):
-                datos = {}
-
-            user_id = datos.get(
-                "user_id"
+            user_id = (
+                datos_mercado.get(
+                    "user_id"
+                )
             )
 
             try:
 
-                user_id_int = int(
+                user_id = int(
                     user_id
                 )
 
@@ -5035,167 +5618,267 @@ def obtener_informe(
                 ValueError,
             ):
 
-                user_id_int = None
+                continue
 
-            compras = datos.get(
-                "total_compras",
-                0,
+            ya_existe = any(
+                datos.get(
+                    "user_id"
+                ) == user_id
+                for datos in report.values()
             )
 
-            ventas = datos.get(
-                "total_ventas",
-                0,
-            )
+            if ya_existe:
+                continue
 
-            valor_equipo = datos.get(
-                "valor_equipo",
-                0,
-            )
+            # -----------------------------------------
+            # JUGADORES
+            # -----------------------------------------
 
-            try:
-                compras = int(
-                    compras
-                )
-            except (
-                TypeError,
-                ValueError,
-            ):
-                compras = 0
+            if user_id not in jugadores_por_usuario:
 
-            try:
-                ventas = int(
-                    ventas
-                )
-            except (
-                TypeError,
-                ValueError,
-            ):
-                ventas = 0
-
-            try:
-                valor_equipo = int(
-                    valor_equipo
-                )
-            except (
-                TypeError,
-                ValueError,
-            ):
-                valor_equipo = 0
-
-            premio_jornadas = 0
-
-            if user_id_int is not None:
+                numero_jugadores = 0
 
                 try:
 
-                    premio_jornadas = int(
-                        round_rewards.get(
-                            user_id_int,
-                            0,
+                    team_data = (
+                        _CLIENT.user_team(
+                            user_id
                         )
                     )
 
-                except (
-                    TypeError,
-                    ValueError,
-                ):
+                    if isinstance(
+                        team_data,
+                        dict,
+                    ):
 
-                    premio_jornadas = 0
+                        team_root = (
+                            team_data.get(
+                                "data",
+                                team_data,
+                            )
+                        )
+
+                        if isinstance(
+                            team_root,
+                            dict,
+                        ):
+
+                            players = (
+                                team_root.get(
+                                    "players",
+                                    [],
+                                )
+                            )
+
+                            if isinstance(
+                                players,
+                                list,
+                            ):
+
+                                numero_jugadores = len(
+                                    players
+                                )
+
+                except Exception:
+
+                    logger.exception(
+                        "Error obteniendo plantilla "
+                        "del usuario %s",
+                        user_id,
+                    )
+
+                    numero_jugadores = 0
+
+                jugadores_por_usuario[
+                    user_id
+                ] = numero_jugadores
+
+            numero_jugadores = (
+                jugadores_por_usuario[
+                    user_id
+                ]
+            )
+
+            # -----------------------------------------
+            # MERCADO
+            # -----------------------------------------
+
+            compras = (
+                datos_mercado.get(
+                    "total_compras",
+                    datos_mercado.get(
+                        "compras",
+                        0,
+                    ),
+                )
+                or 0
+            )
+
+            ventas = (
+                datos_mercado.get(
+                    "total_ventas",
+                    datos_mercado.get(
+                        "ventas",
+                        0,
+                    ),
+                )
+                or 0
+            )
+
+            valor_equipo = (
+                datos_mercado.get(
+                    "valor_equipo",
+                    0,
+                )
+                or 0
+            )
+
+            try:
+
+                compras = int(
+                    compras
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                compras = 0
+
+            try:
+
+                ventas = int(
+                    ventas
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                ventas = 0
+
+            try:
+
+                valor_equipo = int(
+                    valor_equipo
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                valor_equipo = 0
+
+            # -----------------------------------------
+            # PREMIOS
+            # -----------------------------------------
+
+            try:
+
+                premio_jornadas = int(
+                    round_rewards.get(
+                        user_id,
+                        0,
+                    )
+                    or 0
+                )
+
+            except (
+                TypeError,
+                ValueError,
+                AttributeError,
+            ):
+
+                premio_jornadas = 0
+
+            # -----------------------------------------
+            # BONIFICACIONES
+            # -----------------------------------------
+
+            try:
+
+                bonificaciones = int(
+                    bonificaciones_por_usuario.get(
+                        user_id,
+                        0,
+                    )
+                    or 0
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                bonificaciones = 0
+
+            # -----------------------------------------
+            # SALDO
+            # -----------------------------------------
 
             saldo_actual = (
                 _calcular_saldo_actual(
                     compras,
                     ventas,
-                    premio_jornadas,
+                    (
+                        premio_jornadas
+                        + bonificaciones
+                    ),
                 )
             )
+
+            # -----------------------------------------
+            # PUJA MÁXIMA
+            # -----------------------------------------
 
             puja_maxima = (
-                _calcular_puja_maxima(
-                    saldo_actual,
-                    valor_equipo,
-                )
+                saldo_actual
+                + valor_equipo
             )
 
-            resultado[nombre] = {
-
+            report[nombre] = {
                 "user_id": user_id,
-
                 "numero_jugadores": (
-                    datos.get(
-                        "numero_jugadores",
-                        0,
-                    )
+                    numero_jugadores
                 ),
-
                 "valor_equipo": (
                     valor_equipo
                 ),
-
-                "compras": (
-                    compras
-                ),
-
-                "ventas": (
-                    ventas
-                ),
-
-                "total_compras": (
-                    compras
-                ),
-
-                "total_ventas": (
-                    ventas
-                ),
-
+                "compras": compras,
+                "ventas": ventas,
+                "total_compras": compras,
+                "total_ventas": ventas,
                 "balance_mercado": (
                     ventas - compras
                 ),
-
                 "premios_jornadas": (
                     premio_jornadas
                 ),
-
+                "bonificaciones": (
+                    bonificaciones
+                ),
                 "saldo_actual": (
                     saldo_actual
                 ),
-
                 "puja_maxima": (
                     puja_maxima
                 ),
             }
 
-        # -------------------------------------------------
-        # CACHEAR RESULTADO FINAL
-        # -------------------------------------------------
+    logger.info(
+        "INFORME FINAL: usuarios=%s",
+        len(
+            report
+        ),
+    )
 
-        _REPORT_CACHE[
-            liga_id
-        ] = resultado
+    return report
 
-        _REPORT_CACHE_TIME[
-            liga_id
-        ] = time.time()
 
-        logger.info(
-            "Informe cacheado: "
-            "liga=%s usuarios=%s",
-            liga_id,
-            len(resultado),
-        )
 
-        return resultado
-
-    except Exception as exc:
-
-        logger.exception(
-            "Error generando informe de "
-            "la liga %s: %s",
-            liga_id,
-            exc,
-        )
-
-        return {}
 def obtener_informe_detallado(
     liga_id,
 ):
