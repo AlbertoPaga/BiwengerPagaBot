@@ -1,4 +1,5 @@
 import logging
+from io import BytesIO
 
 from telegram import (
     InlineKeyboardButton,
@@ -37,6 +38,7 @@ from lineup_image import (
     obtener_alineacion_mostrable,
     generar_imagen_alineacion,
     generar_imagen_partido,
+    generar_imagen_alineacion_manager
 )
 
 from partido_alineaciones import (
@@ -7976,13 +7978,13 @@ async def mostrar_once_manager(
         # Descartados
         # ------------------------------------------------------------
 
-        if descartados:
+        if jugadores_descartados:
             lineas.extend([
                 "",
                 "↩️ DESCARTADOS",
             ])
 
-            for jugador in descartados:
+            for jugador in jugadores_descartados:
                 nombre = (
                     jugador.get("name")
                     or jugador.get("nombre")
