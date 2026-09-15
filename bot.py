@@ -7352,90 +7352,98 @@ async def mostrar_once_manager(
     manager_id,
 ):
     try:
-        jornada_id = int(
-            jornada_id
-        )
-
-        manager_id = int(
-            manager_id
-        )
-
-        liga_id = context.user_data.get(
-            "liga"
-        )
-
-        if not liga_id:
-            await query.answer(
-                "❌ No se pudo identificar la liga.",
-                show_alert=True,
-            )
-            return
-
-        liga_id = int(
-            liga_id
-        )
 
         # -------------------------------------------------
-        # JORNADA REAL
+        # RESPONDER AL CALLBACK INMEDIATAMENTE
         # -------------------------------------------------
 
-        jornada = obtener_jornada(
-            jornada_id
-        )
+        try:
+            await query.answer()
+        except Exception:
+            pass
 
-        if not isinstance(
-            jornada,
-            dict,
-        ):
-            await query.answer(
-                "❌ No se encontró la jornada.",
-                show_alert=True,
+        jornada_id = int(jornada_id)
+        manager_id = int(manager_id)
+
+        liga_id = context.user_data.get("liga")
+
+        if liga_id is None:
+            raise ValueError(
+                "No hay una liga seleccionada."
             )
-            return
 
-        jornada_nombre = (
-            jornada.get("name")
-            or jornada.get("short")
+        liga_id = int(liga_id)
+
+        # -------------------------------------------------
+        # 1. OBTENER LA JORNADA
+        # -------------------------------------------------
+
+        jornada = obtener_jornada(jornada_id)
+
+        if not isinstance(jornada, dict):
+            raise ValueError(
+                "No se pudo obtener la jornada."
+            )
+
+        short = (
+            jornada.get("short")
+            or jornada.get("name")
             or f"Jornada {jornada_id}"
         )
 
-        jornada_short = (
-            jornada.get("short")
-            or ""
-        )
+        short = str(short).strip()
+
+        if short.upper().startswith("J"):
+            numero_jornada = short[1:]
+        else:
+            numero_jornada = short
 
         # -------------------------------------------------
-        # LIGA
+        # 2. OBTENER EL XI DEL MANAGER
+        #
+        # Fuente correcta:
+        # /rounds/league
         # -------------------------------------------------
 
         from biwenger import _CLIENT
 
-        respuesta_liga = _CLIENT.league(
+        respuesta_onces = _CLIENT.league_round(
             liga_id
         )
 
         if not isinstance(
-            respuesta_liga,
+            respuesta_onces,
             dict,
         ):
             raise ValueError(
-                "Respuesta de liga inválida"
+                "Respuesta inválida de /rounds/league."
             )
 
-        league = respuesta_liga.get(
+        datos_onces = respuesta_onces.get(
             "data",
-            respuesta_liga,
+            respuesta_onces,
         )
 
         if not isinstance(
-            league,
+            datos_onces,
             dict,
         ):
             raise ValueError(
-                "Datos de liga inválidos"
+                "Datos inválidos de /rounds/league."
             )
 
-        standings = league.get(
+        league_onces = datos_onces.get(
+            "league",
+            {},
+        )
+
+        if not isinstance(
+            league_onces,
+            dict,
+        ):
+            league_onces = {}
+
+        standings = league_onces.get(
             "standings",
             [],
         )
@@ -7445,10 +7453,6 @@ async def mostrar_once_manager(
             list,
         ):
             standings = []
-
-        # -------------------------------------------------
-        # BUSCAR MANAGER
-        # -------------------------------------------------
 
         manager = None
 
@@ -7475,10 +7479,18 @@ async def mostrar_once_manager(
                 break
 
         if manager is None:
-            await query.answer(
-                "❌ Manager no encontrado.",
-                show_alert=True,
+
+            await editar_mensaje(
+                query,
+                (
+                    "❌ No se encontró el once "
+                    "de este manager."
+                ),
+                teclado_jornada(
+                    jornada_id
+                ),
             )
+
             return
 
         nombre_manager = (
@@ -7488,7 +7500,7 @@ async def mostrar_once_manager(
         )
 
         # -------------------------------------------------
-        # LINEUP
+        # 3. DATOS DEL LINEUP
         # -------------------------------------------------
 
         lineup = manager.get(
@@ -7519,41 +7531,124 @@ async def mostrar_once_manager(
         ):
             player_ids = []
 
-        discarded = lineup.get(
+        discarded_ids = lineup.get(
             "discarded",
             [],
         )
 
         if not isinstance(
-            discarded,
+            discarded_ids,
             list,
         ):
-            discarded = []
+            discarded_ids = []
 
         # -------------------------------------------------
-        # JUGADORES
+        # 4. NORMALIZAR IDs
         # -------------------------------------------------
 
-        jugadores = obtener_jugadores_por_ids(
+        def _ids_enteros(valores):
+
+            resultado = []
+
+            if not isinstance(
+                valores,
+                list,
+            ):
+                return resultado
+
+            for valor in valores:
+
+                try:
+                    resultado.append(
+                        int(valor)
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+            return resultado
+
+        player_ids = _ids_enteros(
             player_ids
         )
 
-        if not isinstance(
-            jugadores,
-            dict,
-        ):
-            jugadores = {}
+        discarded_ids = _ids_enteros(
+            discarded_ids
+        )
 
         # -------------------------------------------------
-        # REPORTS DE LA JORNADA
-        #
-        # Recorremos todos los partidos de la jornada y
-        # construimos:
-        #
-        #     player_id -> report
-        #
-        # De esta forma los puntos/eventos corresponden a
-        # ESTA jornada y no a los puntos totales del jugador.
+        # 5. OBTENER DATOS BASE DE JUGADORES
+        # -------------------------------------------------
+
+        jugadores_raw = obtener_jugadores_por_ids(
+            player_ids + discarded_ids
+        )
+
+        jugadores_por_id = {}
+
+        if isinstance(
+            jugadores_raw,
+            dict,
+        ):
+
+            for clave, jugador in (
+                jugadores_raw.items()
+            ):
+
+                if not isinstance(
+                    jugador,
+                    dict,
+                ):
+                    continue
+
+                try:
+                    jugador_id = int(
+                        jugador.get(
+                            "id",
+                            clave,
+                        )
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                jugadores_por_id[
+                    jugador_id
+                ] = dict(jugador)
+
+        elif isinstance(
+            jugadores_raw,
+            list,
+        ):
+
+            for jugador in jugadores_raw:
+
+                if not isinstance(
+                    jugador,
+                    dict,
+                ):
+                    continue
+
+                try:
+                    jugador_id = int(
+                        jugador.get("id")
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                jugadores_por_id[
+                    jugador_id
+                ] = dict(jugador)
+
+        # -------------------------------------------------
+        # 6. CRUZAR REPORTS DE LOS PARTIDOS
         # -------------------------------------------------
 
         reports_por_jugador = {}
@@ -7621,13 +7716,9 @@ async def mostrar_once_manager(
                     ):
                         continue
 
-                    player_id = player.get(
-                        "id"
-                    )
-
                     try:
-                        player_id = int(
-                            player_id
+                        report_player_id = int(
+                            player.get("id")
                         )
                     except (
                         TypeError,
@@ -7635,114 +7726,46 @@ async def mostrar_once_manager(
                     ):
                         continue
 
+                    datos_report = dict(
+                        player
+                    )
+
+                    for clave in (
+                        "points",
+                        "breakdown",
+                        "events",
+                        "star",
+                        "mvp",
+                        "minutes",
+                        "minutesPlayed",
+                        "playedMinutes",
+                    ):
+
+                        if clave in report:
+                            datos_report[
+                                clave
+                            ] = report.get(
+                                clave
+                            )
+
                     reports_por_jugador[
-                        player_id
-                    ] = report
+                        report_player_id
+                    ] = datos_report
 
         # -------------------------------------------------
-        # CONSTRUIR JUGADORES PARA LA IMAGEN
+        # 7. ENRIQUECER JUGADORES
         # -------------------------------------------------
 
-        jugadores_imagen = []
+        def _enriquecer_jugador(
+            player_id
+        ):
 
-        grupos = {
-            1: [],
-            2: [],
-            3: [],
-            4: [],
-        }
-
-        otros = []
-
-        for raw_player_id in player_ids:
-
-            try:
-                player_id = int(
-                    raw_player_id
+            jugador = dict(
+                jugadores_por_id.get(
+                    player_id,
+                    {},
                 )
-            except (
-                TypeError,
-                ValueError,
-            ):
-                continue
-
-            jugador = jugadores.get(
-                player_id,
-                {},
             )
-
-            if not isinstance(
-                jugador,
-                dict,
-            ):
-                jugador = {}
-
-            nombre = (
-                jugador.get("name")
-                or jugador.get("nombre")
-                or f"Jugador {player_id}"
-            )
-
-            posicion = (
-                jugador.get("position")
-                or jugador.get("posicion")
-            )
-
-            try:
-                posicion = int(
-                    posicion
-                )
-            except (
-                TypeError,
-                ValueError,
-            ):
-                posicion = None
-
-            # -------------------------------------------------
-            # Copia de los datos base del jugador.
-            # -------------------------------------------------
-
-            jugador_imagen = dict(
-                jugador
-            )
-
-            jugador_imagen["id"] = (
-                player_id
-            )
-
-            jugador_imagen["name"] = (
-                nombre
-            )
-
-            if posicion in (
-                1,
-                2,
-                3,
-                4,
-            ):
-                jugador_imagen[
-                    "position"
-                ] = posicion
-
-            # -------------------------------------------------
-            # ALT POSITIONS
-            # -------------------------------------------------
-
-            if (
-                "altPositions"
-                in jugador
-                and "alt_positions"
-                not in jugador_imagen
-            ):
-                jugador_imagen[
-                    "alt_positions"
-                ] = jugador.get(
-                    "altPositions"
-                )
-
-            # -------------------------------------------------
-            # REPORT DE ESTA JORNADA
-            # -------------------------------------------------
 
             report = reports_por_jugador.get(
                 player_id
@@ -7753,311 +7776,270 @@ async def mostrar_once_manager(
                 dict,
             ):
 
-                report_player = report.get(
-                    "player"
-                )
-
-                if isinstance(
-                    report_player,
-                    dict,
-                ):
-                    for key in (
-                        "altPositions",
-                        "position",
-                        "photo",
-                        "image",
-                        "imageUrl",
-                    ):
-                        if (
-                            jugador_imagen.get(key)
-                            is None
-                            and report_player.get(key)
-                            is not None
-                        ):
-                            jugador_imagen[
-                                key
-                            ] = report_player.get(
-                                key
-                            )
-
-                # Puntos de ESTA jornada.
-                if report.get(
-                    "points"
-                ) is not None:
-                    jugador_imagen[
-                        "points"
-                    ] = report.get(
-                        "points"
-                    )
-
-                # Eventos de ESTA jornada.
-                events = report.get(
-                    "events"
-                )
-
-                if isinstance(
-                    events,
-                    list,
-                ):
-                    jugador_imagen[
-                        "events"
-                    ] = events
-
-                for key in (
+                for clave in (
+                    "points",
                     "breakdown",
+                    "events",
                     "star",
                     "mvp",
                     "minutes",
                     "minutesPlayed",
                     "playedMinutes",
                 ):
-                    if report.get(
-                        key
-                    ) is not None:
-                        jugador_imagen[
-                            key
+
+                    if clave in report:
+                        jugador[
+                            clave
                         ] = report.get(
-                            key
+                            clave
                         )
 
-            # -------------------------------------------------
-            # AGRUPACIÓN PARA EL TEXTO
-            # -------------------------------------------------
+                for clave in (
+                    "name",
+                    "nombre",
+                    "position",
+                    "altPositions",
+                    "alt_positions",
+                    "positions",
+                    "photo",
+                    "image",
+                    "imageUrl",
+                ):
 
-            dato = (
-                player_id,
-                nombre,
+                    if (
+                        not jugador.get(clave)
+                        and report.get(clave)
+                    ):
+                        jugador[
+                            clave
+                        ] = report.get(
+                            clave
+                        )
+
+            jugador["id"] = player_id
+
+            return jugador
+
+        jugadores_once = [
+            _enriquecer_jugador(
+                player_id
             )
+            for player_id in player_ids
+        ]
 
-            if posicion in grupos:
-                grupos[
-                    posicion
-                ].append(
-                    dato
-                )
-            else:
-                otros.append(
-                    dato
-                )
+        jugadores_descartados = [
+            _enriquecer_jugador(
+                player_id
+            )
+            for player_id in discarded_ids
+        ]
 
-            # -------------------------------------------------
-            # IMAGEN
-            # -------------------------------------------------
+        # ============================================================
+        # 8. GENERAR IMAGEN
+        # ============================================================
 
-            if posicion in (
-                1,
-                2,
-                3,
-                4,
-            ):
-                jugadores_imagen.append(
-                    jugador_imagen
-                )
-
-        nombres_posicion = {
-            1: "🧤 PORTEROS",
-            2: "🛡️ DEFENSAS",
-            3: "🧠 MEDIOS",
-            4: "⚽ DELANTEROS",
-        }
-
-        # -------------------------------------------------
-        # TEXTO
-        # -------------------------------------------------
-
-        texto = (
-            f"👤 {nombre_manager}\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📅 {jornada_nombre}\n"
-            f"📋 Formación: {formacion}\n"
-            f"⚽ Once: {len(player_ids)}/11 jugadores\n\n"
+        imagen = generar_imagen_alineacion_manager(
+            manager_name=nombre_manager,
+            formation=formacion,
+            players=jugadores_once,
         )
 
-        for posicion in (
-            1,
-            2,
-            3,
-            4,
-        ):
+        # ============================================================
+        # 9. CONSTRUIR INFORME COMPLETO
+        # ============================================================
 
-            lista = grupos[
-                posicion
-            ]
+        EVENT_ICONS = {
+            1: "⚽",      # gol
+            2: "⚽",      # gol de penalti
+            3: "🅰️",     # asistencia
+            4: "🔄",     # sale
+            5: "🔄",     # entra
+            6: "🟨",     # amarilla
+            7: "🟥",     # roja
+            8: "🟨🟥",    # segunda amarilla
+            9: "🥅",      # gol en propia
+            10: "🎯",     # palo
+            11: "❔",
+            12: "❔",
+            13: "❌",     # gol anulado
+            14: "🤕",     # lesión
+            15: "❔",
+            16: "❌",     # penalti cometido
+        }
 
-            if not lista:
-                continue
+        posiciones = {
+            1: ("🧤 PORTEROS", []),
+            2: ("🛡️ DEFENSAS", []),
+            3: ("🧠 MEDIOS", []),
+            4: ("⚽ DELANTEROS", []),
+        }
 
-            texto += (
-                f"{nombres_posicion[posicion]}\n"
-            )
+        for jugador in jugadores_once:
+            try:
+                posicion = int(jugador.get("position", 0))
+            except (TypeError, ValueError):
+                posicion = 0
 
-            for _, nombre in lista:
-                texto += (
-                    f"• {nombre}\n"
-                )
+            if posicion in posiciones:
+                posiciones[posicion][1].append(jugador)
 
-            texto += "\n"
+        def eventos_iconos(jugador):
+            eventos = jugador.get("events") or []
 
-        if otros:
+            iconos = []
 
-            texto += (
-                "👤 OTROS\n"
-            )
-
-            for _, nombre in otros:
-                texto += (
-                    f"• {nombre}\n"
-                )
-
-            texto += "\n"
-
-        # -------------------------------------------------
-        # DESCARTADOS
-        # -------------------------------------------------
-
-        if discarded:
-
-            descartados = (
-                obtener_jugadores_por_ids(
-                    discarded
-                )
-            )
-
-            if not isinstance(
-                descartados,
-                dict,
-            ):
-                descartados = {}
-
-            texto += (
-                "↩️ DESCARTADOS\n"
-            )
-
-            for raw_player_id in discarded:
-
-                try:
-                    player_id = int(
-                        raw_player_id
-                    )
-                except (
-                    TypeError,
-                    ValueError,
-                ):
-                    continue
-
-                jugador = descartados.get(
-                    player_id,
-                    {},
-                )
-
-                if isinstance(
-                    jugador,
-                    dict,
-                ):
-                    nombre = (
-                        jugador.get("name")
-                        or jugador.get("nombre")
-                        or f"Jugador {player_id}"
+            for evento in eventos:
+                if isinstance(evento, dict):
+                    tipo = (
+                        evento.get("type")
+                        or evento.get("event")
+                        or evento.get("id")
                     )
                 else:
-                    nombre = (
-                        f"Jugador {player_id}"
-                    )
+                    tipo = evento
 
-                texto += (
-                    f"• {nombre}\n"
-                )
+                try:
+                    tipo = int(tipo)
+                except (TypeError, ValueError):
+                    continue
 
-        # -------------------------------------------------
-        # BOTONES
-        # -------------------------------------------------
+                icono = EVENT_ICONS.get(tipo)
 
-        botones = [
-            [
-                InlineKeyboardButton(
-                    "◀️ Volver a Onces",
-                    callback_data=(
-                        f"jornada:onces:"
-                        f"{jornada_id}"
-                    ),
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🔙 Volver a Jornada",
-                    callback_data=(
-                        f"jornada:{jornada_id}"
-                    ),
-                )
-            ],
+                if icono and icono not in iconos:
+                    iconos.append(icono)
+
+            return "".join(iconos)
+
+        def puntos_jugador(jugador):
+            puntos = jugador.get("points")
+
+            if puntos is None:
+                return "—"
+
+            try:
+                return str(int(puntos))
+            except (TypeError, ValueError):
+                return str(puntos)
+
+        lineas = [
+            f"👤 {nombre_manager}",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "",
+            f"📅 Jornada {numero_jornada}",
+            f"📋 Formación: {formacion}",
+            f"⚽ Once: {len(jugadores_once)}/11 jugadores",
         ]
+
+        # ------------------------------------------------------------
+        # Jugadores agrupados por posición
+        # ------------------------------------------------------------
+
+        for posicion in (1, 2, 3, 4):
+            titulo, jugadores_posicion = posiciones[posicion]
+
+            if not jugadores_posicion:
+                continue
+
+            lineas.extend([
+                "",
+                titulo,
+            ])
+
+            for jugador in jugadores_posicion:
+                nombre = (
+                    jugador.get("name")
+                    or jugador.get("nombre")
+                    or "Jugador"
+                )
+
+                puntos = puntos_jugador(jugador)
+                iconos = eventos_iconos(jugador)
+
+                extras = []
+
+                if iconos:
+                    extras.append(iconos)
+
+                if jugador.get("star"):
+                    extras.append("⭐")
+
+                if jugador.get("mvp"):
+                    extras.append("🏆")
+
+                sufijo = f" {' '.join(extras)}" if extras else ""
+
+                lineas.append(
+                    f"• {nombre} — {puntos} pts{sufijo}"
+                )
+
+        # ------------------------------------------------------------
+        # Descartados
+        # ------------------------------------------------------------
+
+        if descartados:
+            lineas.extend([
+                "",
+                "↩️ DESCARTADOS",
+            ])
+
+            for jugador in descartados:
+                nombre = (
+                    jugador.get("name")
+                    or jugador.get("nombre")
+                    or "Jugador"
+                )
+
+                puntos = puntos_jugador(jugador)
+                iconos = eventos_iconos(jugador)
+
+                extras = []
+
+                if iconos:
+                    extras.append(iconos)
+
+                if jugador.get("star"):
+                    extras.append("⭐")
+
+                if jugador.get("mvp"):
+                    extras.append("🏆")
+
+                sufijo = f" {' '.join(extras)}" if extras else ""
+
+                lineas.append(
+                    f"• {nombre} — {puntos} pts{sufijo}"
+                )
+
+        informe = "\n".join(lineas)
+
+        # Telegram permite hasta 4096 caracteres en un mensaje de texto.
+        if len(informe) > 4000:
+            informe = informe[:3990] + "\n…"
+
+        # ============================================================
+        # 10. MANDAR LA IMAGEN ENCIMA DEL MENSAJE ORIGINAL
+        # ============================================================
+
+        if isinstance(imagen, BytesIO):
+            imagen.seek(0)
+
+        await query.message.reply_photo(
+            photo=imagen,
+            caption=f"📸 {nombre_manager} · Jornada {numero_jornada}",
+        )
+
+        # ============================================================
+        # 11. EDITAR EL MENSAJE ORIGINAL
+        #     Mantiene la navegación / botones
+        # ============================================================
 
         await editar_mensaje(
             query,
-            texto.rstrip(),
-            teclado_con_fijar(
-                InlineKeyboardMarkup(
-                    botones
-                )
-            ),
+            informe,
+            teclado_jornada(jornada_id),
         )
 
-        # -------------------------------------------------
-        # IMAGEN
-        # -------------------------------------------------
-
-        if jugadores_imagen:
-
-            try:
-
-                from lineup_image import (
-                    generar_imagen_alineacion_manager,
-                )
-
-                imagen = (
-                    generar_imagen_alineacion_manager(
-                        manager_name=(
-                            nombre_manager
-                        ),
-                        formation=(
-                            formacion
-                        ),
-                        players=(
-                            jugadores_imagen
-                        ),
-                    )
-                )
-
-                await query.message.reply_photo(
-                    photo=InputFile(
-                        imagen
-                    ),
-                    caption=(
-                        f"👤 {nombre_manager} · "
-                        f"{formacion} · "
-                        f"{jornada_nombre}"
-                    ),
-                )
-
-            except Exception:
-
-                logger.exception(
-                    "ERROR GENERANDO IMAGEN "
-                    "DEL ONCE DE %s",
-                    nombre_manager,
-                )
-
-    except Exception as exc:
-
-        logger.exception(
-            "ERROR MOSTRANDO ONCE MANAGER: %s",
-            exc,
-        )
-
-        await query.answer(
-            "❌ No se pudo cargar el once.",
-            show_alert=True,
-        )
+    except Exception as e:
+        print(f"❌ Error mostrando alineación: {e}")
 
 
 
